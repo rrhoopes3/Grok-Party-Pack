@@ -198,6 +198,12 @@ PROPHECY_MAX_ROUNDS = int(os.getenv("FORGE_PROPHECY_MAX_ROUNDS", "20"))
 PROPHECY_DATA_DIR = DATA_DIR / "prophecy"
 PROPHECY_DATA_DIR.mkdir(exist_ok=True)
 
+# ── TRIBE v2 (Neural Engagement Scoring) ──────────────────────────────────
+TRIBE_ENABLED = os.getenv("FORGE_TRIBE_ENABLED", "false").lower() == "true"
+TRIBE_DEVICE = os.getenv("FORGE_TRIBE_DEVICE", "auto")
+TRIBE_CACHE_DIR = DATA_DIR / "tribe_cache"
+TRIBE_CACHE_DIR.mkdir(exist_ok=True)
+
 # ── Surgeon (OBLITERATUS Integration) ─────────────────────────────────────
 SURGEON_ENABLED = os.getenv("FORGE_SURGEON_ENABLED", "true").lower() == "true"
 SURGEON_DATA_DIR = DATA_DIR / "surgeon"

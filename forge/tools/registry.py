@@ -55,6 +55,7 @@ TOOL_CATEGORIES = {
                  "prophecy_status", "prophecy_interview", "prophecy_list", "prophecy_inject"},
     "surgeon":  {"surgeon_check", "surgeon_methods", "surgeon_scan", "surgeon_operate",
                  "surgeon_analyze", "surgeon_compare", "surgeon_status", "surgeon_list"},
+    "tribe":    {"tribe_neuro_score", "tribe_compare", "tribe_roi_breakdown"},
 }
 
 # Reverse map: tool_name → category
