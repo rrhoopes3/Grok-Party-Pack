@@ -21,6 +21,17 @@ from typing import Generator
 from forge.config import ANTHROPIC_API_KEY, OPENAI_API_KEY, LMSTUDIO_BASE_URL, OLLAMA_BASE_URL, EXECUTOR_MODELS
 from forge.tools.registry import ToolRegistry
 
+
+def _effective_key(provider: str, fallback: str) -> str:
+    """Return the BYOK key for the current request thread, or the global fallback."""
+    from forge.config import PUBLIC_MODE
+    if PUBLIC_MODE:
+        from forge.public_mode import get_request_key
+        byok = get_request_key(provider)
+        if byok:
+            return byok
+    return fallback
+
 log = logging.getLogger("forge.providers")
 
 
@@ -106,13 +117,14 @@ def run_anthropic(
         yield {"type": "error", "content": "anthropic package not installed. Run: pip install anthropic"}
         return ""
 
-    if not ANTHROPIC_API_KEY:
+    effective_anthropic_key = _effective_key("anthropic", ANTHROPIC_API_KEY)
+    if not effective_anthropic_key:
         yield {"type": "error", "content": "ANTHROPIC_API_KEY not set in .env"}
         return ""
 
     REMINDER_INTERVAL = 3
 
-    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+    client = anthropic.Anthropic(api_key=effective_anthropic_key)
     tools = _to_anthropic_tools(registry, only=tool_filter)
 
     messages = [{"role": "user", "content": user_prompt}]
@@ -263,7 +275,7 @@ def run_openai(
         yield {"type": "error", "content": "openai package not installed. Run: pip install openai"}
         return ""
 
-    effective_key = api_key or OPENAI_API_KEY
+    effective_key = api_key or _effective_key("openai", OPENAI_API_KEY)
     if not effective_key and not base_url:
         yield {"type": "error", "content": "OPENAI_API_KEY not set in .env"}
         return ""

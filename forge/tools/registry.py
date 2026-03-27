@@ -56,6 +56,11 @@ TOOL_CATEGORIES = {
     "surgeon":  {"surgeon_check", "surgeon_methods", "surgeon_scan", "surgeon_operate",
                  "surgeon_analyze", "surgeon_compare", "surgeon_status", "surgeon_list"},
     "tribe":    {"tribe_neuro_score", "tribe_compare", "tribe_roi_breakdown"},
+    "github":   {"github_list_issues", "github_get_issue", "github_create_issue",
+                 "github_create_pr", "github_pr_review", "github_ci_status",
+                 "github_list_repos", "github_search_code"},
+    "image_gen": {"generate_image", "generate_speech", "transcribe_audio"},
+    "rag":      {"rag_ingest", "rag_query", "rag_status", "rag_clear"},
 }
 
 # Reverse map: tool_name → category

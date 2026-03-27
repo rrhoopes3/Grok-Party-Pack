@@ -139,7 +139,15 @@ class Orchestrator:
         """Lazy xAI Client — only created when actually needed (xAI model selected)."""
         if self._client is None:
             from xai_sdk import Client
-            self._client = Client(api_key=XAI_API_KEY)
+            from forge.config import PUBLIC_MODE
+            key = XAI_API_KEY
+            if PUBLIC_MODE:
+                from forge.public_mode import get_request_key
+                byok = get_request_key("xai")
+                if byok:
+                    key = byok
+            self._client = Client(api_key=key)
+            # In public mode, don't cache — each task gets its own Orchestrator instance anyway
         return self._client
 
     def _needs_xai_client(self, model: str = "") -> bool:
@@ -217,6 +225,15 @@ class Orchestrator:
         pack_tool_filter = None
         if self._pack:
             pack_tool_filter = resolve_tools_for_step(self._pack.tools)
+
+        # Public mode: restrict to safe tools only
+        from forge.config import PUBLIC_MODE
+        if PUBLIC_MODE:
+            from forge.public_mode import SAFE_TOOLS
+            if pack_tool_filter:
+                pack_tool_filter = pack_tool_filter & SAFE_TOOLS
+            else:
+                pack_tool_filter = set(SAFE_TOOLS)
 
         gen = executor.execute_step(
             client=xai_client,
@@ -456,6 +473,15 @@ class Orchestrator:
                     tool_filter = tool_filter & pack_tools
                 else:
                     tool_filter = pack_tools
+
+            # Public mode: restrict to safe tools only
+            from forge.config import PUBLIC_MODE
+            if PUBLIC_MODE:
+                from forge.public_mode import SAFE_TOOLS
+                if tool_filter:
+                    tool_filter = tool_filter & SAFE_TOOLS
+                else:
+                    tool_filter = set(SAFE_TOOLS)
 
             yield {
                 "type": "step_start",

@@ -234,6 +234,20 @@ async function init() {
 }
 
 async function fetchJson(url, options = {}) {
+    // Inject BYOK API keys from localStorage (public demo mode)
+    const byokMap = {
+        forge_key_xai:       'X-Forge-XAI-Key',
+        forge_key_openai:    'X-Forge-OpenAI-Key',
+        forge_key_anthropic: 'X-Forge-Anthropic-Key',
+        forge_key_github:    'X-Forge-GitHub-Token',
+    };
+    const extra = {};
+    for (const [storageKey, headerName] of Object.entries(byokMap)) {
+        const val = localStorage.getItem(storageKey);
+        if (val) extra[headerName] = val;
+    }
+    options.headers = Object.assign({}, extra, options.headers || {});
+
     const response = await fetch(url, options);
     return response.json();
 }
@@ -291,6 +305,15 @@ function renderFeatureBadges() {
     els.featureBadges.innerHTML = badges
         .map((badge) => `<span class="feature-badge">${escapeHtml(badge.label)}</span>`)
         .join("");
+
+    // Public mode: show key management link
+    if (features.public_mode) {
+        const keyCount = ['forge_key_xai','forge_key_openai','forge_key_anthropic','forge_key_github']
+            .filter(k => localStorage.getItem(k)).length;
+        els.featureBadges.innerHTML +=
+            `<a href="/setup" class="feature-badge" style="background:#1a3a1a;color:#4ade80;text-decoration:none;cursor:pointer">`
+            + `BYOK (${keyCount} key${keyCount !== 1 ? 's' : ''})</a>`;
+    }
 }
 
 // ── Trading Config Panel ─────────────────────────────────────────────────

@@ -233,3 +233,43 @@ JUDGE_TIMEOUT_SECONDS = float(os.getenv("FORGE_JUDGE_TIMEOUT", "30.0"))
 DIRECTIVES_ENABLED = os.getenv("FORGE_DIRECTIVES_ENABLED", "true").lower() == "true"
 USER_CORRECTION_ENABLED = os.getenv("FORGE_USER_CORRECTION_ENABLED", "true").lower() == "true"
 CORRECTION_SIMILARITY_THRESHOLD = float(os.getenv("FORGE_CORRECTION_SIMILARITY", "0.6"))
+
+# ── GitHub Integration ────────────────────────────────────────────────────
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", os.getenv("FORGE_GITHUB_TOKEN", ""))
+GITHUB_ENABLED = os.getenv("FORGE_GITHUB_ENABLED", "true").lower() == "true"
+
+# ── Image / Audio Generation ─────────────────────────────────────────────
+IMAGE_GEN_ENABLED = os.getenv("FORGE_IMAGE_GEN_ENABLED", "true").lower() == "true"
+
+# ── RAG Pipeline ──────────────────────────────────────────────────────────
+RAG_ENABLED = os.getenv("FORGE_RAG_ENABLED", "true").lower() == "true"
+RAG_DATA_DIR = DATA_DIR / "rag"
+RAG_DATA_DIR.mkdir(exist_ok=True)
+
+# ── Scheduler ─────────────────────────────────────────────────────────────
+SCHEDULER_ENABLED = os.getenv("FORGE_SCHEDULER_ENABLED", "true").lower() == "true"
+
+# ── Agent Conversations ──────────────────────────────────────────────────
+CONVERSATIONS_ENABLED = os.getenv("FORGE_CONVERSATIONS_ENABLED", "true").lower() == "true"
+
+# ── Docker Sandbox ────────────────────────────────────────────────────────
+DOCKER_SANDBOX_ENABLED = os.getenv("FORGE_DOCKER_SANDBOX_ENABLED", "false").lower() == "true"
+DOCKER_SANDBOX_IMAGE = os.getenv("FORGE_DOCKER_SANDBOX_IMAGE", "python:3.12-slim")
+DOCKER_SANDBOX_MEMORY = os.getenv("FORGE_DOCKER_SANDBOX_MEMORY", "512m")
+
+# ── Web UI Auth ───────────────────────────────────────────────────────────
+AUTH_ENABLED = os.getenv("FORGE_AUTH_ENABLED", "false").lower() == "true"
+
+# ── DAG Workflows ────────────────────────────────────────────────────────
+DAG_ENABLED = os.getenv("FORGE_DAG_ENABLED", "true").lower() == "true"
+DAG_MAX_PARALLEL = int(os.getenv("FORGE_DAG_MAX_PARALLEL", "4"))
+
+# ── Observability ─────────────────────────────────────────────────────────
+OBSERVABILITY_ENABLED = os.getenv("FORGE_OBSERVABILITY_ENABLED", "true").lower() == "true"
+
+# ── Public Demo Mode (BYOK) ──────────────────────────────────────────────
+PUBLIC_MODE = os.getenv("FORGE_PUBLIC_MODE", "false").lower() == "true"
+PUBLIC_REQUIRE_HTTPS = os.getenv("FORGE_PUBLIC_REQUIRE_HTTPS", "true").lower() == "true"
+
+# ── MCP Server ────────────────────────────────────────────────────────────
+MCP_SERVER_PORT = int(os.getenv("FORGE_MCP_PORT", "8420"))

@@ -41,6 +41,8 @@ from forge.config import (
     PLANNER_AGENT_COUNT, EXECUTOR_MAX_ITERATIONS,
     USER_CORRECTION_ENABLED, GENERATIVE_UI_ENABLED, TRADING_ENABLED,
     PROPHECY_ENABLED, SURGEON_ENABLED, ARENA_SWARM_ENABLED,
+    AUTH_ENABLED, SCHEDULER_ENABLED, CONVERSATIONS_ENABLED,
+    OBSERVABILITY_ENABLED, PUBLIC_MODE,
 )
 from forge.toll.endpoints import toll_bp
 from forge.toll.public_api import public_bp
@@ -93,8 +95,42 @@ if EMAIL_AGENT_ENABLED:
     )
     configure_webhook(ARCRELAY_WEBHOOK_SECRET, _email_agent)
     app.register_blueprint(email_webhook_bp)
+
+# ── Scheduler ──────────────────────────────────────────────────────────
+_scheduler = None
+if SCHEDULER_ENABLED:
+    from forge.scheduler import Scheduler, create_blueprint as create_scheduler_bp
+    _scheduler = Scheduler()
+    app.register_blueprint(create_scheduler_bp(_scheduler))
+    _scheduler.start()
+    log.info("Scheduler enabled (%d jobs)", len(_scheduler.list_jobs()))
+
+# ── Agent Conversations ────────────────────────────────────────────────
+if CONVERSATIONS_ENABLED:
+    from forge.agents.conversation import create_blueprint as create_conv_bp
+    app.register_blueprint(create_conv_bp())
+    log.info("Agent conversations enabled")
+
+# ── Observability ──────────────────────────────────────────────────────
+if OBSERVABILITY_ENABLED:
+    from forge.observability import init_observability
+    init_observability(app)
+    log.info("Observability enabled (/metrics)")
+
+# ── Web UI Auth ────────────────────────────────────────────────────────
+if AUTH_ENABLED:
+    from forge.auth import AuthManager
+    _auth = AuthManager()
+    _auth.init_app(app)
+    log.info("Web UI authentication enabled")
     _email_agent.start()
     log.info("Email agent enabled (model=%s)", EMAIL_AGENT_MODEL)
+
+# ── Public Demo Mode (BYOK) ──────────────────────────────────────────────
+if PUBLIC_MODE:
+    from forge.public_mode import init_public_mode
+    init_public_mode(app)
+    log.info("Public demo mode enabled (BYOK, restricted tools)")
 
 # ── Task State ──────────────────────────────────────────────────────────────
 task_queues: dict[str, Queue] = {}
@@ -110,8 +146,12 @@ task_costs: dict[str, float] = {}  # task_id → accumulated cost
 
 def run_task(task_id: str, task: str, q: Queue, cancel_event: threading.Event,
              sandbox_path: str = "", direct_mode: bool = False, agent_count: int = 16,
-             executor_model: str = "", pack: str = ""):
+             executor_model: str = "", pack: str = "", byok_keys: dict | None = None):
     """Background thread that runs the orchestrator and pushes messages to a queue."""
+    # Propagate BYOK keys to this thread so providers can read them
+    if byok_keys:
+        from forge.public_mode import set_request_keys
+        set_request_keys(byok_keys)
     task_costs[task_id] = 0.0
     run_log = RunLog(task_id)
     try:
@@ -211,6 +251,12 @@ def submit_task():
     task_queues[task_id] = q
     task_cancel_events[task_id] = cancel_event
 
+    # Capture BYOK keys from request thread to pass to task thread
+    byok_keys = None
+    if PUBLIC_MODE:
+        from flask import g
+        byok_keys = getattr(g, "byok_keys", None)
+
     thread = threading.Thread(
         target=run_task,
         args=(task_id, task, q, cancel_event),
@@ -220,6 +266,7 @@ def submit_task():
             "agent_count": agent_count,
             "executor_model": executor_model,
             "pack": pack,
+            "byok_keys": byok_keys,
         },
         daemon=True,
     )
@@ -286,9 +333,16 @@ def submit_arena():
     task_queues[task_id] = q
     task_cancel_events[task_id] = cancel_event
 
+    # Capture BYOK keys for arena thread
+    byok_keys = None
+    if PUBLIC_MODE:
+        from flask import g
+        byok_keys = getattr(g, "byok_keys", None)
+
     thread = threading.Thread(
         target=run_arena,
         args=(task_id, q, cancel_event, red_model, blue_model, scenario),
+        kwargs={"byok_keys": byok_keys},
         daemon=True,
     )
     thread.start()
@@ -298,8 +352,12 @@ def submit_arena():
 
 
 def run_arena(task_id: str, q: Queue, cancel_event: threading.Event,
-              red_model: str = "", blue_model: str = "", scenario: str = "classic"):
+              red_model: str = "", blue_model: str = "", scenario: str = "classic",
+              byok_keys: dict | None = None):
     """Background thread that runs the arena and pushes messages to a queue."""
+    if byok_keys:
+        from forge.public_mode import set_request_keys
+        set_request_keys(byok_keys)
     run_log = RunLog(task_id)
     try:
         from forge.arena.runner import ArenaRunner
@@ -476,6 +534,7 @@ def get_config():
             "prophecy": PROPHECY_ENABLED,
             "surgeon": SURGEON_ENABLED,
             "arena_swarm": ARENA_SWARM_ENABLED,
+            "public_mode": PUBLIC_MODE,
         },
         "runtime": {
             "working_dir": str(SHELL_WORKING_DIR),

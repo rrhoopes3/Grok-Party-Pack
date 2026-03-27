@@ -39,4 +39,19 @@ def create_registry() -> ToolRegistry:
     if TRIBE_ENABLED:
         from . import tribe as tribe_tools
         tribe_tools.register(reg)
+    # GitHub integration — PRs, issues, CI status
+    from forge.config import GITHUB_ENABLED
+    if GITHUB_ENABLED:
+        from . import github as github_tools
+        github_tools.register(reg)
+    # Image / audio generation — DALL-E 3, TTS, Whisper
+    from forge.config import IMAGE_GEN_ENABLED
+    if IMAGE_GEN_ENABLED:
+        from . import image_gen as image_gen_tools
+        image_gen_tools.register(reg)
+    # RAG pipeline — vector search over ingested documents
+    from forge.config import RAG_ENABLED
+    if RAG_ENABLED:
+        from . import rag as rag_tools
+        rag_tools.register(reg)
     return reg
