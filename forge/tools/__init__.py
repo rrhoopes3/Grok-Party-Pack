@@ -34,4 +34,9 @@ def create_registry() -> ToolRegistry:
     if TRADING_ENABLED:
         from . import trading as trading_tools
         trading_tools.register(reg)
+    # TRIBE v2 — neural engagement scoring via Meta's fMRI foundation model
+    from forge.config import TRIBE_ENABLED
+    if TRIBE_ENABLED:
+        from . import tribe as tribe_tools
+        tribe_tools.register(reg)
     return reg
