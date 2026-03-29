@@ -54,4 +54,7 @@ def create_registry() -> ToolRegistry:
     if RAG_ENABLED:
         from . import rag as rag_tools
         rag_tools.register(reg)
+    # Fake audio detection — spectral heuristics + AASIST/SSL neural backends
+    from . import fake_audio as fake_audio_tools
+    fake_audio_tools.register(reg)
     return reg

@@ -61,6 +61,7 @@ TOOL_CATEGORIES = {
                  "github_list_repos", "github_search_code"},
     "image_gen": {"generate_image", "generate_speech", "transcribe_audio"},
     "rag":      {"rag_ingest", "rag_query", "rag_status", "rag_clear"},
+    "fake_audio": {"fake_audio_detect", "fake_audio_scan", "fake_audio_neuro_compare"},
 }
 
 # Reverse map: tool_name → category
