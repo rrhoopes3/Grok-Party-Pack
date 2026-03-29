@@ -56,6 +56,7 @@ TOOL_CATEGORIES = {
     "surgeon":  {"surgeon_check", "surgeon_methods", "surgeon_scan", "surgeon_operate",
                  "surgeon_analyze", "surgeon_compare", "surgeon_status", "surgeon_list"},
     "tribe":    {"tribe_neuro_score", "tribe_compare", "tribe_roi_breakdown"},
+    "fake_audio": {"fake_audio_detect", "fake_audio_scan", "fake_audio_neuro_compare"},
 }
 
 # Reverse map: tool_name → category

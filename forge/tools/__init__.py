@@ -39,4 +39,7 @@ def create_registry() -> ToolRegistry:
     if TRIBE_ENABLED:
         from . import tribe as tribe_tools
         tribe_tools.register(reg)
+    # Fake audio detection — spectral heuristics + AASIST/SSL neural backends
+    from . import fake_audio as fake_audio_tools
+    fake_audio_tools.register(reg)
     return reg
