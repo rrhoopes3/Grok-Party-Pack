@@ -62,6 +62,7 @@ TOOL_CATEGORIES = {
     "image_gen": {"generate_image", "generate_speech", "transcribe_audio"},
     "rag":      {"rag_ingest", "rag_query", "rag_status", "rag_clear"},
     "fake_audio": {"fake_audio_detect", "fake_audio_scan", "fake_audio_neuro_compare"},
+    "deception": {"veracity_analyze", "veracity_baseline", "veracity_compare", "veracity_quick"},
 }
 
 # Reverse map: tool_name → category

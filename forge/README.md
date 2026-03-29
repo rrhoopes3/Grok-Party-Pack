@@ -1,6 +1,6 @@
 # THE FORGE
 
-**Grok 4.20 Autonomous Agent OS** &mdash; a multi-agent task execution engine with 50+ tools, a BattleBot Arena, agent economy, prediction engine, model surgery, neural engagement scoring, MCP server, RAG pipeline, DAG workflows, and more. Powered by xAI's multi-agent API.
+**Grok 4.20 Autonomous Agent OS** &mdash; a multi-agent task execution engine with 60+ tools, a BattleBot Arena, agent economy, prediction engine, model surgery, neural engagement scoring, deception detection, fake audio forensics, MCP server, RAG pipeline, DAG workflows, and more. Powered by xAI's multi-agent API.
 
 ![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue)
 
@@ -40,7 +40,7 @@ The Forge implements five techniques from the [OpenDev paper](https://arxiv.org/
 
 | Feature | What It Does |
 |---|---|
-| **Lazy Tool Discovery** | Only injects tools relevant to each step (not all 50+), reducing context size ~60% |
+| **Lazy Tool Discovery** | Only injects tools relevant to each step (not all 60+), reducing context size ~60% |
 | **Adaptive Context Compaction** | Older step outputs are progressively summarized as context grows |
 | **Session Memory** | Learns from completed tasks and recalls relevant knowledge for future ones |
 | **Instruction Reminders** | Re-injects the original task goal every 3 iterations to prevent drift |
@@ -148,7 +148,7 @@ Type a task in the input bar and hit **FORGE**. The system will:
 
 ---
 
-## Tools (50+)
+## Tools (60+)
 
 The executor has access to these client-side tools:
 
@@ -364,6 +364,62 @@ FORGE_TRIBE_DEVICE=auto   # auto | cpu | cuda
 ```
 
 The model (~several GB) downloads from HuggingFace on first use. Disabled by default.
+
+---
+
+## Fake Audio Detection
+
+Detects AI-generated / synthetic / deepfake audio using six backends with real-world accuracy context.
+
+### Backends
+
+| Backend | Model | Setup | Lab EER | In-the-wild |
+|---|---|---|---|---|
+| `spectral` | Heuristics (librosa) | `pip install librosa` | N/A | Catches obvious TTS |
+| `hf` (default) | wav2vec2 fine-tuned | `pip install transformers torchaudio` | &mdash; | Good for ASVspoof-era TTS |
+| `aasist3` | MTUCI/AASIST3 | `pip install transformers` | ~0.83% | Degrades to ~43% EER |
+| `aasist` | clovaai/aasist | Local checkpoint | ~0.83% | Degrades in wild |
+| `ssl` | wav2vec2 XLSR-300M | Local checkpoint + fairseq | ~0.82% | Degrades in wild |
+| `perth` | Resemble AI watermark | `pip install perth` | N/A | Only Perth-watermarked audio |
+
+**Tools:** `fake_audio_detect`, `fake_audio_scan`, `fake_audio_neuro_compare`
+
+> **Real-world caveat:** XTTS-v2 and Seed-VC (2024&ndash;2025) have ~50&ndash;54% detectability &mdash; near random chance. The TRIBE cortical fingerprint comparison is a supplementary forensic signal that measures something the fakers didn't optimize against.
+
+---
+
+## Deception Detection (Veracity Pipeline)
+
+Combines multiple orthogonal signals to assess whether a speaker is being truthful. Not a polygraph &mdash; arguably better, because it measures cognitive load signatures rather than stress (which has high false-positive rates).
+
+### Pipeline Stages
+
+| Stage | Signal | What it Measures |
+|---|---|---|
+| **1. Authenticity Gate** | `fake_audio_detect` | Is this audio even real? Rejects deepfakes before analysis |
+| **2. Vocal Biomarkers** | Prosodic analysis (6 features) | Pitch jitter, pause irregularity, speech rate variance, formant perturbation, energy contour breaks, harmonic-to-noise ratio |
+| **3. Cortical Fingerprint** | TRIBE v2 (7 ROIs) | Prefrontal cortex (suppression), Broca's area (language effort), default mode network (fabrication), parietal (working memory), auditory + STS + motor |
+| **4. Swarm Consensus** | Prophecy Engine | Multiple AI agents debate whether the evidence pattern is consistent with deception |
+
+### Tools
+
+| Tool | Description |
+|---|---|
+| `veracity_analyze` | Full 4-stage pipeline. Returns veracity score 0&ndash;100 with per-stage evidence breakdown |
+| `veracity_baseline` | Record a speaker's truthful baseline (prosodic norms + cortical fingerprint) for future comparison |
+| `veracity_compare` | Compare a recording against a speaker's baseline. Relative comparison is far more accurate than population norms |
+| `veracity_quick` | Fast prosodic-only check (no TRIBE/Prophecy). Instant, minimal dependencies |
+
+### Setup
+
+```bash
+pip install librosa soundfile   # Core (required)
+# Optional layers:
+FORGE_TRIBE_ENABLED=true        # Adds cortical fingerprinting
+# + any LLM API key             # Enables Prophecy swarm consensus
+```
+
+> **Limitations:** This is a research tool, not a courtroom lie detector. Most accurate when comparing against a speaker's own baseline. Skilled liars who believe their own narrative may produce truthful cognitive signatures. Cultural and linguistic differences affect baseline prosodic patterns.
 
 ---
 
@@ -722,6 +778,8 @@ forge/
     prophecy.py                # Prophecy Engine tools
     surgeon.py                 # Surgeon / OBLITERATUS tools
     tribe.py                   # TRIBE v2 neural engagement scoring
+    fake_audio.py              # Deepfake audio detection (6 backends)
+    deception.py               # Veracity / deception detection pipeline
     github.py                  # GitHub API tools (issues, PRs, CI)
     image_gen.py               # DALL-E 3, TTS, Whisper tools
     rag.py                     # RAG vector search tools

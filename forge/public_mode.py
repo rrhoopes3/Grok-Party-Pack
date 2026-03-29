@@ -104,6 +104,12 @@ SAFE_TOOLS = {
     # TRIBE v2 (local model, no API key needed)
     "tribe_neuro_score", "tribe_compare", "tribe_roi_breakdown",
 
+    # Fake audio detection (read-only analysis)
+    "fake_audio_detect", "fake_audio_scan", "fake_audio_neuro_compare",
+
+    # Deception / veracity detection (read-only analysis)
+    "veracity_analyze", "veracity_baseline", "veracity_compare", "veracity_quick",
+
     # Generative UI (renders in user's browser, sandboxed iframe)
     "render_widget",
 

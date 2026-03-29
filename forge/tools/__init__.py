@@ -57,4 +57,7 @@ def create_registry() -> ToolRegistry:
     # Fake audio detection — spectral heuristics + AASIST/SSL neural backends
     from . import fake_audio as fake_audio_tools
     fake_audio_tools.register(reg)
+    # Deception detection — veracity pipeline (prosodic + cortical + swarm)
+    from . import deception as deception_tools
+    deception_tools.register(reg)
     return reg
