@@ -11,6 +11,13 @@ truthful in an audio recording:
      instability, unnatural pause patterns, elevated speech rate
      variance, and formant perturbation under cognitive load.
 
+  2.5 RESONANCE FLUIDITY — Physics-grounded encoding analysis
+     Speech encoded into a 498D space (fluorescent + GridBloc +
+     Quadrademini) reveals deception as FLUIDITY LOSS — a shift from
+     analogue (fluid/natural) to digital (rigid/controlled) dynamics.
+     The Q2/Q3 ratio (fluid-to-structure) is the primary signal
+     (p=0.020, d=0.44 on Real-Life Trial dataset). Requires LAI-Core.
+
   3. CORTICAL FINGERPRINT — TRIBE v2 neural engagement analysis
      Deceptive speech produces different predicted cortical activation
      patterns than truthful speech — particularly in prefrontal cortex
@@ -719,6 +726,51 @@ def veracity_analyze(
             "marker_deltas": marker_deltas,
         }
 
+        # ── STAGE 2.5: RESONANCE Fluidity Analysis ────────────────────────
+        # Physics-grounded deception signal from LAI-Core encoding.
+        # Deception manifests as fluidity loss (analogue → digital shift)
+        # in the Q2/Q3 ratio of the 498D Quadrademini encoding.
+        # Validated: p=0.020, d=0.44, AUC=0.603 on Real-Life Trial dataset.
+        fluidity_score = None
+        try:
+            from resonance.encoding import FullEncoder
+            from resonance.coherence.analyzer import CoherenceAnalyzer
+
+            log.info("Veracity Stage 2.5: RESONANCE fluidity analysis")
+            resonance_analyzer = CoherenceAnalyzer(sr=sr)
+            resonance_result = resonance_analyzer.analyze_audio(audio, audio_path=audio_path)
+
+            fluidity_score = resonance_result.get("fluidity_index")
+            rigidity = resonance_result.get("rigidity_score", 50.0)
+            log_fl = resonance_result.get("log_fluidity", 0.0)
+
+            stages["resonance_fluidity"] = {
+                "available": True,
+                "fluidity_index": round(fluidity_score, 4) if fluidity_score else None,
+                "log_fluidity": round(log_fl, 4),
+                "rigidity_score": round(rigidity, 1),
+                "quadrant_magnitudes": resonance_result.get("quadrant_magnitudes", {}),
+                "coherence_score": resonance_result.get("coherence_score"),
+                "interpretation": resonance_result.get("interpretation", ""),
+                "note": (
+                    "Fluidity index = Q2_fluid / Q3_structure from 498D physics-grounded "
+                    "encoding. Higher = more fluid/natural (truthful tendency). "
+                    "Lower = more rigid/controlled (deceptive tendency). "
+                    "Calibrated on Real-Life Trial dataset (p=0.020, d=0.44)."
+                ),
+            }
+        except ImportError:
+            stages["resonance_fluidity"] = {
+                "available": False,
+                "note": "RESONANCE not installed. Install from B:/LAI-Core for fluidity analysis.",
+            }
+        except Exception as e:
+            log.warning("RESONANCE fluidity analysis failed: %s", e)
+            stages["resonance_fluidity"] = {
+                "available": False,
+                "error": str(e),
+            }
+
         # ── STAGE 3: Cortical Fingerprint ────────────────────────────────
         log.info("Veracity Stage 3: Cortical fingerprinting")
         cortical_activations = _get_tribe_roi_activations(audio_path)
@@ -746,13 +798,36 @@ def veracity_analyze(
             }
 
         # ── Composite Score (before Prophecy) ────────────────────────────
-        if cortical_score is not None:
+        # Fluidity rigidity score (0-100, higher = more deceptive)
+        rigidity_component = stages.get("resonance_fluidity", {}).get("rigidity_score")
+        has_fluidity = rigidity_component is not None
+
+        if cortical_score is not None and has_fluidity:
             if baseline_prosodic:
-                # Best case: baseline + cortical
+                # Best case: all three signals + baseline
+                composite_deception = (
+                    prosodic_deviation * 0.20 +
+                    rigidity_component * 0.30 +
+                    cortical_score * 0.50
+                )
+            else:
+                # Three signals, no baseline
+                composite_deception = (
+                    prosodic["deception_probability"] * 0.25 +
+                    rigidity_component * 0.30 +
+                    cortical_score * 0.45
+                )
+        elif cortical_score is not None:
+            if baseline_prosodic:
                 composite_deception = prosodic_deviation * 0.30 + cortical_score * 0.70
             else:
-                # Cortical + population-norm prosodic
                 composite_deception = prosodic["deception_probability"] * 0.40 + cortical_score * 0.60
+        elif has_fluidity:
+            # Fluidity + prosodic, no cortical
+            if baseline_prosodic:
+                composite_deception = prosodic_deviation * 0.35 + rigidity_component * 0.65
+            else:
+                composite_deception = prosodic["deception_probability"] * 0.40 + rigidity_component * 0.60
         else:
             composite_deception = prosodic_deviation if baseline_prosodic else prosodic["deception_probability"]
 
