@@ -51,6 +51,10 @@ from forge.packs import get_registry as get_pack_registry
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
 log = logging.getLogger("forge.app")
 
+# ── Parallel Prefetch (providers, deps, vault, data dirs) ────────────
+from forge.prefetch import run_prefetch
+_prefetch_results = run_prefetch()
+
 app = Flask(__name__, static_folder="static", static_url_path="/static")
 app.register_blueprint(toll_bp)
 if MARKETPLACE_ENABLED:
