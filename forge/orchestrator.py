@@ -736,6 +736,12 @@ class Orchestrator:
             if (status == "failed" or (assessment.should_reassign and status != "success")) and attempt == 0 and not cancelled:
                 fallback = self._router.get_fallback(effective_model)
                 if fallback:
+                    # Penalize the OUTGOING model — separate from the
+                    # incoming rescue worker's outcome accounting. This
+                    # was previously double-counted onto the incoming
+                    # model, making rescue workers lose trust on success.
+                    reassign_reason = (error or "; ".join(assessment.concerns) or "underperformed")[:160]
+                    self._trust.record_reassignment_from(effective_model, reason=reassign_reason)
                     yield {
                         "type": "status",
                         "phase": "reassigning",

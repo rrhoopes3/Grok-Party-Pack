@@ -72,11 +72,21 @@ CAUTION_TOOLS = frozenset({
 })
 
 # Tools that can cause irreversible damage
+# Note: `run_command` is intentionally NOT here — it's classified as CAUTION
+# by default and only escalated to DANGER when its argument matches one of
+# the destructive patterns below (rm -rf, dd, sudo, etc). Blanket-blocking
+# `run_command` by name was a footgun: it killed read-only ops like
+# `python -c "import ast; ast.parse(...)"` that the executor needs.
 DANGER_TOOLS = frozenset({
     "delete_file",
-    "run_command",          # can run anything
     "extract_archive",      # can overwrite files
     "email_block_sender",   # blocks a sender permanently
+})
+
+# Tools that need command-level inspection to determine risk. They start at
+# CAUTION and may be promoted to DANGER by deep inspection further down.
+COMMAND_INSPECTED_TOOLS = frozenset({
+    "run_command",
 })
 
 
@@ -189,6 +199,11 @@ class SemanticFirewall:
             risk = RiskLevel.SAFE
         elif tool_name in CAUTION_TOOLS:
             risk = RiskLevel.CAUTION
+        elif tool_name in COMMAND_INSPECTED_TOOLS:
+            # Command-line tools — start at CAUTION; deep inspection below
+            # may promote to DANGER if the argument matches a destructive
+            # pattern. A read-only `python -c "import ast"` will stay CAUTION.
+            risk = RiskLevel.CAUTION
         elif tool_name in DANGER_TOOLS:
             risk = RiskLevel.DANGER
             concerns.append(f"Tool '{tool_name}' is classified as dangerous")
@@ -199,10 +214,18 @@ class SemanticFirewall:
         # ── Deep inspection of run_command ─────────────────────────────
         if tool_name == "run_command":
             command = args.get("command", "")
+            matched_any = False
             for pattern, description in DANGEROUS_COMMAND_PATTERNS:
                 if re.search(pattern, command, re.IGNORECASE):
                     risk = RiskLevel.DANGER
                     concerns.append(f"Dangerous command pattern: {description}")
+                    matched_any = True
+            if not matched_any:
+                # Read-only / harmless command — stays at CAUTION, no concerns
+                # to log. Empty command is suspicious enough to flag.
+                if not command.strip():
+                    risk = RiskLevel.DANGER
+                    concerns.append("Empty command")
 
         # ── Deep inspection of write_file / delete_file ────────────────
         if tool_name in ("write_file", "delete_file", "append_file"):

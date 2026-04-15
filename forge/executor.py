@@ -19,7 +19,11 @@ from xai_sdk import Client
 from xai_sdk.chat import user, tool_result
 from xai_sdk.tools import get_tool_call_type
 
-from forge.config import EXECUTOR_MODEL, EXECUTOR_MAX_ITERATIONS, LMSTUDIO_BASE_URL, OLLAMA_BASE_URL
+from forge.config import (
+    EXECUTOR_MODEL, EXECUTOR_MAX_ITERATIONS,
+    LMSTUDIO_BASE_URL, OLLAMA_BASE_URL,
+    supports_tools,
+)
 from forge.tools.registry import ToolRegistry
 from forge.tools.escalation import EscalationError
 from forge.guardrails import GuardrailEngine
@@ -29,6 +33,36 @@ log = logging.getLogger("forge.executor")
 
 MAX_RETRIES = 3
 RETRY_DELAYS = [2, 4, 8]  # seconds
+
+
+class UnrecoverableModelError(RuntimeError):
+    """Raised when the model rejects the request in a way retry won't fix
+    (auth/entitlement/quota errors). The orchestrator should jump straight
+    to the fallback chain instead of burning retries."""
+
+
+# Substrings in API error messages that indicate the model will NEVER serve
+# this request — no point in retrying. Hit on these → fail fast.
+_UNRECOVERABLE_ERROR_MARKERS = (
+    "beta access",                     # xAI: multi-agent tier mismatch
+    "INVALID_ARGUMENT",                # gRPC: malformed/unentitled request
+    "insufficient_quota",              # OpenAI: billing exhausted (JSON code)
+    "exceeded your current quota",     # OpenAI: 429 human-readable message
+    "model not found",                 # generic: model decommissioned
+    "does not exist",                  # OpenAI: bad model ID
+    "permission_denied",               # generic: not entitled
+    "permissionsdenied",               # gRPC variant
+    "401",                             # auth failure (will repeat)
+    "Invalid API Key",
+    "authentication failed",
+    "billing details",                 # OpenAI quota body fragment
+)
+
+
+def _is_unrecoverable(exc: BaseException) -> bool:
+    """Return True if this error means retries are pointless."""
+    msg = str(exc)
+    return any(marker.lower() in msg.lower() for marker in _UNRECOVERABLE_ERROR_MARKERS)
 
 
 def _current_timestamp() -> str:
@@ -125,6 +159,20 @@ def execute_step(
     use_model = model if model else EXECUTOR_MODEL
     iteration_limit = max_iterations if max_iterations > 0 else EXECUTOR_MAX_ITERATIONS
     provider = detect_provider(use_model)
+
+    # ── Capability gate: refuse to dispatch tool steps to a model that
+    # cannot perform client-side tool calls. Without this, every tool call
+    # burns the full retry budget (3 attempts × 2-8s backoff) before the
+    # orchestrator falls back. Surface the issue immediately instead.
+    needs_tools = bool(tool_filter is None or len(tool_filter) > 0)
+    if needs_tools and not supports_tools(use_model):
+        msg = (f"Model '{use_model}' does not support client-side tool calls — "
+               f"refusing to dispatch a tool-using step. Reassign to a "
+               f"tool-capable executor.")
+        log.error(msg)
+        yield {"type": "error", "content": msg}
+        raise UnrecoverableModelError(msg)
+
     log.info("Using executor model: %s (provider: %s, max %d iterations, tools: %s)",
              use_model, provider, iteration_limit,
              f"{len(tool_filter)} filtered" if tool_filter else "all")
@@ -235,6 +283,17 @@ def execute_step(
                 if cancel_event and cancel_event.is_set():
                     yield {"type": "cancelled", "content": "Step cancelled"}
                     return full_output
+
+                # Fast-fail on errors that retries cannot fix (auth, entitlement,
+                # quota, bad model ID). Saves ~14s per step and surfaces the
+                # real cause to the orchestrator's fallback chain immediately.
+                if _is_unrecoverable(e):
+                    log.error("Executor stream FAILED FAST (unrecoverable): %s — %s",
+                              use_model, e)
+                    yield {"type": "error",
+                           "content": f"Unrecoverable API error on {use_model}: "
+                                      f"{type(e).__name__}: {e}"}
+                    raise UnrecoverableModelError(f"{use_model}: {e}") from e
 
                 if attempt < MAX_RETRIES - 1:
                     delay = RETRY_DELAYS[attempt]

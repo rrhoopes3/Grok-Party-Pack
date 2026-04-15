@@ -632,7 +632,7 @@ def agent_start():
     from forge.trading.crypto_agent import AgentConfig, start
     data = request.get_json() or {}
     config = AgentConfig(
-        model=data.get("model", "grok-4.20-beta-0309-reasoning"),
+        model=data.get("model", "grok-4.20-0309-reasoning"),
         strategy=data.get("strategy", "manual"),
         ticker=data.get("ticker", "BTC"),
         max_position_usd=float(data.get("max_position_usd", 50)),
@@ -776,7 +776,7 @@ def poly_agent_start():
     from forge.trading.polymarket_agent import PolyAgentConfig, start
     data = request.get_json() or {}
     config = PolyAgentConfig(
-        model=data.get("model", "grok-4.20-beta-0309-reasoning"),
+        model=data.get("model", "grok-4.20-0309-reasoning"),
         strategy=data.get("strategy", "analyst"),
         event_slug=data.get("event_slug", ""),
         event_url=data.get("event_url", ""),

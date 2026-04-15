@@ -31,7 +31,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from forge.orchestrator import Orchestrator
 from forge.memory import save_task, get_recent_tasks
-from forge.models import TaskResult
+from forge.models import TaskResult, make_msg
 from forge.run_log import RunLog, load_run_events, load_run_meta, get_run_artifacts
 from forge.config import (
     EXECUTOR_MODELS, COST_LIMIT_PER_TASK, COST_LIMIT_PER_SESSION,
@@ -47,90 +47,133 @@ from forge.config import (
 from forge.toll.endpoints import toll_bp
 from forge.toll.public_api import public_bp
 from forge.packs import get_registry as get_pack_registry
+from forge import task_state
+from forge.providers import health_snapshot as provider_health_snapshot
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
 log = logging.getLogger("forge.app")
 
 app = Flask(__name__, static_folder="static", static_url_path="/static")
-app.register_blueprint(toll_bp)
-if MARKETPLACE_ENABLED:
-    app.register_blueprint(public_bp)
 
-# ── Trading Module ──────────────────────────────────────────────────────
-if TRADING_ENABLED:
-    from forge.trading import check_trading_readiness
-    from forge.trading.endpoints import trading_bp
-    app.register_blueprint(trading_bp)
-    trading_readiness = check_trading_readiness()
-    log.info(
-        "Trading module enabled (provider=%s, broker=%s, state=%s)",
-        trading_readiness["provider"],
-        trading_readiness["broker"],
-        trading_readiness["state"],
-    )
-    for issue in trading_readiness["issues"]:
-        log.warning("Trading readiness: %s", issue)
-
-# ── Prophecy Engine ────────────────────────────────────────────────────
-if PROPHECY_ENABLED:
-    from forge.prophecy.endpoints import prophecy_bp
-    app.register_blueprint(prophecy_bp)
-    log.info("Prophecy Engine enabled")
-
-# ── Surgeon (OBLITERATUS) ─────────────────────────────────────────────
-if SURGEON_ENABLED:
-    from forge.surgeon.endpoints import surgeon_bp
-    app.register_blueprint(surgeon_bp)
-    log.info("Surgeon module enabled")
-
-# ── Email Agent + Webhook ────────────────────────────────────────────────
+# Module-level singletons that other code (routes, shutdown handlers) need
+# to reach. Populated by register_modules() on import.
 _email_agent = None
-if EMAIL_AGENT_ENABLED:
-    from forge.agents.email_webhook import email_webhook_bp, configure as configure_webhook
-    from forge.agents.email_agent import EmailAgent
-    _email_agent = EmailAgent(
-        api_key=ARCRELAY_API_KEY,
-        api_url=ARCRELAY_API_URL,
-        model=EMAIL_AGENT_MODEL,
-    )
-    configure_webhook(ARCRELAY_WEBHOOK_SECRET, _email_agent)
-    app.register_blueprint(email_webhook_bp)
-
-# ── Scheduler ──────────────────────────────────────────────────────────
 _scheduler = None
-if SCHEDULER_ENABLED:
-    from forge.scheduler import Scheduler, create_blueprint as create_scheduler_bp
-    _scheduler = Scheduler()
-    app.register_blueprint(create_scheduler_bp(_scheduler))
-    _scheduler.start()
-    log.info("Scheduler enabled (%d jobs)", len(_scheduler.list_jobs()))
+_auth = None
 
-# ── Agent Conversations ────────────────────────────────────────────────
-if CONVERSATIONS_ENABLED:
-    from forge.agents.conversation import create_blueprint as create_conv_bp
-    app.register_blueprint(create_conv_bp())
-    log.info("Agent conversations enabled")
 
-# ── Observability ──────────────────────────────────────────────────────
-if OBSERVABILITY_ENABLED:
-    from forge.observability import init_observability
-    init_observability(app)
-    log.info("Observability enabled (/metrics)")
+def register_modules(flask_app: Flask) -> dict:
+    """Conditionally register all blueprints + side-effect setups on `flask_app`.
 
-# ── Web UI Auth ────────────────────────────────────────────────────────
-if AUTH_ENABLED:
-    from forge.auth import AuthManager
-    _auth = AuthManager()
-    _auth.init_app(app)
-    log.info("Web UI authentication enabled")
-    _email_agent.start()
-    log.info("Email agent enabled (model=%s)", EMAIL_AGENT_MODEL)
+    Wrapping this in a function (instead of executing at module scope):
+      - Lets tests construct a Flask app with a curated subset of modules
+      - Makes the import side-effect graph explicit and inspectable
+      - Returns a dict describing which modules came up, for /api/health
 
-# ── Public Demo Mode (BYOK) ──────────────────────────────────────────────
-if PUBLIC_MODE:
-    from forge.public_mode import init_public_mode
-    init_public_mode(app)
-    log.info("Public demo mode enabled (BYOK, restricted tools)")
+    The blueprints themselves still respect the env-var feature flags read
+    from forge.config — flipping a flag and restarting still works.
+    """
+    global _email_agent, _scheduler, _auth
+    enabled: dict[str, bool] = {"toll": True}
+
+    flask_app.register_blueprint(toll_bp)
+
+    if MARKETPLACE_ENABLED:
+        flask_app.register_blueprint(public_bp)
+        enabled["marketplace"] = True
+
+    # ── Trading Module ──────────────────────────────────────────────────
+    if TRADING_ENABLED:
+        from forge.trading import check_trading_readiness
+        from forge.trading.endpoints import trading_bp
+        flask_app.register_blueprint(trading_bp)
+        trading_readiness = check_trading_readiness()
+        log.info(
+            "Trading module enabled (provider=%s, broker=%s, state=%s)",
+            trading_readiness["provider"],
+            trading_readiness["broker"],
+            trading_readiness["state"],
+        )
+        for issue in trading_readiness["issues"]:
+            log.warning("Trading readiness: %s", issue)
+        enabled["trading"] = True
+
+    # ── Prophecy Engine ─────────────────────────────────────────────────
+    if PROPHECY_ENABLED:
+        from forge.prophecy.endpoints import prophecy_bp
+        flask_app.register_blueprint(prophecy_bp)
+        log.info("Prophecy Engine enabled")
+        enabled["prophecy"] = True
+
+    # ── Surgeon (OBLITERATUS) ───────────────────────────────────────────
+    if SURGEON_ENABLED:
+        from forge.surgeon.endpoints import surgeon_bp
+        flask_app.register_blueprint(surgeon_bp)
+        log.info("Surgeon module enabled")
+        enabled["surgeon"] = True
+
+    # ── Email Agent + Webhook ───────────────────────────────────────────
+    if EMAIL_AGENT_ENABLED:
+        from forge.agents.email_webhook import email_webhook_bp, configure as configure_webhook
+        from forge.agents.email_agent import EmailAgent
+        _email_agent = EmailAgent(
+            api_key=ARCRELAY_API_KEY,
+            api_url=ARCRELAY_API_URL,
+            model=EMAIL_AGENT_MODEL,
+        )
+        configure_webhook(ARCRELAY_WEBHOOK_SECRET, _email_agent)
+        flask_app.register_blueprint(email_webhook_bp)
+        _email_agent.start()
+        log.info("Email agent enabled (model=%s)", EMAIL_AGENT_MODEL)
+        enabled["email_agent"] = True
+
+    # ── Scheduler ───────────────────────────────────────────────────────
+    if SCHEDULER_ENABLED:
+        from forge.scheduler import Scheduler, create_blueprint as create_scheduler_bp
+        _scheduler = Scheduler()
+        flask_app.register_blueprint(create_scheduler_bp(_scheduler))
+        _scheduler.start()
+        log.info("Scheduler enabled (%d jobs)", len(_scheduler.list_jobs()))
+        enabled["scheduler"] = True
+
+    # ── Agent Conversations ─────────────────────────────────────────────
+    if CONVERSATIONS_ENABLED:
+        from forge.agents.conversation import create_blueprint as create_conv_bp
+        flask_app.register_blueprint(create_conv_bp())
+        log.info("Agent conversations enabled")
+        enabled["conversations"] = True
+
+    # ── Observability ───────────────────────────────────────────────────
+    if OBSERVABILITY_ENABLED:
+        from forge.observability import init_observability
+        init_observability(flask_app)
+        log.info("Observability enabled (/metrics)")
+        enabled["observability"] = True
+
+    # ── Web UI Auth ─────────────────────────────────────────────────────
+    if AUTH_ENABLED:
+        from forge.auth import AuthManager
+        _auth = AuthManager()
+        _auth.init_app(flask_app)
+        log.info("Web UI authentication enabled")
+        enabled["auth"] = True
+
+    # ── Public Demo Mode (BYOK) ─────────────────────────────────────────
+    if PUBLIC_MODE:
+        from forge.public_mode import init_public_mode
+        init_public_mode(flask_app)
+        log.info("Public demo mode enabled (BYOK, restricted tools)")
+        enabled["public_mode"] = True
+
+    return enabled
+
+
+_modules_enabled = register_modules(app)
+
+# At startup, mark any task left in 'queued' or 'running' from a previous
+# process as 'interrupted'. The UI surfaces these so users aren't confused
+# by tasks that vanished mid-flight.
+_orphans_interrupted = task_state.mark_orphans_interrupted()
 
 # ── Task State ──────────────────────────────────────────────────────────────
 task_queues: dict[str, Queue] = {}
@@ -143,6 +186,13 @@ session_cost_usd: float = 0.0
 session_cost_lock = threading.Lock()
 task_costs: dict[str, float] = {}  # task_id → accumulated cost
 
+# ── Toll Tracking ─────────────────────────────────────────────────────────
+# Defined here (not at the bottom) so /api/cost and /api/cost/reset can
+# reference these globals at module import time without a forward-reference
+# trap.
+session_toll_usd: float = 0.0
+session_toll_lock = threading.Lock()
+
 
 def run_task(task_id: str, task: str, q: Queue, cancel_event: threading.Event,
              sandbox_path: str = "", direct_mode: bool = False, agent_count: int = 16,
@@ -154,6 +204,7 @@ def run_task(task_id: str, task: str, q: Queue, cancel_event: threading.Event,
         set_request_keys(byok_keys)
     task_costs[task_id] = 0.0
     run_log = RunLog(task_id)
+    task_state.update_status(task_id, "running")
     try:
         orch = Orchestrator(
             sandbox_path=sandbox_path,
@@ -189,11 +240,27 @@ def run_task(task_id: str, task: str, q: Queue, cancel_event: threading.Event,
                 "summary": result.final_summary,
                 "step_count": len(result.results),
             })
+            final_status = "cancelled" if cancel_event.is_set() else "done"
+            task_state.update_status(task_id, final_status,
+                                     cost_usd=task_costs.get(task_id, 0.0))
+        else:
+            # No result but no exception either — treat as cancelled
+            task_state.update_status(
+                task_id,
+                "cancelled" if cancel_event.is_set() else "error",
+                cost_usd=task_costs.get(task_id, 0.0),
+                error="No result returned" if not cancel_event.is_set() else None,
+            )
 
     except Exception as e:
         log.exception("Task %s failed", task_id)
-        q.put({"type": "error", "content": f"{type(e).__name__}: {e}"})
+        q.put(make_msg("error", content=f"{type(e).__name__}: {e}"))
         run_log.finalize({"task": task, "error": str(e)})
+        task_state.update_status(
+            task_id, "error",
+            cost_usd=task_costs.get(task_id, 0.0),
+            error=f"{type(e).__name__}: {e}",
+        )
     finally:
         task_costs.pop(task_id, None)
         q.put(None)  # sentinel
@@ -251,6 +318,16 @@ def submit_task():
     task_queues[task_id] = q
     task_cancel_events[task_id] = cancel_event
 
+    # Persist the submission so a restart can mark it 'interrupted' instead
+    # of leaving the user's UI guessing about a vanished task.
+    task_state.record_submitted(
+        task_id, task,
+        pack=pack,
+        executor_model=executor_model,
+        direct_mode=direct_mode,
+        sandbox_path=sandbox_path,
+    )
+
     # Capture BYOK keys from request thread to pass to task thread
     byok_keys = None
     if PUBLIC_MODE:
@@ -304,7 +381,7 @@ def stream(task_id):
             while True:
                 msg = q.get()
                 if msg is None:
-                    yield f"data: {json.dumps({'type': 'done', 'final': True})}\n\n"
+                    yield f"data: {json.dumps(make_msg('done', final=True))}\n\n"
                     break
                 yield f"data: {json.dumps(msg)}\n\n"
         finally:
@@ -378,7 +455,7 @@ def run_arena(task_id: str, q: Queue, cancel_event: threading.Event,
         })
     except Exception as e:
         log.exception("Arena %s failed", task_id)
-        q.put({"type": "error", "content": f"{type(e).__name__}: {e}"})
+        q.put(make_msg("error", content=f"{type(e).__name__}: {e}"))
         run_log.finalize({"mode": "arena", "error": str(e)})
     finally:
         q.put(None)
@@ -543,6 +620,22 @@ def get_config():
     })
 
 
+@app.route("/api/health")
+def get_health():
+    """Snapshot of harness liveness + provider/module status.
+
+    Useful for ops dashboards and for the UI to surface degraded providers
+    (e.g. "OpenAI quota exhausted, falling back to xAI") without waiting
+    for a task to fail with a cryptic 429.
+    """
+    return jsonify({
+        "modules": _modules_enabled,
+        "providers_unhealthy": provider_health_snapshot(),
+        "tasks_by_status": task_state.counts_by_status(),
+        "orphans_interrupted_on_startup": _orphans_interrupted,
+    })
+
+
 @app.route("/api/cost")
 def get_cost():
     """Return current session cost and limits."""
@@ -585,16 +678,20 @@ def _check_cost_limit(task_id: str, cancel_event: threading.Event, q: Queue) -> 
     if COST_LIMIT_PER_TASK and this_task > COST_LIMIT_PER_TASK:
         log.warning("Task %s exceeded per-task cost limit ($%.2f > $%.2f)",
                      task_id, this_task, COST_LIMIT_PER_TASK)
-        q.put({"type": "error",
-               "content": f"Task cancelled: cost ${this_task:.4f} exceeded limit ${COST_LIMIT_PER_TASK:.2f}"})
+        q.put(make_msg(
+            "error",
+            content=f"Task cancelled: cost ${this_task:.4f} exceeded limit ${COST_LIMIT_PER_TASK:.2f}",
+        ))
         cancel_event.set()
         return True
 
     if COST_LIMIT_PER_SESSION and session_total > COST_LIMIT_PER_SESSION:
         log.warning("Session cost limit exceeded ($%.2f > $%.2f)",
                      session_total, COST_LIMIT_PER_SESSION)
-        q.put({"type": "error",
-               "content": f"Task cancelled: session cost ${session_total:.4f} exceeded limit ${COST_LIMIT_PER_SESSION:.2f}"})
+        q.put(make_msg(
+            "error",
+            content=f"Task cancelled: session cost ${session_total:.4f} exceeded limit ${COST_LIMIT_PER_SESSION:.2f}",
+        ))
         cancel_event.set()
         return True
 
@@ -632,11 +729,6 @@ def _start_solana_watcher():
 
 
 _start_solana_watcher()
-
-
-# ── Toll Tracking ─────────────────────────────────────────────────────────
-session_toll_usd: float = 0.0
-session_toll_lock = threading.Lock()
 
 
 def track_toll(msg: dict):

@@ -5,7 +5,7 @@ ARENA_PACK = CapabilityPack(
     name="arena",
     description="Agent vs agent combat, collaboration scenarios, judged by the Pantheon",
     tools=["filesystem", "search", "shell", "python", "git", "browser", "generative_ui"],
-    default_model="grok-4.20-beta-0309-reasoning",
+    default_model="grok-4.20-0309-reasoning",
     fallback_models=["claude-sonnet-4-20250514", "gpt-4o"],
     guardrail_profile="permissive",
     budget=PackBudget(max_cost_usd=10.0, max_steps=20, max_iterations_per_step=15),

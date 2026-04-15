@@ -169,6 +169,14 @@ class TrustLedger:
 
         If quality_signal is provided (0.0-1.0), it replaces the binary
         outcome for richer trust calibration (OpenClaw-RL §PRM).
+
+        Semantics of `was_reassigned`:
+          - This agent picked up work *because* a previous agent was
+            reassigned-from. It is NOT a penalty signal for the current
+            agent — that agent is a rescue worker and should be rewarded
+            (or at minimum, neutrally credited) for completing the work.
+          - The penalty for the original failure must be applied to the
+            agent that GOT reassigned-FROM, via `record_reassignment_from`.
         """
         entry = self.get_entry(agent_id)
         entry.total_delegations += 1
@@ -187,9 +195,9 @@ class TrustLedger:
             entry.failures += 1
             outcome_signal = 0.0
 
-        if was_reassigned:
-            entry.reassignments += 1
-            outcome_signal = 0.0  # reassignment counts as failure
+        # `was_reassigned` historically zeroed the outcome — that was a bug.
+        # If we got here as a rescue worker AND succeeded, the success signal
+        # stands. We do not double-count the predecessor's failure here.
 
         # Exponential moving average
         entry.trust_score = (
@@ -212,6 +220,27 @@ class TrustLedger:
         log.info(
             "Trust updated: %s → %.3f (success=%s, total=%d, reassigned=%s)",
             agent_id, entry.trust_score, success, entry.total_delegations, was_reassigned,
+        )
+
+    def record_reassignment_from(self, agent_id: str, reason: str = "") -> None:
+        """Penalize an agent because work was taken away from it mid-flight.
+
+        Call this on the OUTGOING (failed) model when reassigning. The
+        rescue worker (incoming model) then records a normal outcome via
+        `record_outcome` without an extra penalty.
+        """
+        entry = self.get_entry(agent_id)
+        entry.total_delegations += 1
+        entry.failures += 1
+        entry.reassignments += 1
+        # EMA toward 0 — the failure signal
+        entry.trust_score = TRUST_ALPHA * 0.0 + (1 - TRUST_ALPHA) * entry.trust_score
+        entry.trust_score = max(0.0, min(1.0, entry.trust_score))
+        entry.last_updated = time.time()
+        self._save()
+        log.info(
+            "Trust penalty (reassigned-from): %s → %.3f (reason=%s)",
+            agent_id, entry.trust_score, reason or "no reason given",
         )
 
     def ranked_agents(self, candidates: list[str]) -> list[tuple[str, float]]:
@@ -451,35 +480,48 @@ class AssessmentVerdict:
 # hallucinate non-compliant outputs, the parent agent can revoke authority
 # mid-execution and reassign the task."
 
-# Fallback chains: if the primary model fails, try these in order
+# Fallback chains: if the primary model fails, try these in order.
+# Order matters and entries within a chain must be distinct from the key.
+# The chain is a *priority list*, not a set — but Python silently drops
+# duplicate dict keys, so the LAST top-level key wins. Keep keys unique.
 FALLBACK_CHAINS: dict[str, list[str]] = {
-    "grok-4.20-beta-0309-reasoning": [
+    # The non-reasoning Grok variant is a fast tool-capable executor that
+    # acts as the first-line fallback for the reasoning Grok.
+    "grok-4.20-0309-reasoning": [
+        "grok-4.20-0309-non-reasoning",
+        "grok-4-1-fast-reasoning",
         "claude-sonnet-4-20250514",
         "gpt-4o",
-        "grok-4.20-beta-0309-reasoning",
+    ],
+    "grok-4.20-0309-non-reasoning": [
+        "grok-4.20-0309-reasoning",
+        "grok-4-1-fast-reasoning",
+        "claude-sonnet-4-20250514",
+        "gpt-4o",
+    ],
+    "grok-4-1-fast-reasoning": [
+        "grok-4.20-0309-reasoning",
+        "claude-sonnet-4-20250514",
+        "gpt-4o",
     ],
     "claude-sonnet-4-20250514": [
-        "grok-4.20-beta-0309-reasoning",
+        "grok-4.20-0309-reasoning",
         "gpt-4o",
-        "grok-4.20-beta-0309-reasoning",
+        "claude-haiku-4-20250414",
     ],
     "gpt-4o": [
-        "grok-4.20-beta-0309-reasoning",
+        "grok-4.20-0309-reasoning",
         "claude-sonnet-4-20250514",
-        "grok-4.20-beta-0309-reasoning",
-    ],
-    "grok-4.20-beta-0309-reasoning": [
-        "grok-4.20-beta-0309-reasoning",
-        "claude-sonnet-4-20250514",
-        "gpt-4o",
+        "gpt-4o-mini",
     ],
 }
 
 # Default fallback for models not in the chain map
 DEFAULT_FALLBACK_CHAIN = [
-    "grok-4.20-beta-0309-reasoning",
-    "gpt-4o",
+    "grok-4.20-0309-reasoning",
+    "grok-4.20-0309-non-reasoning",
     "claude-sonnet-4-20250514",
+    "gpt-4o",
 ]
 
 

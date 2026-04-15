@@ -1,8 +1,9 @@
 """
-Multi-agent planner using 16 Grok agents for research and strategy.
+Multi-agent planner using N Grok agents (default 16) for research and strategy.
 
-Uses grok-4.20-multi-agent-experimental-beta-0304 with server-side tools
-(web_search, x_search, code_execution) to research and plan.
+Uses the configured PLANNER_MODEL with server-side tools (web_search,
+x_search, code_execution) to research and plan. The planner emits a
+structured plan; tool-using execution then happens via the EXECUTOR_MODEL.
 """
 from __future__ import annotations
 import json
@@ -15,7 +16,10 @@ from xai_sdk import Client
 from xai_sdk.chat import user
 from xai_sdk.tools import web_search, x_search, code_execution
 
-from forge.config import PLANNER_MODEL, PLANNER_AGENT_COUNT, EXECUTOR_MODEL
+from forge.config import (
+    PLANNER_MODEL, PLANNER_AGENT_COUNT, EXECUTOR_MODEL,
+    PLANNER_MAX_REASONING_TOKENS,
+)
 from forge.models import PlanStep, ExecutionPlan
 
 log = logging.getLogger("forge.planner")
@@ -146,6 +150,7 @@ def plan(
             full_response = ""
             is_thinking = True
             last_reported_tokens = 0
+            deliberation_capped = False
 
             for response, chunk in chat.stream():
                 # Check cancellation
@@ -158,6 +163,28 @@ def plan(
                     if hasattr(response, "usage") and response.usage:
                         if hasattr(response.usage, "reasoning_tokens") and response.usage.reasoning_tokens:
                             r_tokens = response.usage.reasoning_tokens
+                    # Hard cap on deliberation. The multi-agent council can
+                    # spin up tens of thousands of reasoning tokens before
+                    # emitting any plan text — at $2/$6 per Mtok this gets
+                    # expensive fast. Bail with a forced minimal plan if
+                    # we cross the threshold.
+                    if (
+                        not deliberation_capped
+                        and PLANNER_MAX_REASONING_TOKENS > 0
+                        and r_tokens >= PLANNER_MAX_REASONING_TOKENS
+                    ):
+                        deliberation_capped = True
+                        log.warning(
+                            "Planner reasoning cap hit (%d tokens >= %d) — "
+                            "aborting deliberation, will fall back to minimal plan",
+                            r_tokens, PLANNER_MAX_REASONING_TOKENS,
+                        )
+                        yield {"type": "status", "phase": "planning",
+                               "content": f"Reasoning cap reached at {r_tokens:,} "
+                                          f"tokens — emitting minimal plan."}
+                        # Stop consuming the stream — break out and let the
+                        # parser fallback build a single-step catch-all.
+                        break
                     # Only emit every 500 reasoning tokens to avoid UI spam
                     if r_tokens and (r_tokens - last_reported_tokens) >= 500:
                         last_reported_tokens = r_tokens

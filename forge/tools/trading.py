@@ -122,7 +122,7 @@ def get_market_quote(ticker: str, provider: str = "") -> str:
 def start_trading_agent(ticker: str, strategy: str = "momentum",
                         max_position_usd: str = "50",
                         interval_minutes: str = "15",
-                        model: str = "grok-4.20-beta-0309-reasoning") -> str:
+                        model: str = "grok-4.20-0309-reasoning") -> str:
     """Start the autonomous crypto trading agent."""
     try:
         from forge.trading.crypto_agent import AgentConfig, start
@@ -307,7 +307,7 @@ def register(registry: ToolRegistry):
                 "strategy": {"type": "string", "description": "Strategy: manual, dca, momentum, or grid"},
                 "max_position_usd": {"type": "string", "description": "Max position size in USD (default: 50)"},
                 "interval_minutes": {"type": "string", "description": "Minutes between cycles (default: 15)"},
-                "model": {"type": "string", "description": "AI model to use (default: grok-4.20-beta-0309-reasoning)"},
+                "model": {"type": "string", "description": "AI model to use (default: grok-4.20-0309-reasoning)"},
             },
             "required": ["ticker"],
         },

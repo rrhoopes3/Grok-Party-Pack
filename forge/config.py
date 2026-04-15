@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 
-load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+load_dotenv(Path(__file__).resolve().parent / ".env")
 
 # ── API Keys ───────────────────────────────────────────────────────────────
 XAI_API_KEY = os.getenv("XAI_API_KEY")
@@ -17,78 +17,113 @@ POLYMARKET_RELAYER_ADDRESS = os.getenv("POLYMARKET_RELAYER_ADDRESS", "")
 POLYMARKET_PRIVATE_KEY = os.getenv("POLYMARKET_PRIVATE_KEY", "")
 
 # ── Models ──────────────────────────────────────────────────────────────────
-PLANNER_MODEL = "grok-4.20-multi-agent-beta-0309"
-EXECUTOR_MODEL = "grok-4.20-beta-0309-reasoning"
-PLANNER_AGENT_COUNT = 16
+# Multi-agent model is for *planning* only — it does NOT support client-side
+# tools on standard tier (returns "beta access required"). Use a tool-capable
+# model (reasoning / non-reasoning) for the executor.
+PLANNER_MODEL = os.getenv("FORGE_PLANNER_MODEL", "grok-4.20-multi-agent-0309")
+EXECUTOR_MODEL = os.getenv("FORGE_EXECUTOR_MODEL", "grok-4.20-0309-reasoning")
+PLANNER_AGENT_COUNT = int(os.getenv("FORGE_PLANNER_AGENT_COUNT", "16"))
+# Hard cap on planner deliberation — protects against models that burn tens
+# of thousands of reasoning tokens before emitting a plan.
+PLANNER_MAX_REASONING_TOKENS = int(os.getenv("FORGE_PLANNER_MAX_REASONING_TOKENS", "30000"))
 
-# Available executor models with pricing (cost per 1M tokens)
-# Format: id → {"label": str, "provider": str, "cost_in": float, "cost_out": float}
+# Available executor models with pricing (cost per 1M tokens) and capability
+# flags. `supports_tools=False` means the model cannot perform client-side
+# tool calls — the executor refuses to dispatch tool steps to such models.
 EXECUTOR_MODELS = {
     "auto": {
         "label": "Auto (smart routing)", "provider": "auto",
         "cost_in": 0, "cost_out": 0,  # varies by routed model
+        "supports_tools": True,
     },
     # xAI
     "grok-4-1-fast-reasoning": {
         "label": "Grok 4.1 Fast Reasoning", "provider": "xAI",
         "cost_in": 0.20, "cost_out": 0.50,
+        "supports_tools": True,
     },
-    "grok-4.20-multi-agent-beta-0309": {
-        "label": "Grok 4.20 Multi-Agent", "provider": "xAI",
+    "grok-4-1-fast-non-reasoning": {
+        "label": "Grok 4.1 Fast", "provider": "xAI",
+        "cost_in": 0.20, "cost_out": 0.50,
+        "supports_tools": True,
+    },
+    "grok-4.20-multi-agent-0309": {
+        "label": "Grok 4.20 Multi-Agent (planner only)", "provider": "xAI",
         "cost_in": 2.00, "cost_out": 6.00,
+        # Multi-agent model rejects client-side tools without beta access
+        # entitlement — only use for planning, never executor steps.
+        "supports_tools": False,
     },
-    "grok-4.20-beta-0309-reasoning": {
+    "grok-4.20-0309-reasoning": {
         "label": "Grok 4.20 Reasoning", "provider": "xAI",
         "cost_in": 2.00, "cost_out": 6.00,
+        "supports_tools": True,
     },
-    "grok-4.20-beta-0309-non-reasoning": {
+    "grok-4.20-0309-non-reasoning": {
         "label": "Grok 4.20 Non-Reasoning", "provider": "xAI",
         "cost_in": 2.00, "cost_out": 6.00,
+        "supports_tools": True,
     },
     "grok-code-fast-1": {
         "label": "Grok Code Fast", "provider": "xAI",
         "cost_in": 0.20, "cost_out": 1.50,
-    },
-    "grok-4.20-multi-agent-experimental-beta-0304": {
-        "label": "Grok 4.20 Multi (Legacy)", "provider": "xAI",
-        "cost_in": 2.00, "cost_out": 6.00,
+        "supports_tools": True,
     },
     # Anthropic
     "claude-sonnet-4-20250514": {
         "label": "Claude Sonnet 4", "provider": "Anthropic",
         "cost_in": 3.00, "cost_out": 15.00,
+        "supports_tools": True,
     },
     "claude-opus-4-20250514": {
         "label": "Claude Opus 4", "provider": "Anthropic",
         "cost_in": 15.00, "cost_out": 75.00,
+        "supports_tools": True,
     },
     "claude-haiku-4-20250414": {
         "label": "Claude Haiku 4", "provider": "Anthropic",
         "cost_in": 0.80, "cost_out": 4.00,
+        "supports_tools": True,
     },
     # OpenAI
     "gpt-4o": {
         "label": "GPT-4o", "provider": "OpenAI",
         "cost_in": 2.50, "cost_out": 10.00,
+        "supports_tools": True,
     },
     "gpt-4o-mini": {
         "label": "GPT-4o Mini", "provider": "OpenAI",
         "cost_in": 0.15, "cost_out": 0.60,
+        "supports_tools": True,
     },
     "o3-mini": {
         "label": "o3-mini", "provider": "OpenAI",
         "cost_in": 1.10, "cost_out": 4.40,
+        "supports_tools": True,
     },
     # Local
     "lmstudio:default": {
         "label": "LM Studio (Local)", "provider": "Local",
         "cost_in": 0, "cost_out": 0,
+        "supports_tools": True,
     },
     "ollama:default": {
         "label": "Ollama (Local)", "provider": "Local",
         "cost_in": 0, "cost_out": 0,
+        "supports_tools": True,
     },
 }
+
+
+def supports_tools(model: str) -> bool:
+    """Return True if the model can perform client-side tool calls.
+
+    Default is True for unknown models — the API will tell us if it can't.
+    """
+    info = EXECUTOR_MODELS.get(model)
+    if info is None:
+        return True
+    return bool(info.get("supports_tools", True))
 
 # Arena-only models (same pool)
 ARENA_MODELS = EXECUTOR_MODELS
@@ -216,7 +251,7 @@ SURGEON_DEFAULT_DTYPE = os.getenv("FORGE_SURGEON_DEFAULT_DTYPE", "float16")
 
 # ── Arena ──────────────────────────────────────────────────────────────────
 ARENA_MASTER_MODEL = PLANNER_MODEL       # 16-agent Pantheon for commentary/judging
-ARENA_DEFAULT_FIGHTER_MODEL = "grok-4.20-beta-0309-reasoning"
+ARENA_DEFAULT_FIGHTER_MODEL = "grok-4.20-0309-reasoning"
 ARENA_FIGHTER_AGENT_COUNT = 4
 ARENA_RECON_ITERATIONS = 3               # tool iterations for recon round
 ARENA_FORGE_ITERATIONS = 5               # tool iterations for weapon forge round
@@ -228,7 +263,7 @@ ARENA_SWARM_ENABLED = os.getenv("FORGE_ARENA_SWARM_ENABLED", "true").lower() == 
 # ── OpenClaw-RL (arXiv:2603.10165) ───────────────────────────────────────
 SIGNALS_ENABLED = os.getenv("FORGE_SIGNALS_ENABLED", "true").lower() == "true"
 JUDGE_ENABLED = os.getenv("FORGE_JUDGE_ENABLED", "true").lower() == "true"
-JUDGE_MODEL = os.getenv("FORGE_JUDGE_MODEL", "grok-4.20-beta-0309-reasoning")
+JUDGE_MODEL = os.getenv("FORGE_JUDGE_MODEL", "grok-4.20-0309-reasoning")
 JUDGE_TIMEOUT_SECONDS = float(os.getenv("FORGE_JUDGE_TIMEOUT", "30.0"))
 DIRECTIVES_ENABLED = os.getenv("FORGE_DIRECTIVES_ENABLED", "true").lower() == "true"
 USER_CORRECTION_ENABLED = os.getenv("FORGE_USER_CORRECTION_ENABLED", "true").lower() == "true"

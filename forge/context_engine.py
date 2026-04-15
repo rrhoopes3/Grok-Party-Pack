@@ -198,8 +198,8 @@ _SIMPLE_SIGNALS = [
 ]
 
 # Model tiers
-FAST_MODEL = "grok-4.20-beta-0309-reasoning"
-POWER_MODEL = "grok-4.20-beta-0309-reasoning"
+FAST_MODEL = "grok-4.20-0309-reasoning"
+POWER_MODEL = "grok-4.20-0309-reasoning"
 
 
 def classify_task_complexity(task: str) -> str:

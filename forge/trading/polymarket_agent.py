@@ -95,7 +95,7 @@ def detect_rotating_slug(slug: str) -> RotatingSlug | None:
 
 @dataclass
 class PolyAgentConfig:
-    model: str = "grok-4.20-beta-0309-reasoning"
+    model: str = "grok-4.20-0309-reasoning"
     strategy: str = "analyst"
     event_slug: str = ""          # e.g. "btc-updown-15m-1773464700"
     event_url: str = ""           # full polymarket URL for reference

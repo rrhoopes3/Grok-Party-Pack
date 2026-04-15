@@ -546,7 +546,7 @@ function restoreSettings() {
 }
 
 function pickArenaDefaultModel() {
-    const preferred = ["grok-4.20-beta-0309-reasoning", "grok-code-fast-1", "gpt-4o-mini", "claude-haiku-4-20250414"];
+    const preferred = ["grok-4.20-0309-reasoning", "grok-code-fast-1", "gpt-4o-mini", "claude-haiku-4-20250414"];
     for (const modelId of preferred) {
         if (hasOption(els.redModel, modelId)) return modelId;
     }

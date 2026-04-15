@@ -5,7 +5,7 @@ EMAIL_PACK = CapabilityPack(
     name="email",
     description="Email management via ARC-Relay: domain admin, alias management, log analysis",
     tools=["email", "http", "filesystem", "python"],
-    default_model="grok-4.20-beta-0309-non-reasoning",
+    default_model="grok-4.20-0309-non-reasoning",
     fallback_models=["gpt-4o-mini", "claude-haiku-4-20250414"],
     guardrail_profile="strict",
     budget=PackBudget(max_cost_usd=1.0, max_steps=5, max_iterations_per_step=10),

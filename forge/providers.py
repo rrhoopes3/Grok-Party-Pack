@@ -18,6 +18,8 @@ import logging
 import threading
 from typing import Generator
 
+import time
+
 from forge.config import ANTHROPIC_API_KEY, OPENAI_API_KEY, LMSTUDIO_BASE_URL, OLLAMA_BASE_URL, EXECUTOR_MODELS
 from forge.tools.registry import ToolRegistry
 
@@ -33,6 +35,57 @@ def _effective_key(provider: str, fallback: str) -> str:
     return fallback
 
 log = logging.getLogger("forge.providers")
+
+
+# ── Provider Health Cache ──────────────────────────────────────────────────
+# When a provider returns a non-retryable error (quota exhausted, auth fail),
+# we mark it unhealthy for `_HEALTH_TTL` seconds. The router consults
+# `is_provider_healthy()` before routing — saves a useless API round-trip
+# per fallback attempt.
+
+_HEALTH_TTL_SECONDS = 60.0
+_provider_unhealthy_until: dict[str, tuple[float, str]] = {}  # provider → (until_ts, reason)
+_provider_health_lock = threading.Lock()
+
+
+def _mark_provider_unhealthy(provider: str, exc: BaseException) -> None:
+    """Mark a provider unhealthy for the next ~60s with a human reason."""
+    with _provider_health_lock:
+        _provider_unhealthy_until[provider] = (
+            time.time() + _HEALTH_TTL_SECONDS,
+            f"{type(exc).__name__}: {str(exc)[:160]}",
+        )
+    log.warning("Provider %s marked unhealthy for %.0fs: %s",
+                provider, _HEALTH_TTL_SECONDS, exc)
+
+
+def is_provider_healthy(provider: str) -> tuple[bool, str]:
+    """Return (healthy, reason). Lets the router skip dead providers."""
+    with _provider_health_lock:
+        entry = _provider_unhealthy_until.get(provider)
+        if not entry:
+            return True, ""
+        until_ts, reason = entry
+        if time.time() >= until_ts:
+            # TTL expired — clear and let the next attempt re-probe
+            _provider_unhealthy_until.pop(provider, None)
+            return True, ""
+        return False, reason
+
+
+def health_snapshot() -> dict[str, dict]:
+    """Diagnostic — current provider health for /api/health endpoints."""
+    out = {}
+    now = time.time()
+    with _provider_health_lock:
+        for provider, (until_ts, reason) in _provider_unhealthy_until.items():
+            remaining = max(0.0, until_ts - now)
+            out[provider] = {
+                "healthy": remaining <= 0,
+                "unhealthy_for_seconds": round(remaining, 1),
+                "reason": reason,
+            }
+    return out
 
 
 # ── Cost Calculation ──────────────────────────────────────────────────────
@@ -364,6 +417,16 @@ def run_openai(
                                 tool_calls_acc[idx]["arguments"] += tc_delta.function.arguments
 
         except Exception as e:
+            # Mark provider unhealthy on quota / auth errors so the orchestrator
+            # short-circuits the next attempt instead of polling a dead key.
+            from forge.executor import _is_unrecoverable, UnrecoverableModelError
+            err_str = str(e)
+            if _is_unrecoverable(e) or "429" in err_str or "401" in err_str:
+                _mark_provider_unhealthy("openai", e)
+                log.error("OpenAI stream FAILED FAST (unrecoverable): %s", e)
+                yield {"type": "error",
+                       "content": f"Unrecoverable OpenAI API error: {type(e).__name__}: {e}"}
+                raise UnrecoverableModelError(f"openai/{model}: {e}") from e
             log.error("OpenAI stream failed: %s", e)
             yield {"type": "error", "content": f"OpenAI API error: {type(e).__name__}: {e}"}
             return full_output

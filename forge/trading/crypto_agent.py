@@ -20,7 +20,7 @@ log = logging.getLogger("forge.trading.crypto_agent")
 
 @dataclass
 class AgentConfig:
-    model: str = "grok-4.20-beta-0309-reasoning"
+    model: str = "grok-4.20-0309-reasoning"
     strategy: str = "manual"
     ticker: str = "BTC"
     max_position_usd: float = 50.0

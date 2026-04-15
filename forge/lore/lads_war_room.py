@@ -123,7 +123,7 @@ def main():
     client = Client(api_key=os.getenv("XAI_API_KEY"))
 
     chat = client.chat.create(
-        model="grok-4.20-multi-agent-experimental-beta-0304",
+        model="grok-4.20-multi-agent-0309",
         agent_count=AGENT_COUNT,
         tools=[web_search(), x_search(), code_execution()],
         include=["verbose_streaming"],
