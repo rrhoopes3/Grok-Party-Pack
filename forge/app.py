@@ -64,6 +64,23 @@ _scheduler = None
 _auth = None
 
 
+def _mcp_api_summary() -> dict:
+    """Serialize MCP router state for /api/config."""
+    if not MCP_ENABLED:
+        return {"enabled": False}
+    try:
+        from forge.mcp_client import get_router
+        router = get_router()
+        return {
+            "enabled": True,
+            "auto_sync": MCP_AUTO_SYNC_ENABLED,
+            "active_namespaces": router.active_namespaces(),
+            "servers": router.configured_servers(),
+        }
+    except Exception as e:
+        return {"enabled": True, "error": f"{type(e).__name__}: {e}"}
+
+
 def register_modules(flask_app: Flask) -> dict:
     """Conditionally register all blueprints + side-effect setups on `flask_app`.
 
@@ -117,12 +134,15 @@ def register_modules(flask_app: Flask) -> dict:
     # ── MCP Client (multi-node: internal forge:vault / forge:graph + external) ─
     if MCP_ENABLED:
         enabled["mcp"] = True
-        log.info(
-            "⚡ MCP Client ONLINE — namespaces: forge:vault, forge:graph | "
-            "external: blender-mcp%s | auto-sync=%s",
-            " (pack enabled)" if BLENDER_PACK_ENABLED else " (pack gated)",
-            "ON" if MCP_AUTO_SYNC_ENABLED else "off",
-        )
+        try:
+            from forge.mcp_client import get_router
+            router = get_router()
+            log.info("⚡ MCP Client ONLINE — %s | auto-sync=%s",
+                     router.summary_banner(),
+                     "ON" if MCP_AUTO_SYNC_ENABLED else "off")
+            enabled["mcp_namespaces"] = router.active_namespaces()
+        except Exception as e:
+            log.warning("MCP router init failed: %s: %s", type(e).__name__, e)
         if MCP_AUTO_SYNC_ENABLED:
             try:
                 from forge.mcp_client import enable_default_auto_sync
@@ -637,6 +657,7 @@ def get_config():
             "blender_pack": BLENDER_PACK_ENABLED,
             "salesforce_pack": SALESFORCE_PACK_ENABLED,
         },
+        "mcp": _mcp_api_summary(),
         "runtime": {
             "working_dir": str(SHELL_WORKING_DIR),
             "email_agent_model": EMAIL_AGENT_MODEL if EMAIL_AGENT_ENABLED else "",

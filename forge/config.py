@@ -300,6 +300,35 @@ MCP_ENABLED = os.getenv("FORGE_MCP_ENABLED", "true").lower() == "true"
 # forge:vault + forge:graph as the agent works.
 MCP_AUTO_SYNC_ENABLED = os.getenv("FORGE_MCP_AUTO_SYNC_ENABLED", "true").lower() == "true"
 
+# Config-driven external MCP server dispatch table. Router reads this at
+# startup so namespaces are pluggable without per-pack tool files.
+#
+#   command     — argv list for stdio spawn; command[0] must be on PATH
+#   enabled     — router will reject calls to disabled servers with a
+#                 friendly error pointing at the fix
+#   auto_start  — include in splash banner as an active namespace
+#                 (actual pre-spawning / session pooling is future work;
+#                 first call still pays subprocess cold start)
+#   timeout     — seconds per tool call
+#
+# Each `enabled` flag is individually overridable via
+#   FORGE_MCP_SERVER_<NAME_UPPER>_ENABLED=(true|false)
+MCP_SERVERS: dict[str, dict] = {
+    "blender": {
+        "command": ["uvx", "blender-mcp"],
+        "enabled": os.getenv("FORGE_MCP_SERVER_BLENDER_ENABLED", "true").lower() == "true",
+        "auto_start": True,
+        "timeout": 120.0,
+    },
+    "salesforce": {
+        "command": ["uvx", "@salesforce/mcp"],
+        "enabled": os.getenv("FORGE_MCP_SERVER_SALESFORCE_ENABLED", "false").lower() == "true",
+        "auto_start": False,
+        "timeout": 60.0,
+    },
+    # future: cursor, linear, notion, github, …
+}
+
 # ── Scheduler ─────────────────────────────────────────────────────────────
 SCHEDULER_ENABLED = os.getenv("FORGE_SCHEDULER_ENABLED", "true").lower() == "true"
 

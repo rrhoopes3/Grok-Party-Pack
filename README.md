@@ -145,13 +145,35 @@ Forge is now a **multi-node MCP agent** — bidirectional. `forge/mcp_server.py`
 **Unified tools** (see `forge/tools/mcp.py`):
 
 ```python
+# Namespace-shaped memory: store/recall on internal namespaces
 mcp_store("forge:vault", key="meeting_notes", value="Acme deal moved to stage 3")
 mcp_recall("forge:vault", query="acme", limit=5)
 
 mcp_store("forge:graph", key="company:acme",
           value='{"kind":"company","label":"Acme","industry":"logistics"}')
 mcp_recall("forge:graph", query="acme")
+
+# Generic dispatch: call any tool on any configured namespace
+mcp_call_tool("blender", "get_scene_info", args_json="{}")
+mcp_call_tool("forge:vault", "store",
+              args_json='{"key":"note","value":"stored via router"}')
+
+# Introspection
+mcp_list_tools("blender")        # enumerate the server's tool surface
+mcp_list_namespaces()            # active namespaces + full external config
 ```
+
+**Config-driven external dispatch** (`forge/config.py`):
+
+```python
+MCP_SERVERS = {
+    "blender":    {"command": ["uvx", "blender-mcp"],      "enabled": True,  "auto_start": True,  "timeout": 120.0},
+    "salesforce": {"command": ["uvx", "@salesforce/mcp"],  "enabled": False, "auto_start": False, "timeout": 60.0},
+    # future: cursor, linear, notion, github, …
+}
+```
+
+Each `enabled` flag is env-overridable as `FORGE_MCP_SERVER_<NAME>_ENABLED`. Adding a new external MCP = one dict entry — no new tool file, no new pack. The router handles the rest and falls back gracefully on disabled / missing-command / unknown-namespace paths with actionable error envelopes.
 
 **Auto-sync** (opt-in via `FORGE_MCP_AUTO_SYNC_ENABLED=true`, default on): every successful executor step syncs to `forge:vault` + `forge:graph` so agent memory accumulates as work happens. One-liner hook in `forge/executor.py`, observable via `forge.mcp_client.set_auto_sync(vault, graph)`.
 

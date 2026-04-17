@@ -354,3 +354,209 @@ def maybe_auto_sync(step_title: str, iteration: int, tool_name: str,
 def enable_default_auto_sync() -> None:
     """Convenience — wire the default executor vault + shared graph."""
     set_auto_sync(vault=_get_vault(), graph=_get_graph())
+
+
+# ── Router: config-driven dispatch across internal + external ───────────
+
+
+class MCPRouter:
+    """Unified dispatcher for internal (forge:*) and external MCP namespaces.
+
+    Reads the `MCP_SERVERS` config dict to decide how to route namespace
+    calls. Internal namespaces stay backed by vault / graph so existing
+    store/recall shapes keep working. External namespaces spawn the
+    configured subprocess (per-call) and forward to MCP over stdio.
+
+    Graceful degradation on every path — missing command, disabled server,
+    unknown namespace, invalid args — returns a JSON envelope with a
+    `suggestion` field so agents and humans know how to fix it.
+    """
+
+    INTERNAL_NAMESPACES = ("vault", "graph")
+
+    def __init__(self, servers_config: dict[str, dict] | None = None):
+        # Deep-copy the dict so callers mutating server state don't drift config
+        self._servers: dict[str, dict] = {
+            name: dict(cfg) for name, cfg in (servers_config or {}).items()
+        }
+
+    # ── Inspection ──────────────────────────────────────────────────
+
+    def active_namespaces(self) -> list[str]:
+        """Namespaces currently callable: internal + enabled external."""
+        internal = [f"forge:{t}" for t in self.INTERNAL_NAMESPACES]
+        external = [name for name, cfg in self._servers.items() if cfg.get("enabled")]
+        return internal + external
+
+    def configured_servers(self) -> dict[str, dict]:
+        """Full server map for /api/config exposure."""
+        out: dict[str, dict] = {}
+        for name, cfg in self._servers.items():
+            out[name] = {
+                "command": list(cfg.get("command") or []),
+                "enabled": bool(cfg.get("enabled", False)),
+                "auto_start": bool(cfg.get("auto_start", False)),
+                "timeout": float(cfg.get("timeout", 60.0)),
+            }
+        return out
+
+    def summary_banner(self) -> str:
+        """Single-line summary for the startup splash."""
+        internal = ", ".join(f"forge:{t}" for t in self.INTERNAL_NAMESPACES)
+        active = [n for n, c in self._servers.items() if c.get("enabled")]
+        configured = list(self._servers.keys())
+        return (
+            f"internal: {internal} | "
+            f"external active: [{', '.join(active) if active else 'none'}] | "
+            f"configured: [{', '.join(configured) if configured else 'none'}]"
+        )
+
+    # ── Dispatch ────────────────────────────────────────────────────
+
+    def call_tool(self, namespace: str, tool_name: str, args: dict[str, Any]) -> str:
+        """Route `namespace.tool_name(args)` to internal or external backend."""
+        server_name = self._resolve_server(namespace)
+        if server_name is not None:
+            return self._call_external(server_name, tool_name, args)
+        scope, target = _parse_namespace(namespace)
+        if scope == "forge":
+            return self._call_internal(target, tool_name, args, namespace)
+        return json.dumps({
+            "error": f"Unknown MCP namespace: {namespace!r}",
+            "suggestion": (
+                f"Available: {', '.join(self.active_namespaces())}. "
+                f"Add new external servers to forge.config.MCP_SERVERS."
+            ),
+        })
+
+    def _resolve_server(self, namespace: str) -> str | None:
+        """Map `blender`, `blender:get_scene_info`, or `mcp:blender` → `blender`."""
+        ns = namespace.strip()
+        if ns.startswith("mcp:"):
+            ns = ns[4:]
+        if ns in self._servers:
+            return ns
+        if ":" in ns:
+            head = ns.split(":", 1)[0]
+            if head in self._servers:
+                return head
+        return None
+
+    def list_namespace_tools(self, namespace: str) -> str:
+        """Enumerate the tools exposed by a namespace."""
+        server_name = self._resolve_server(namespace)
+        if server_name is not None:
+            cfg = self._servers[server_name]
+            if not cfg.get("enabled", False):
+                return json.dumps({
+                    "error": f"MCP server {server_name!r} is disabled",
+                    "suggestion": (
+                        f"Set FORGE_MCP_SERVER_{server_name.upper()}_ENABLED=true "
+                        f"or edit forge.config.MCP_SERVERS[{server_name!r}]['enabled'] = True"
+                    ),
+                })
+            command = cfg.get("command") or []
+            if not command:
+                return json.dumps({"error": f"No command configured for {server_name!r}"})
+            return list_mcp_tools(command=command[0], args=list(command[1:]))
+        scope, target = _parse_namespace(namespace)
+        if scope == "forge":
+            if target in self.INTERNAL_NAMESPACES:
+                return json.dumps({
+                    "namespace": namespace,
+                    "tools": [
+                        {"name": "store", "description": "Write {key, value} into the namespace"},
+                        {"name": "recall", "description": "Read matches for {query, limit}"},
+                    ],
+                })
+            return json.dumps({
+                "error": f"Unknown internal namespace: {namespace!r}",
+                "suggestion": f"Try one of: {', '.join('forge:' + n for n in self.INTERNAL_NAMESPACES)}",
+            })
+        return json.dumps({
+            "error": f"Unknown MCP namespace: {namespace!r}",
+            "suggestion": f"Available: {', '.join(self.active_namespaces())}",
+        })
+
+    # ── Internal / external implementation ──────────────────────────
+
+    def _call_internal(self, target: str, tool_name: str,
+                       args: dict[str, Any], full_ns: str) -> str:
+        if target not in self.INTERNAL_NAMESPACES:
+            return json.dumps({
+                "error": f"Unknown internal namespace: {full_ns!r}",
+                "suggestion": f"Try: {', '.join('forge:' + n for n in self.INTERNAL_NAMESPACES)}",
+            })
+        if tool_name == "store":
+            key = args.get("key")
+            value = args.get("value", "")
+            if not key:
+                return json.dumps({"error": "store: 'key' is required in args"})
+            return json.dumps(_internal_store(target, str(key), str(value)),
+                              default=str, indent=2)
+        if tool_name == "recall":
+            query = args.get("query", "")
+            limit = int(args.get("limit", 5))
+            return json.dumps(_internal_recall(target, str(query), limit=limit),
+                              default=str, indent=2)
+        return json.dumps({
+            "error": f"Internal namespace {full_ns!r} supports only 'store' and 'recall'",
+            "suggestion": f"Use tool_name='store' or 'recall'. Got {tool_name!r}.",
+        })
+
+    def _call_external(self, server_name: str, tool_name: str,
+                       args: dict[str, Any]) -> str:
+        cfg = self._servers[server_name]
+        if not cfg.get("enabled", False):
+            return json.dumps({
+                "error": f"MCP server {server_name!r} is disabled in config",
+                "suggestion": (
+                    f"Set FORGE_MCP_SERVER_{server_name.upper()}_ENABLED=true "
+                    f"or edit forge.config.MCP_SERVERS[{server_name!r}]['enabled'] = True"
+                ),
+            })
+        command = cfg.get("command") or []
+        if not command:
+            return json.dumps({
+                "error": f"No command configured for server {server_name!r}",
+                "suggestion": f"Set MCP_SERVERS[{server_name!r}]['command'] = ['uvx', 'your-server']",
+            })
+        timeout = float(cfg.get("timeout", 120.0))
+        log.info("MCP router → %s.%s", server_name, tool_name)
+        return call_mcp_tool(
+            command=command[0],
+            args=list(command[1:]),
+            tool_name=tool_name,
+            tool_args=args,
+            timeout=timeout,
+        )
+
+
+# ── Router singleton ────────────────────────────────────────────────────
+
+
+_ROUTER: MCPRouter | None = None
+
+
+def get_router() -> MCPRouter:
+    """Return the process-wide MCPRouter, constructed from forge.config."""
+    global _ROUTER
+    if _ROUTER is None:
+        from forge.config import MCP_SERVERS
+        _ROUTER = MCPRouter(MCP_SERVERS)
+    return _ROUTER
+
+
+def reset_router(servers_config: dict[str, dict] | None = None) -> None:
+    """Reset the singleton — intended for tests + config-reload scenarios."""
+    global _ROUTER
+    _ROUTER = MCPRouter(servers_config) if servers_config is not None else None
+
+
+def route_call_tool(namespace: str, tool_name: str, args: dict[str, Any]) -> str:
+    """Thin functional facade for the router — what the agent tool calls."""
+    return get_router().call_tool(namespace, tool_name, args)
+
+
+def route_list_tools(namespace: str) -> str:
+    return get_router().list_namespace_tools(namespace)
