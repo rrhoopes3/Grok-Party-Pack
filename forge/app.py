@@ -16,6 +16,7 @@ import os
 import json
 import logging
 import threading
+import time
 import uuid
 from queue import Queue
 
@@ -79,6 +80,75 @@ def _mcp_api_summary() -> dict:
         }
     except Exception as e:
         return {"enabled": True, "error": f"{type(e).__name__}: {e}"}
+
+
+# ── MCP health cache ────────────────────────────────────────────────────
+#
+# Live-pinging external MCP servers spawns a subprocess and takes 1-3s per
+# call. Every hit would storm the system on page load, so we cache the
+# result for _MCP_STATUS_CACHE_TTL seconds keyed by server name. `?live=true`
+# forces a refresh. Servers never pinged return `reachable: null` so the UI
+# can render them as "unknown" rather than "down".
+
+_MCP_STATUS_CACHE_TTL = 5.0
+_mcp_status_cache: dict = {}
+_mcp_status_cache_lock = threading.Lock()
+
+
+def _ping_mcp_server(server_name: str, cfg: dict) -> dict:
+    """Spawn the MCP server, list tools, return a health snapshot dict.
+
+    Never raises — all exit paths produce a dict with `reachable` bool and
+    (when relevant) a `last_error` string.
+    """
+    from forge.mcp_client import list_mcp_tools
+    started = time.monotonic()
+    command = cfg.get("command") or []
+    if not command:
+        return {
+            "namespace": server_name,
+            "enabled": bool(cfg.get("enabled")),
+            "reachable": False,
+            "ping_ms": None,
+            "tool_count": 0,
+            "last_error": "no command configured",
+            "last_checked_at": time.time(),
+        }
+    try:
+        raw = list_mcp_tools(command=command[0], args=list(command[1:]), init_timeout=8.0)
+        ping_ms = int((time.monotonic() - started) * 1000)
+        parsed = json.loads(raw)
+        if "error" in parsed:
+            return {
+                "namespace": server_name,
+                "enabled": bool(cfg.get("enabled")),
+                "reachable": False,
+                "ping_ms": ping_ms,
+                "tool_count": 0,
+                "last_error": parsed["error"],
+                "last_checked_at": time.time(),
+            }
+        tools = parsed.get("tools", []) or []
+        return {
+            "namespace": server_name,
+            "enabled": bool(cfg.get("enabled")),
+            "reachable": True,
+            "ping_ms": ping_ms,
+            "tool_count": len(tools),
+            "last_error": None,
+            "last_checked_at": time.time(),
+        }
+    except Exception as e:
+        ping_ms = int((time.monotonic() - started) * 1000)
+        return {
+            "namespace": server_name,
+            "enabled": bool(cfg.get("enabled")),
+            "reachable": False,
+            "ping_ms": ping_ms,
+            "tool_count": 0,
+            "last_error": f"{type(e).__name__}: {e}",
+            "last_checked_at": time.time(),
+        }
 
 
 def register_modules(flask_app: Flask) -> dict:
@@ -678,6 +748,140 @@ def get_health():
         "providers_unhealthy": provider_health_snapshot(),
         "tasks_by_status": task_state.counts_by_status(),
         "orphans_interrupted_on_startup": _orphans_interrupted,
+    })
+
+
+@app.route("/api/mcp/status")
+def get_mcp_status():
+    """Per-server MCP health for the Hub sidebar.
+
+    Query params:
+      namespace=<name>   Filter to one configured server (404 if unknown)
+      live=true          Force a live ping + cache refresh (5s TTL otherwise)
+
+    Default behaviour returns the cached snapshot, or `reachable: null` for
+    servers that have never been pinged — so a page load stays instant and
+    the UI picks when to spawn subprocesses.
+    """
+    if not MCP_ENABLED:
+        return jsonify({"enabled": False, "servers": {}})
+    try:
+        from forge.mcp_client import get_router
+        router = get_router()
+    except Exception as e:
+        return jsonify({"enabled": True, "error": f"{type(e).__name__}: {e}"}), 500
+
+    servers = router.configured_servers()
+    target = request.args.get("namespace")
+    live = request.args.get("live", "").lower() == "true"
+    if target:
+        if target not in servers:
+            return jsonify({
+                "error": f"Unknown namespace: {target!r}",
+                "suggestion": f"Configured: {list(servers.keys())}",
+            }), 404
+        servers = {target: servers[target]}
+
+    now = time.monotonic()
+    out: dict = {}
+    with _mcp_status_cache_lock:
+        for name, cfg in servers.items():
+            cached = _mcp_status_cache.get(name)
+            fresh = cached is not None and (now - cached["_cached_at"] < _MCP_STATUS_CACHE_TTL)
+            if not cfg.get("enabled"):
+                out[name] = {
+                    "namespace": name,
+                    "enabled": False,
+                    "reachable": None,
+                    "ping_ms": None,
+                    "tool_count": 0,
+                    "last_error": None,
+                    "last_checked_at": None,
+                }
+                continue
+            if fresh and not live:
+                out[name] = {k: v for k, v in cached.items() if not k.startswith("_")}
+                continue
+            if not live and cached is None:
+                out[name] = {
+                    "namespace": name,
+                    "enabled": True,
+                    "reachable": None,
+                    "ping_ms": None,
+                    "tool_count": None,
+                    "last_error": None,
+                    "last_checked_at": None,
+                }
+                continue
+            health = _ping_mcp_server(name, cfg)
+            _mcp_status_cache[name] = {**health, "_cached_at": now}
+            out[name] = health
+
+    return jsonify({
+        "enabled": True,
+        "auto_sync": MCP_AUTO_SYNC_ENABLED,
+        "servers": out,
+    })
+
+
+@app.route("/api/mcp/namespaces")
+def get_mcp_namespaces():
+    """Full sidebar render payload: internal + external namespaces.
+
+    Stays fast — pure in-memory reads from the router + vault + graph.
+    No subprocess spawns. Pair with /api/mcp/status for liveness.
+    """
+    if not MCP_ENABLED:
+        return jsonify({"enabled": False})
+    try:
+        from forge.mcp_client import get_router, _get_vault, _get_graph
+        router = get_router()
+    except Exception as e:
+        return jsonify({"enabled": True, "error": f"{type(e).__name__}: {e}"}), 500
+
+    servers = router.configured_servers()
+    external = [{"namespace": name, **cfg} for name, cfg in servers.items()]
+
+    internal: dict = {}
+    try:
+        vault = _get_vault()
+        entries = list(vault.notes_space.entries)
+        recent = sorted(entries, key=lambda e: getattr(e, "last_seen", 0), reverse=True)[:5]
+        internal["forge:vault"] = {
+            "entry_count": vault.notes_space.entry_count,
+            "recent_topics": [
+                {
+                    "topic": getattr(e, "topic", ""),
+                    "confidence": round(getattr(e, "confidence", 0.0), 3),
+                }
+                for e in recent
+            ],
+        }
+    except Exception as e:
+        internal["forge:vault"] = {"error": f"{type(e).__name__}: {e}"}
+
+    try:
+        graph = _get_graph()
+        nodes = list(graph._nodes.values())
+        recent_nodes = sorted(nodes, key=lambda n: getattr(n, "last_seen", 0), reverse=True)[:5]
+        internal["forge:graph"] = {
+            "node_count": len(graph._nodes),
+            "edge_count": len(graph._edges),
+            "recent_nodes": [
+                {"id": n.id, "kind": n.kind, "label": n.label}
+                for n in recent_nodes
+            ],
+        }
+    except Exception as e:
+        internal["forge:graph"] = {"error": f"{type(e).__name__}: {e}"}
+
+    return jsonify({
+        "enabled": True,
+        "auto_sync": MCP_AUTO_SYNC_ENABLED,
+        "summary": router.summary_banner(),
+        "active_namespaces": router.active_namespaces(),
+        "internal": internal,
+        "external": external,
     })
 
 
