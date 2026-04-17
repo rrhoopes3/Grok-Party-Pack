@@ -63,9 +63,15 @@ TOOL_CATEGORIES = {
     "rag":      {"rag_ingest", "rag_query", "rag_status", "rag_clear"},
     "fake_audio": {"fake_audio_detect", "fake_audio_scan", "fake_audio_neuro_compare"},
     "deception": {"veracity_analyze", "veracity_baseline", "veracity_compare", "veracity_quick"},
-    "salesforce": {"salesforce_soql", "salesforce_describe",
-                   "salesforce_record_get", "salesforce_record_update",
-                   "salesforce_list_orgs"},
+    # The `salesforce` category now points at MCP-routed tools
+    # (@salesforce/mcp via forge.mcp_client). The legacy `sf` CLI wrappers
+    # are still registered globally for direct access, just under a
+    # separate `salesforce_cli` category so the pack default uses MCP.
+    "salesforce":     {"mcp_call_tool", "mcp_list_tools", "mcp_list_namespaces",
+                       "salesforce_mcp_call", "salesforce_mcp_list_tools"},
+    "salesforce_cli": {"salesforce_soql", "salesforce_describe",
+                       "salesforce_record_get", "salesforce_record_update",
+                       "salesforce_list_orgs"},
     "blender":    {"blender_list_tools", "blender_call_tool",
                    "blender_get_scene_info", "blender_get_object_info",
                    "blender_execute_code", "blender_viewport_screenshot"},

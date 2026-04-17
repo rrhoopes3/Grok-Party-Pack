@@ -39,11 +39,21 @@ def test_salesforce_tools_appear_in_create_registry():
     assert "salesforce_list_orgs" in names
 
 
-def test_salesforce_category_resolution():
+def test_salesforce_cli_category_resolution():
+    """CLI tools moved to `salesforce_cli` after the MCP router refactor."""
     from forge.tools.registry import resolve_tools_for_step
-    resolved = resolve_tools_for_step(["salesforce"])
+    resolved = resolve_tools_for_step(["salesforce_cli"])
     assert "salesforce_soql" in resolved
     assert "salesforce_describe" in resolved
+
+
+def test_salesforce_category_now_routes_through_mcp():
+    """Default `salesforce` category points at MCP router tools."""
+    from forge.tools.registry import resolve_tools_for_step
+    resolved = resolve_tools_for_step(["salesforce"])
+    assert "salesforce_mcp_call" in resolved
+    assert "mcp_call_tool" in resolved
+    assert "salesforce_soql" not in resolved
 
 
 # ── Handler behavior (no CLI) ────────────────────────────────────────────

@@ -179,7 +179,7 @@ Each `enabled` flag is env-overridable as `FORGE_MCP_SERVER_<NAME>_ENABLED`. Add
 
 **Blender pack** — driven by [blender-mcp](https://github.com/ahujasid/blender-mcp). Install the addon in Blender, click "Connect to Claude" in the 3D View sidebar (N), then `FORGE_BLENDER_PACK_ENABLED=true`. Six tools: generic `blender_call_tool(name, args_json)` + convenience wrappers for scene info, object info, execute code, viewport screenshot. Pack defaults to `claude-sonnet-4-6` for vision-capable viewport feedback loops.
 
-**Salesforce pack** — via `sf` CLI (not MCP, since sf is already authed locally). `FORGE_SALESFORCE_PACK_ENABLED=true` + `sf org login web`. Five tools: SOQL, describe, record get/update, list orgs. Writes gated by `FORGE_SF_ALLOW_WRITES=true`.
+**Salesforce pack** — routes through [@salesforce/mcp](https://www.npmjs.com/package/@salesforce/mcp) via the router (default on via `FORGE_MCP_SERVER_SALESFORCE_ENABLED=true`). Convenience wrapper `salesforce_mcp_call(tool_name, args_json)` hard-codes the namespace so agents browsing by name find it; generic `mcp_call_tool("salesforce", ...)` also works. The legacy `sf` CLI wrappers (SOQL, describe, record get/update, list orgs) remain available under the `salesforce_cli` tool category if you want the direct local path instead.
 
 ---
 

@@ -322,8 +322,8 @@ MCP_SERVERS: dict[str, dict] = {
     },
     "salesforce": {
         "command": ["uvx", "@salesforce/mcp"],
-        "enabled": os.getenv("FORGE_MCP_SERVER_SALESFORCE_ENABLED", "false").lower() == "true",
-        "auto_start": False,
+        "enabled": os.getenv("FORGE_MCP_SERVER_SALESFORCE_ENABLED", "true").lower() == "true",
+        "auto_start": True,
         "timeout": 60.0,
     },
     # future: cursor, linear, notion, github, …

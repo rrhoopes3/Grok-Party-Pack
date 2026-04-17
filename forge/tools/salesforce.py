@@ -121,6 +121,32 @@ def salesforce_list_orgs() -> str:
     return _truncate(resp.get("result", resp))
 
 
+# ── MCP convenience wrappers (route through @salesforce/mcp) ─────────────
+#
+# These hard-code `namespace="salesforce"` so agents browsing by name find a
+# Salesforce-specific entry point rather than only the generic `mcp_call_tool`.
+# They delegate to the router, which reads forge.config.MCP_SERVERS.
+
+
+def salesforce_mcp_call(tool_name: str, args_json: str = "{}") -> str:
+    """Call any tool on the @salesforce/mcp server (namespace fixed to 'salesforce')."""
+    import json as _json
+    from forge.mcp_client import route_call_tool
+    try:
+        args = _json.loads(args_json) if args_json else {}
+    except _json.JSONDecodeError as e:
+        return _json.dumps({"error": f"args_json must be valid JSON: {e}"})
+    if not isinstance(args, dict):
+        return _json.dumps({"error": "args_json must be a JSON object"})
+    return route_call_tool("salesforce", tool_name, args)
+
+
+def salesforce_mcp_list_tools() -> str:
+    """List every tool exposed by the @salesforce/mcp server."""
+    from forge.mcp_client import route_list_tools
+    return route_list_tools("salesforce")
+
+
 # ── Registration ────────────────────────────────────────────────────────
 
 
@@ -195,4 +221,34 @@ def register(registry: ToolRegistry) -> None:
             "required": [],
         },
         handler=salesforce_list_orgs,
+    )
+    registry.register(
+        name="salesforce_mcp_call",
+        description=(
+            "Call any tool on the @salesforce/mcp server. Namespace is fixed "
+            "to 'salesforce' — use mcp_list_tools('salesforce') to see what's "
+            "available. Requires FORGE_MCP_SERVER_SALESFORCE_ENABLED=true "
+            "(default on) and `uv` on PATH."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "tool_name": {
+                    "type": "string",
+                    "description": "Tool name from @salesforce/mcp",
+                },
+                "args_json": {
+                    "type": "string",
+                    "description": "JSON-encoded arguments object (default '{}')",
+                },
+            },
+            "required": ["tool_name"],
+        },
+        handler=salesforce_mcp_call,
+    )
+    registry.register(
+        name="salesforce_mcp_list_tools",
+        description="Enumerate every tool the @salesforce/mcp server exposes.",
+        parameters={"type": "object", "properties": {}, "required": []},
+        handler=salesforce_mcp_list_tools,
     )

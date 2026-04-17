@@ -281,3 +281,108 @@ def test_config_has_mcp_servers_dict():
         assert "command" in cfg
         assert "enabled" in cfg
         assert "auto_start" in cfg
+
+
+# ── Salesforce namespace (refactored from sf CLI to @salesforce/mcp) ────
+
+
+def test_salesforce_server_enabled_by_default():
+    from forge.config import MCP_SERVERS
+    assert "salesforce" in MCP_SERVERS
+    assert MCP_SERVERS["salesforce"]["enabled"] is True
+    assert MCP_SERVERS["salesforce"]["command"] == ["uvx", "@salesforce/mcp"]
+
+
+def test_salesforce_category_uses_mcp_router_tools():
+    """The `salesforce` category should point at MCP-routed tools now,
+    not the legacy sf CLI wrappers. CLI tools moved to `salesforce_cli`."""
+    from forge.tools.registry import TOOL_CATEGORIES
+    assert "salesforce" in TOOL_CATEGORIES
+    assert "salesforce_cli" in TOOL_CATEGORIES
+
+    sf_cat = TOOL_CATEGORIES["salesforce"]
+    assert "salesforce_mcp_call" in sf_cat
+    assert "mcp_call_tool" in sf_cat
+    assert "mcp_list_tools" in sf_cat
+    assert "mcp_list_namespaces" in sf_cat
+    # Legacy wrappers should NOT be in the default `salesforce` category
+    assert "salesforce_soql" not in sf_cat
+    assert "salesforce_soql" in TOOL_CATEGORIES["salesforce_cli"]
+
+
+def test_salesforce_category_resolves():
+    from forge.tools.registry import resolve_tools_for_step
+    resolved = resolve_tools_for_step(["salesforce"])
+    assert "salesforce_mcp_call" in resolved
+    assert "mcp_call_tool" in resolved
+
+
+def test_salesforce_mcp_call_tool_registered():
+    from forge.tools import create_registry
+    reg = create_registry()
+    names = set(reg.list_tools())
+    assert "salesforce_mcp_call" in names
+    assert "salesforce_mcp_list_tools" in names
+
+
+def test_salesforce_mcp_call_hardcodes_namespace():
+    """The wrapper must route to namespace='salesforce' regardless of args."""
+    from forge.tools.salesforce import salesforce_mcp_call
+    with patch("forge.mcp_client.route_call_tool", return_value='{"ok":true}') as mock:
+        salesforce_mcp_call("query_records", '{"soql":"SELECT Id FROM Account"}')
+    mock.assert_called_once()
+    args = mock.call_args.args
+    assert args[0] == "salesforce"  # namespace hard-coded
+    assert args[1] == "query_records"
+    assert args[2] == {"soql": "SELECT Id FROM Account"}
+
+
+def test_salesforce_mcp_call_rejects_bad_json():
+    from forge.tools.salesforce import salesforce_mcp_call
+    out = salesforce_mcp_call("anything", "{not json")
+    parsed = json.loads(out)
+    assert "error" in parsed
+    assert "valid JSON" in parsed["error"]
+
+
+def test_salesforce_disabled_via_env_override(router):
+    """Simulating FORGE_MCP_SERVER_SALESFORCE_ENABLED=false: router rejects."""
+    r = MCPRouter({
+        "salesforce": {
+            "command": ["uvx", "@salesforce/mcp"],
+            "enabled": False,
+            "auto_start": False,
+            "timeout": 60.0,
+        },
+    })
+    out = r.call_tool("salesforce", "query_records", {})
+    parsed = json.loads(out)
+    assert "error" in parsed
+    assert "disabled" in parsed["error"]
+    assert "FORGE_MCP_SERVER_SALESFORCE_ENABLED" in parsed["suggestion"]
+
+
+def test_salesforce_routes_to_uvx_salesforce_mcp_when_enabled():
+    """When enabled, a call on 'salesforce' invokes uvx @salesforce/mcp."""
+    r = MCPRouter({
+        "salesforce": {
+            "command": ["uvx", "@salesforce/mcp"],
+            "enabled": True,
+            "auto_start": True,
+            "timeout": 45.0,
+        },
+    })
+    with patch("forge.mcp_client.call_mcp_tool", return_value='{"ok":true}') as mock:
+        r.call_tool("salesforce", "query_records", {"soql": "SELECT Id FROM Account"})
+    kwargs = mock.call_args.kwargs
+    assert kwargs["command"] == "uvx"
+    assert kwargs["args"] == ["@salesforce/mcp"]
+    assert kwargs["tool_name"] == "query_records"
+    assert kwargs["timeout"] == 45.0
+
+
+def test_salesforce_pack_description_mentions_mcp():
+    """The refactored pack description should reflect @salesforce/mcp routing."""
+    from forge.packs.salesforce import SALESFORCE_PACK
+    assert "mcp" in SALESFORCE_PACK.description.lower()
+    assert "mcp" in SALESFORCE_PACK.deps_required
