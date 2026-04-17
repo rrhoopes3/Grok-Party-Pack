@@ -21,6 +21,9 @@ dependencies = [
     "anthropic>=0.40",
     "openai>=1.50",
 
+    # MCP client (drives external MCP servers: blender-mcp, etc.)
+    "mcp>=1.0",
+
     # Tools
     "pillow>=10.0",
     "playwright>=1.40",

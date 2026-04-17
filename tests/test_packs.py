@@ -14,6 +14,7 @@ from forge.packs.trading import TRADING_PACK
 from forge.packs.arena import ARENA_PACK
 from forge.packs.email import EMAIL_PACK
 from forge.packs.salesforce import SALESFORCE_PACK
+from forge.packs.blender import BLENDER_PACK
 
 
 # ── CapabilityPack Tests ─────────────────────────────────────────────────
@@ -213,17 +214,17 @@ class TestPackRegistry:
 
 class TestBuiltinPacks:
     def test_all_packs_load(self):
-        """All 7 built-in packs should be loadable."""
-        packs = [RESEARCH_PACK, BUILDER_PACK, OPS_PACK, TRADING_PACK, ARENA_PACK, EMAIL_PACK, SALESFORCE_PACK]
+        """All 8 built-in packs should be loadable."""
+        packs = [RESEARCH_PACK, BUILDER_PACK, OPS_PACK, TRADING_PACK, ARENA_PACK, EMAIL_PACK, SALESFORCE_PACK, BLENDER_PACK]
         names = {p.name for p in packs}
-        assert names == {"research", "builder", "ops", "trading", "arena", "email", "salesforce"}
+        assert names == {"research", "builder", "ops", "trading", "arena", "email", "salesforce", "blender"}
 
     def test_all_packs_have_tools(self):
-        for pack in [RESEARCH_PACK, BUILDER_PACK, OPS_PACK, TRADING_PACK, ARENA_PACK, EMAIL_PACK, SALESFORCE_PACK]:
+        for pack in [RESEARCH_PACK, BUILDER_PACK, OPS_PACK, TRADING_PACK, ARENA_PACK, EMAIL_PACK, SALESFORCE_PACK, BLENDER_PACK]:
             assert len(pack.tools) > 0, f"{pack.name} has no tools"
 
     def test_all_packs_have_description(self):
-        for pack in [RESEARCH_PACK, BUILDER_PACK, OPS_PACK, TRADING_PACK, ARENA_PACK, EMAIL_PACK, SALESFORCE_PACK]:
+        for pack in [RESEARCH_PACK, BUILDER_PACK, OPS_PACK, TRADING_PACK, ARENA_PACK, EMAIL_PACK, SALESFORCE_PACK, BLENDER_PACK]:
             assert pack.description, f"{pack.name} has no description"
 
     def test_trading_pack_is_strict(self):
@@ -261,6 +262,16 @@ class TestBuiltinPacks:
         assert "email" in SALESFORCE_PACK.tools
         assert "salesforce" in SALESFORCE_PACK.tools
 
+    def test_blender_has_feature_flag(self):
+        assert BLENDER_PACK.feature_flag == "BLENDER_PACK_ENABLED"
+
+    def test_blender_requires_mcp_dep(self):
+        assert "mcp" in BLENDER_PACK.deps_required
+
+    def test_blender_defaults_to_vision_model(self):
+        """Viewport screenshots need a vision-capable default model."""
+        assert BLENDER_PACK.default_model  # not empty
+
     def test_budgets_are_reasonable(self):
         """Stricter packs should have tighter budgets."""
         assert TRADING_PACK.budget.max_cost_usd <= BUILDER_PACK.budget.max_cost_usd
@@ -268,7 +279,7 @@ class TestBuiltinPacks:
 
     def test_all_packs_serialize(self):
         """All packs should serialize to dict without error."""
-        for pack in [RESEARCH_PACK, BUILDER_PACK, OPS_PACK, TRADING_PACK, ARENA_PACK, EMAIL_PACK, SALESFORCE_PACK]:
+        for pack in [RESEARCH_PACK, BUILDER_PACK, OPS_PACK, TRADING_PACK, ARENA_PACK, EMAIL_PACK, SALESFORCE_PACK, BLENDER_PACK]:
             d = pack.to_dict()
             assert d["name"] == pack.name
             assert "readiness" in d
@@ -279,13 +290,13 @@ class TestBuiltinPacks:
 
 class TestGlobalRegistry:
     def test_get_registry_returns_populated(self):
-        """Global registry should have all 7 built-in packs."""
+        """Global registry should have all 8 built-in packs."""
         # Reset singleton for clean test
         import forge.packs as packs_mod
         packs_mod._registry = None
         reg = get_registry()
-        assert len(reg.list_packs()) == 7
-        assert set(reg.list_names()) == {"research", "builder", "ops", "trading", "arena", "email", "salesforce"}
+        assert len(reg.list_packs()) == 8
+        assert set(reg.list_names()) == {"research", "builder", "ops", "trading", "arena", "email", "salesforce", "blender"}
 
     def test_get_registry_is_singleton(self):
         """Calling get_registry twice returns same instance."""

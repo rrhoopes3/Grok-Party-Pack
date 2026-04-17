@@ -251,6 +251,8 @@ def _load_builtin_packs(registry: PackRegistry) -> None:
     from forge.packs.arena import ARENA_PACK
     from forge.packs.email import EMAIL_PACK
     from forge.packs.salesforce import SALESFORCE_PACK
+    from forge.packs.blender import BLENDER_PACK
 
-    for pack in [RESEARCH_PACK, BUILDER_PACK, OPS_PACK, TRADING_PACK, ARENA_PACK, EMAIL_PACK, SALESFORCE_PACK]:
+    for pack in [RESEARCH_PACK, BUILDER_PACK, OPS_PACK, TRADING_PACK, ARENA_PACK,
+                 EMAIL_PACK, SALESFORCE_PACK, BLENDER_PACK]:
         registry.register(pack)

@@ -66,6 +66,9 @@ TOOL_CATEGORIES = {
     "salesforce": {"salesforce_soql", "salesforce_describe",
                    "salesforce_record_get", "salesforce_record_update",
                    "salesforce_list_orgs"},
+    "blender":    {"blender_list_tools", "blender_call_tool",
+                   "blender_get_scene_info", "blender_get_object_info",
+                   "blender_execute_code", "blender_viewport_screenshot"},
 }
 
 # Reverse map: tool_name → category

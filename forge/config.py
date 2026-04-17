@@ -286,6 +286,12 @@ RAG_DATA_DIR.mkdir(exist_ok=True)
 # Writes are additionally gated by FORGE_SF_ALLOW_WRITES=true.
 SALESFORCE_PACK_ENABLED = os.getenv("FORGE_SALESFORCE_PACK_ENABLED", "false").lower() == "true"
 
+# ── Blender Pack ──────────────────────────────────────────────────────────
+# Requires Blender with the blender-mcp addon installed and connected, plus
+# `uv` on PATH so `uvx blender-mcp` can launch the MCP server on demand.
+# See https://github.com/ahujasid/blender-mcp for addon install instructions.
+BLENDER_PACK_ENABLED = os.getenv("FORGE_BLENDER_PACK_ENABLED", "false").lower() == "true"
+
 # ── Scheduler ─────────────────────────────────────────────────────────────
 SCHEDULER_ENABLED = os.getenv("FORGE_SCHEDULER_ENABLED", "true").lower() == "true"
 
