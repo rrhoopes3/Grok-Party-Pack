@@ -130,6 +130,35 @@ report = runner.run_suite(SMOKE_EVALS)
 print(report.summary())
 ```
 
+### MCP Client + Blender Pack (now live)
+
+Forge is now a **multi-node MCP agent** — bidirectional. `forge/mcp_server.py` still exposes Forge's 40+ tool registry OUT to MCP clients (Claude Code, Cursor, Windsurf). The new `forge/mcp_client.py` goes the other way — synchronous facade over the async `mcp` SDK that lets Forge tools drive any MCP server spawned over stdio.
+
+**Namespaces**:
+
+| Namespace | Backed by | What you get |
+|---|---|---|
+| `forge:vault` | `forge.vault.AgentVault` | Keyed notes, keyword-searchable |
+| `forge:graph` | `forge.context_engine.KnowledgeGraph` | Nodes + edges, BFS recall |
+| External (e.g. blender-mcp) | subprocess over stdio | Full server tool surface |
+
+**Unified tools** (see `forge/tools/mcp.py`):
+
+```python
+mcp_store("forge:vault", key="meeting_notes", value="Acme deal moved to stage 3")
+mcp_recall("forge:vault", query="acme", limit=5)
+
+mcp_store("forge:graph", key="company:acme",
+          value='{"kind":"company","label":"Acme","industry":"logistics"}')
+mcp_recall("forge:graph", query="acme")
+```
+
+**Auto-sync** (opt-in via `FORGE_MCP_AUTO_SYNC_ENABLED=true`, default on): every successful executor step syncs to `forge:vault` + `forge:graph` so agent memory accumulates as work happens. One-liner hook in `forge/executor.py`, observable via `forge.mcp_client.set_auto_sync(vault, graph)`.
+
+**Blender pack** — driven by [blender-mcp](https://github.com/ahujasid/blender-mcp). Install the addon in Blender, click "Connect to Claude" in the 3D View sidebar (N), then `FORGE_BLENDER_PACK_ENABLED=true`. Six tools: generic `blender_call_tool(name, args_json)` + convenience wrappers for scene info, object info, execute code, viewport screenshot. Pack defaults to `claude-sonnet-4-6` for vision-capable viewport feedback loops.
+
+**Salesforce pack** — via `sf` CLI (not MCP, since sf is already authed locally). `FORGE_SALESFORCE_PACK_ENABLED=true` + `sf org login web`. Five tools: SOQL, describe, record get/update, list orgs. Writes gated by `FORGE_SF_ALLOW_WRITES=true`.
+
 ---
 
 ## Quick Start

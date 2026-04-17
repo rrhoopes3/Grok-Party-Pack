@@ -292,6 +292,14 @@ SALESFORCE_PACK_ENABLED = os.getenv("FORGE_SALESFORCE_PACK_ENABLED", "false").lo
 # See https://github.com/ahujasid/blender-mcp for addon install instructions.
 BLENDER_PACK_ENABLED = os.getenv("FORGE_BLENDER_PACK_ENABLED", "false").lower() == "true"
 
+# ── MCP Client (multi-node: internal forge:vault / forge:graph + external) ─
+# Unified store/recall surface across Forge's own memory subsystems AND any
+# MCP server spawned over stdio (blender-mcp, @salesforce/mcp, etc.).
+MCP_ENABLED = os.getenv("FORGE_MCP_ENABLED", "true").lower() == "true"
+# When true, every successful executor tool call is synced into
+# forge:vault + forge:graph as the agent works.
+MCP_AUTO_SYNC_ENABLED = os.getenv("FORGE_MCP_AUTO_SYNC_ENABLED", "true").lower() == "true"
+
 # ── Scheduler ─────────────────────────────────────────────────────────────
 SCHEDULER_ENABLED = os.getenv("FORGE_SCHEDULER_ENABLED", "true").lower() == "true"
 

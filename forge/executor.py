@@ -19,6 +19,7 @@ from xai_sdk import Client
 from xai_sdk.chat import user, tool_result
 from xai_sdk.tools import get_tool_call_type
 
+from forge.mcp_client import maybe_auto_sync as _maybe_auto_sync
 from forge.config import (
     EXECUTOR_MODEL, EXECUTOR_MAX_ITERATIONS,
     LMSTUDIO_BASE_URL, OLLAMA_BASE_URL,
@@ -390,6 +391,7 @@ def execute_step(
             yield {"type": "tool_result", "name": func_name, "result": display_result}
 
             chat.append(tool_result(result, tool_call_id=tc.id))
+            _maybe_auto_sync(step_title, iteration, func_name, args, result)
     else:
         yield {"type": "status", "content": f"Hit max iterations ({iteration_limit}) for step: {step_title}"}
 

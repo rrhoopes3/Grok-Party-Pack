@@ -2,7 +2,7 @@ from .registry import ToolRegistry
 from . import (
     filesystem, shell, browser, http, python_repl,
     git_ops, search, clipboard, image, database, archive,
-    email, escalation, prophecy, surgeon, salesforce, blender,
+    email, escalation, prophecy, surgeon, salesforce, blender, mcp,
 )
 
 
@@ -30,6 +30,8 @@ def create_registry() -> ToolRegistry:
     salesforce.register(reg)
     # Blender — 3D scene manipulation via blender-mcp (MCP client)
     blender.register(reg)
+    # MCP namespaces — unified store/recall across forge:vault, forge:graph, external
+    mcp.register(reg)
     # Generative UI — interactive widget rendering
     from forge.generative_ui import register_widget_tools
     register_widget_tools(reg)

@@ -69,6 +69,7 @@ TOOL_CATEGORIES = {
     "blender":    {"blender_list_tools", "blender_call_tool",
                    "blender_get_scene_info", "blender_get_object_info",
                    "blender_execute_code", "blender_viewport_screenshot"},
+    "mcp":        {"mcp_store", "mcp_recall"},
 }
 
 # Reverse map: tool_name → category

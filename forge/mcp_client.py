@@ -1,16 +1,30 @@
-"""MCP (Model Context Protocol) client — lets Forge drive external MCP servers.
+"""MCP (Model Context Protocol) client — multi-node surface for Forge agents.
 
-Complements `forge.mcp_server` which exposes Forge's tool registry OUT to
-external MCP clients (Claude Code, Cursor). This module goes the other way:
-synchronous Forge tool handlers → async MCP calls into servers like
-blender-mcp, @salesforce/mcp, etc.
+Exposes two namespaces behind one API:
 
-Per-call subprocess spawn (~1-3s overhead). Fine for MVP; can be upgraded
-to a persistent session pool later without changing the synchronous
-facade exposed here.
+    external — any MCP server spawned over stdio (blender-mcp,
+               @salesforce/mcp, arxiv-mcp, …)
+    internal — Forge's own Vault and KnowledgeGraph, reachable via
+               `forge:vault` / `forge:graph` namespaces so agents can
+               store/recall memory through the same store/recall tool
+               shape as external servers
+
+Also hosts an optional auto-sync sink that records every successful
+executor step into vault + graph, building up implicit memory as work
+progresses. Hook it up once with `set_auto_sync(vault, graph)`; the
+executor picks it up via `maybe_auto_sync` with no coupling.
+
+Complements `forge.mcp_server` which exposes Forge's tool registry OUT
+to external MCP clients (Claude Code, Cursor). This module goes the
+other way: synchronous Forge tool handlers → async MCP calls into
+external servers, OR direct calls into internal subsystems.
+
+Per-call subprocess spawn (~1-3s overhead) for external. Fine for MVP;
+can be upgraded to a persistent session pool later without changing
+the synchronous facade.
 
 Usage:
-    from forge.mcp_client import call_mcp_tool, list_mcp_tools
+    from forge.mcp_client import call_mcp_tool, list_mcp_tools, mcp_store, mcp_recall
 
     text = call_mcp_tool(
         command="uvx",
@@ -143,3 +157,200 @@ def list_mcp_tools(command: str, args: list[str], init_timeout: float = 15.0) ->
     except Exception as e:
         log.exception("MCP list_tools failed: %s", command)
         return json.dumps({"error": f"{type(e).__name__}: {e}"})
+
+
+# ── Internal MCP namespace (forge:vault / forge:graph) ──────────────────
+#
+# Presents Forge's own Vault and KnowledgeGraph as "internal" MCP
+# namespaces so agents can read/write internal memory through the same
+# mcp_store / mcp_recall shape they use for external MCP servers.
+#
+# Default agent id is "forge:executor" — every executor run shares one
+# vault unless the caller flips it via set_default_agent_id().
+
+
+_DEFAULT_AGENT_ID = "forge:executor"
+_vault_cache: dict[str, Any] = {}
+_graph_cache: dict[str, Any] = {}
+
+
+def set_default_agent_id(agent_id: str) -> None:
+    global _DEFAULT_AGENT_ID
+    _DEFAULT_AGENT_ID = agent_id
+
+
+def _get_vault(agent_id: str | None = None):
+    from forge.vault import AgentVault
+    aid = agent_id or _DEFAULT_AGENT_ID
+    if aid not in _vault_cache:
+        _vault_cache[aid] = AgentVault(agent_id=aid)
+    return _vault_cache[aid]
+
+
+def _get_graph(path_key: str = "default"):
+    from forge.context_engine import KnowledgeGraph
+    if path_key not in _graph_cache:
+        _graph_cache[path_key] = KnowledgeGraph()
+    return _graph_cache[path_key]
+
+
+def _parse_namespace(namespace: str) -> tuple[str, str]:
+    """Split `mcp:forge:vault` → ('forge', 'vault'). Returns (scope, target)."""
+    ns = namespace.strip()
+    if ns.startswith("mcp:"):
+        ns = ns[4:]
+    if ":" in ns:
+        scope, target = ns.split(":", 1)
+        return (scope, target)
+    return ("", ns)
+
+
+def _internal_store(target: str, key: str, value: str) -> dict[str, Any]:
+    """Write to forge:vault or forge:graph."""
+    if target == "vault":
+        from forge.vault import VaultEntry
+        vault = _get_vault()
+        vault.notes_space.add(VaultEntry(topic=key, content=value, confidence=0.9))
+        return {"ok": True, "namespace": "forge:vault", "key": key}
+    if target == "graph":
+        graph = _get_graph()
+        kind = "note"
+        label = key
+        props: dict[str, Any] = {"content": value}
+        try:
+            parsed = json.loads(value)
+            if isinstance(parsed, dict):
+                kind = parsed.get("kind", kind)
+                label = parsed.get("label", label)
+                props = {k: v for k, v in parsed.items() if k not in ("kind", "label")}
+        except (json.JSONDecodeError, TypeError):
+            pass
+        graph.add_node(key, kind=kind, label=label, **props)
+        return {"ok": True, "namespace": "forge:graph", "node_id": key, "kind": kind}
+    return {"error": f"Unknown internal target: forge:{target}"}
+
+
+def _internal_recall(target: str, query: str, limit: int = 5) -> dict[str, Any]:
+    """Read from forge:vault or forge:graph."""
+    if target == "vault":
+        vault = _get_vault()
+        entries = vault.notes_space.find(query, limit=limit)
+        return {
+            "namespace": "forge:vault",
+            "query": query,
+            "matches": [
+                {
+                    "topic": getattr(e, "topic", ""),
+                    "content": getattr(e, "content", ""),
+                    "confidence": round(getattr(e, "confidence", 0.0), 3),
+                }
+                for e in entries
+            ],
+        }
+    if target == "graph":
+        graph = _get_graph()
+        return {
+            "namespace": "forge:graph",
+            "query": query,
+            "formatted": graph.recall_graph_context(query, limit=limit),
+        }
+    return {"error": f"Unknown internal target: forge:{target}"}
+
+
+def mcp_store(namespace: str, key: str, value: str) -> str:
+    """Store `value` under `key` in the given MCP namespace.
+
+    `namespace` is "forge:vault" or "forge:graph" for internal memory.
+    External MCP servers with a store-like tool can be added later via
+    config-driven dispatch; for now non-forge namespaces return an error.
+    """
+    scope, target = _parse_namespace(namespace)
+    if scope == "forge":
+        return json.dumps(_internal_store(target, key, value), default=str, indent=2)
+    return json.dumps({
+        "error": f"External MCP namespace routing not yet wired: {namespace}. "
+                 f"Use blender_call_tool or add a config entry.",
+    })
+
+
+def mcp_recall(namespace: str, query: str, limit: int = 5) -> str:
+    """Recall by `query` from the given MCP namespace.
+
+    `namespace` is "forge:vault" or "forge:graph" for internal memory.
+    """
+    scope, target = _parse_namespace(namespace)
+    if scope == "forge":
+        return json.dumps(_internal_recall(target, query, limit=limit), default=str, indent=2)
+    return json.dumps({
+        "error": f"External MCP namespace routing not yet wired: {namespace}.",
+    })
+
+
+# ── Auto-sync sink (executor observer) ──────────────────────────────────
+
+
+class AutoSyncSink:
+    """Writes every successful executor step into vault + graph.
+
+    Wired once at startup via `set_auto_sync(vault, graph)`; executor picks
+    it up through the module-level `maybe_auto_sync` call. No coupling.
+    """
+
+    def __init__(self, vault=None, graph=None):
+        self.vault = vault
+        self.graph = graph
+
+    def record_step(self, step_title: str, iteration: int, tool_name: str,
+                    args: dict[str, Any], result: str) -> None:
+        summary = result if isinstance(result, str) else str(result)
+        if len(summary) > 200:
+            summary = summary[:200] + "…"
+        if self.vault is not None:
+            try:
+                from forge.vault import VaultEntry
+                self.vault.notes_space.add(VaultEntry(
+                    topic=f"{step_title}/{tool_name}",
+                    content=f"iter={iteration} args={json.dumps(args, default=str)[:120]} result={summary}",
+                    confidence=0.7,
+                ))
+            except Exception:
+                log.exception("auto-sync vault.add failed")
+        if self.graph is not None:
+            try:
+                self.graph.add_node(f"step:{step_title}", kind="step", label=step_title)
+                self.graph.add_node(f"tool:{tool_name}", kind="tool", label=tool_name)
+                self.graph.add_edge(f"step:{step_title}", f"tool:{tool_name}", relation="used")
+            except Exception:
+                log.exception("auto-sync graph.add failed")
+
+
+_AUTO_SYNC_SINK: AutoSyncSink | None = None
+
+
+def set_auto_sync(vault=None, graph=None) -> None:
+    """Enable auto-sync globally. Pass None for both to disable."""
+    global _AUTO_SYNC_SINK
+    if vault is None and graph is None:
+        _AUTO_SYNC_SINK = None
+    else:
+        _AUTO_SYNC_SINK = AutoSyncSink(vault=vault, graph=graph)
+
+
+def get_auto_sync() -> AutoSyncSink | None:
+    return _AUTO_SYNC_SINK
+
+
+def maybe_auto_sync(step_title: str, iteration: int, tool_name: str,
+                    args: dict[str, Any], result: str) -> None:
+    """No-op if no sink wired. One-liner for executor hooks."""
+    sink = _AUTO_SYNC_SINK
+    if sink is not None:
+        try:
+            sink.record_step(step_title, iteration, tool_name, args, result)
+        except Exception:
+            log.exception("auto-sync record_step failed")
+
+
+def enable_default_auto_sync() -> None:
+    """Convenience — wire the default executor vault + shared graph."""
+    set_auto_sync(vault=_get_vault(), graph=_get_graph())

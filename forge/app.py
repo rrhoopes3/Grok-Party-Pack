@@ -43,6 +43,8 @@ from forge.config import (
     PROPHECY_ENABLED, SURGEON_ENABLED, ARENA_SWARM_ENABLED,
     AUTH_ENABLED, SCHEDULER_ENABLED, CONVERSATIONS_ENABLED,
     OBSERVABILITY_ENABLED, PUBLIC_MODE,
+    MCP_ENABLED, MCP_AUTO_SYNC_ENABLED, BLENDER_PACK_ENABLED,
+    SALESFORCE_PACK_ENABLED,
 )
 from forge.toll.endpoints import toll_bp
 from forge.toll.public_api import public_bp
@@ -111,6 +113,24 @@ def register_modules(flask_app: Flask) -> dict:
         flask_app.register_blueprint(surgeon_bp)
         log.info("Surgeon module enabled")
         enabled["surgeon"] = True
+
+    # ── MCP Client (multi-node: internal forge:vault / forge:graph + external) ─
+    if MCP_ENABLED:
+        enabled["mcp"] = True
+        log.info(
+            "⚡ MCP Client ONLINE — namespaces: forge:vault, forge:graph | "
+            "external: blender-mcp%s | auto-sync=%s",
+            " (pack enabled)" if BLENDER_PACK_ENABLED else " (pack gated)",
+            "ON" if MCP_AUTO_SYNC_ENABLED else "off",
+        )
+        if MCP_AUTO_SYNC_ENABLED:
+            try:
+                from forge.mcp_client import enable_default_auto_sync
+                enable_default_auto_sync()
+                enabled["mcp_auto_sync"] = True
+                log.info("MCP auto-sync wired: every successful step → forge:vault + forge:graph")
+            except Exception as e:
+                log.warning("MCP auto-sync init skipped: %s: %s", type(e).__name__, e)
 
     # ── Email Agent + Webhook ───────────────────────────────────────────
     if EMAIL_AGENT_ENABLED:
@@ -612,6 +632,10 @@ def get_config():
             "surgeon": SURGEON_ENABLED,
             "arena_swarm": ARENA_SWARM_ENABLED,
             "public_mode": PUBLIC_MODE,
+            "mcp": MCP_ENABLED,
+            "mcp_auto_sync": MCP_AUTO_SYNC_ENABLED,
+            "blender_pack": BLENDER_PACK_ENABLED,
+            "salesforce_pack": SALESFORCE_PACK_ENABLED,
         },
         "runtime": {
             "working_dir": str(SHELL_WORKING_DIR),
