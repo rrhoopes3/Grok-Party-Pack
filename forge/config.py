@@ -281,6 +281,11 @@ RAG_ENABLED = os.getenv("FORGE_RAG_ENABLED", "true").lower() == "true"
 RAG_DATA_DIR = DATA_DIR / "rag"
 RAG_DATA_DIR.mkdir(exist_ok=True)
 
+# ── Salesforce Pack ───────────────────────────────────────────────────────
+# Requires `sf` CLI authenticated to at least one org (`sf org login web`).
+# Writes are additionally gated by FORGE_SF_ALLOW_WRITES=true.
+SALESFORCE_PACK_ENABLED = os.getenv("FORGE_SALESFORCE_PACK_ENABLED", "false").lower() == "true"
+
 # ── Scheduler ─────────────────────────────────────────────────────────────
 SCHEDULER_ENABLED = os.getenv("FORGE_SCHEDULER_ENABLED", "true").lower() == "true"
 

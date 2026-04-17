@@ -2,7 +2,7 @@ from .registry import ToolRegistry
 from . import (
     filesystem, shell, browser, http, python_repl,
     git_ops, search, clipboard, image, database, archive,
-    email, escalation, prophecy, surgeon,
+    email, escalation, prophecy, surgeon, salesforce,
 )
 
 
@@ -26,6 +26,8 @@ def create_registry() -> ToolRegistry:
     prophecy.register(reg)
     # Surgeon — model surgery via OBLITERATUS
     surgeon.register(reg)
+    # Salesforce — personal productivity via sf CLI
+    salesforce.register(reg)
     # Generative UI — interactive widget rendering
     from forge.generative_ui import register_widget_tools
     register_widget_tools(reg)
