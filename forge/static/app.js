@@ -558,7 +558,11 @@ function restoreSettings() {
 }
 
 function pickArenaDefaultModel() {
-    const preferred = ["grok-4.20-0309-reasoning", "grok-code-fast-1", "gpt-4o-mini", "claude-haiku-4-20250414"];
+    const preferred = [
+        "grok-4.20-0309-reasoning", "grok-code-fast-1",
+        "gpt-5.4-mini", "gpt-4o-mini",
+        "claude-haiku-4-5", "claude-haiku-4-20250414",
+    ];
     for (const modelId of preferred) {
         if (hasOption(els.redModel, modelId)) return modelId;
     }
@@ -1376,10 +1380,14 @@ function chessPopulateModelSelects() {
     fillSelect(judgeSel, 0);
 
     // Judge default — prefer Grok 4.20 reasoning if present (matches what the
-    // user asked for: "Grok 4.20 judge"). Falls back to the first option.
-    const preferredJudges = ["grok-4.20-0309-reasoning",
-                             "grok-4.20-multi-agent-0309",
-                             "claude-sonnet-4-6", "gpt-4o"];
+    // user asked for: "Grok 4.20 judge"). Falls back through the newer
+    // Claude/OpenAI flagships before giving up on the first option.
+    const preferredJudges = [
+        "grok-4.20-0309-reasoning",
+        "grok-4.20-multi-agent-0309",
+        "claude-opus-4-7", "claude-sonnet-4-7", "claude-sonnet-4-6",
+        "gpt-5.4", "gpt-4o",
+    ];
     for (const preferred of preferredJudges) {
         for (let i = 0; i < judgeSel.options.length; i++) {
             if (judgeSel.options[i].value === preferred) {
@@ -1917,9 +1925,13 @@ function nesPopulateCoachModels() {
         (grouped[m.provider || "Other"] ||= []).push(m);
     }
     sel.innerHTML = "";
-    // Default preference order: vision Claude → Grok reasoning → others
-    const preferred = ["claude-sonnet-4-6", "claude-sonnet-4-20250514",
-                       "grok-4.20-0309-reasoning", "gpt-4o", "claude-haiku-4-20250414"];
+    // Default preference order: newest vision Claude → Grok reasoning → others
+    const preferred = [
+        "claude-sonnet-4-7", "claude-opus-4-7", "claude-sonnet-4-6",
+        "grok-4.20-0309-reasoning",
+        "gpt-5.4", "gpt-4o",
+        "claude-haiku-4-5",
+    ];
     let defaultIdx = -1;
     let flatIdx = 0;
     for (const [provider, list] of Object.entries(grouped)) {

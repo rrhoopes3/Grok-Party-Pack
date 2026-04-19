@@ -29,8 +29,11 @@ log = logging.getLogger("forge.nes_arena.coach")
 # Models known to accept image input. Keep conservative — when in doubt,
 # send text only so we don't error out on a bad request.
 _VISION_MODELS = (
-    "claude-3-5-sonnet", "claude-3-opus", "claude-sonnet-4", "claude-opus-4", "claude-haiku-4",
+    "claude-3-5-sonnet", "claude-3-opus",
+    "claude-sonnet-4", "claude-opus-4", "claude-haiku-4",
+    "claude-sonnet-4-6", "claude-sonnet-4-7", "claude-opus-4-7", "claude-haiku-4-5",
     "gpt-4o", "gpt-4-vision", "gpt-4-turbo-vision", "o4",
+    "gpt-5.4", "gpt-5-4",  # both hyphen and dot spellings so partial-match works
     "grok-vision", "grok-2-vision", "grok-4-vision",
 )
 

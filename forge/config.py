@@ -75,23 +75,63 @@ EXECUTOR_MODELS = {
         "cost_in": 0.20, "cost_out": 1.50,
         "supports_tools": True,
     },
-    # Anthropic
+    # Anthropic — current lineup (4.7 flagship family + 4.5 fast tier).
+    # The 4-6 / 4-20250514 dated IDs are retained below for backcompat with
+    # packs/code that still targets them.
+    "claude-opus-4-7": {
+        "label": "Claude Opus 4.7", "provider": "Anthropic",
+        "cost_in": 15.00, "cost_out": 75.00,
+        "supports_tools": True,
+    },
+    "claude-sonnet-4-7": {
+        "label": "Claude Sonnet 4.7", "provider": "Anthropic",
+        "cost_in": 3.00, "cost_out": 15.00,
+        "supports_tools": True,
+    },
+    "claude-haiku-4-5": {
+        "label": "Claude Haiku 4.5", "provider": "Anthropic",
+        "cost_in": 1.00, "cost_out": 5.00,
+        "supports_tools": True,
+    },
+    "claude-sonnet-4-6": {
+        "label": "Claude Sonnet 4.6 (vision)", "provider": "Anthropic",
+        "cost_in": 3.00, "cost_out": 15.00,
+        "supports_tools": True,
+    },
+    # Legacy Claude 4 pinned IDs — kept so old capability packs / stored
+    # state that still reference these exact strings don't 404 at dispatch.
     "claude-sonnet-4-20250514": {
-        "label": "Claude Sonnet 4", "provider": "Anthropic",
+        "label": "Claude Sonnet 4 (legacy pin)", "provider": "Anthropic",
         "cost_in": 3.00, "cost_out": 15.00,
         "supports_tools": True,
     },
     "claude-opus-4-20250514": {
-        "label": "Claude Opus 4", "provider": "Anthropic",
+        "label": "Claude Opus 4 (legacy pin)", "provider": "Anthropic",
         "cost_in": 15.00, "cost_out": 75.00,
         "supports_tools": True,
     },
     "claude-haiku-4-20250414": {
-        "label": "Claude Haiku 4", "provider": "Anthropic",
+        "label": "Claude Haiku 4 (legacy pin)", "provider": "Anthropic",
         "cost_in": 0.80, "cost_out": 4.00,
         "supports_tools": True,
     },
-    # OpenAI
+    # OpenAI — GPT-5.4 family is the current flagship; 4o tier retained for
+    # low-cost jobs; o3-mini kept for reasoning tasks that still prefer it.
+    "gpt-5.4": {
+        "label": "GPT-5.4", "provider": "OpenAI",
+        "cost_in": 2.50, "cost_out": 15.00,
+        "supports_tools": True,
+    },
+    "gpt-5.4-mini": {
+        "label": "GPT-5.4 Mini", "provider": "OpenAI",
+        "cost_in": 0.75, "cost_out": 4.50,
+        "supports_tools": True,
+    },
+    "gpt-5.4-nano": {
+        "label": "GPT-5.4 Nano", "provider": "OpenAI",
+        "cost_in": 0.20, "cost_out": 1.25,
+        "supports_tools": True,
+    },
     "gpt-4o": {
         "label": "GPT-4o", "provider": "OpenAI",
         "cost_in": 2.50, "cost_out": 10.00,
