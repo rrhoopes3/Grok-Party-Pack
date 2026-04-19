@@ -2507,6 +2507,69 @@ body.lcars .nes-event-row .ev-frame {
   body.lcars .nes-setup-row     { grid-template-columns: 1fr; }
 }
 
+/* ── NES Theater Mode ────────────────────────────────────────────────
+   A full-screen zoom on the canvas + coach panel, hiding all other
+   chrome (topbar, footer, sidebar, setup, other tabs). Toggled via the
+   📺 button in the HUD; also pair-able with browser fullscreen via
+   document.documentElement.requestFullscreen().
+   ─────────────────────────────────────────────────────────────────── */
+body.lcars.nes-theater-mode {
+  padding: 0 !important;  /* reclaim topbar + footer + MCP hub padding */
+  overflow: hidden;
+}
+body.lcars.nes-theater-mode .topbar,
+body.lcars.nes-theater-mode .lcars-footer,
+body.lcars.nes-theater-mode #mcp-hub,
+body.lcars.nes-theater-mode .nes-setup-panel,
+body.lcars.nes-theater-mode .tab-content:not(#tab-nes),
+body.lcars.nes-theater-mode .lcars-left-rail {
+  display: none !important;
+}
+body.lcars.nes-theater-mode .nes-layout {
+  padding: 0 !important;
+  max-width: 100vw !important;
+  height: 100vh;
+  gap: 0;
+}
+body.lcars.nes-theater-mode .nes-main-panel {
+  height: 100vh;
+  width: 100vw;
+  border-radius: 0;
+  border: none;
+  box-shadow: none;
+}
+body.lcars.nes-theater-mode .nes-main-grid {
+  height: 100vh;
+  grid-template-columns: 1fr minmax(300px, 360px);
+  padding: 12px;
+  gap: 12px;
+}
+body.lcars.nes-theater-mode .nes-screen-wrap {
+  max-width: none;
+  width: 100%;
+  height: 100%;
+  aspect-ratio: auto;        /* let the grid decide the shape */
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+body.lcars.nes-theater-mode .nes-canvas {
+  width: 100%;
+  height: 100%;
+  max-height: calc(100vh - 40px);
+  object-fit: contain;
+  image-rendering: pixelated;
+}
+body.lcars.nes-theater-mode .nes-side-panel {
+  overflow-y: auto;
+  max-height: calc(100vh - 24px);
+}
+/* Emphasize the Theater-exit button so it's easy to find */
+body.lcars.nes-theater-mode #nes-theater-btn {
+  background: var(--lcars-canary);
+  color: var(--lcars-ink);
+}
+
 /* ══════════════════════════════════════════════════════════════════════
    LCARS FOOTER — mirrors the topbar, fills the dead black space at
    the bottom of the viewport with honest Okudagram decoration.
