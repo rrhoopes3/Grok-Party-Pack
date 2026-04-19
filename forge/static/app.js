@@ -2751,6 +2751,37 @@ function nesToggleMute() {
     if (btn) btn.textContent = nesState.audioMuted ? "🔇 Muted" : "🔊 Sound";
 }
 
+// ── Theater Mode ──────────────────────────────────────────────────────
+// Full-screen zoom on the canvas + coach panel. Hides topbar / footer /
+// MCP hub / setup panel. Tries to request browser fullscreen too so the
+// address bar gets out of the way on Brave/Chrome. ESC exits. Clicking
+// 📺 again (or its renamed sibling ⛶) also exits.
+function nesToggleTheater() {
+    const isOn = !document.body.classList.contains("nes-theater-mode");
+    document.body.classList.toggle("nes-theater-mode", isOn);
+    const btn = document.getElementById("nes-theater-btn");
+    if (btn) btn.textContent = isOn ? "⛶ Exit Theater" : "📺 Theater";
+    try {
+        if (isOn && document.documentElement.requestFullscreen) {
+            document.documentElement.requestFullscreen().catch(() => {});
+        } else if (!isOn && document.fullscreenElement && document.exitFullscreen) {
+            document.exitFullscreen().catch(() => {});
+        }
+    } catch (_) { /* fullscreen is optional, theater class is the real work */ }
+}
+
+// If the user hits ESC (which exits browser fullscreen automatically)
+// or uses the fullscreen UI to leave, keep our theater class in sync.
+document.addEventListener("fullscreenchange", () => {
+    if (!document.fullscreenElement
+        && document.body.classList.contains("nes-theater-mode")) {
+        // Browser dropped fullscreen — sync theater mode off too
+        document.body.classList.remove("nes-theater-mode");
+        const btn = document.getElementById("nes-theater-btn");
+        if (btn) btn.textContent = "📺 Theater";
+    }
+});
+
 async function nesAddNote() {
     const s = nesState.session;
     if (!s) return;
@@ -2842,6 +2873,20 @@ function bindNesUi() {
     if (noteBtn)  noteBtn .addEventListener("click", nesAddNote);
     const muteBtn = document.getElementById("nes-mute-btn");
     if (muteBtn) muteBtn.addEventListener("click", nesToggleMute);
+    const theaterBtn = document.getElementById("nes-theater-btn");
+    if (theaterBtn) theaterBtn.addEventListener("click", nesToggleTheater);
+
+    // ROM dropdown self-heal — if the first fetch failed (server was
+    // restarting, network blip, whatever), retry when the user clicks
+    // or focuses the select. Avoids the "stuck in error state" case
+    // where switching tabs doesn't force a re-fetch.
+    if (romSel) {
+        const maybeRetry = () => {
+            if (!nesState.roms.length) nesLoadRomList();
+        };
+        romSel.addEventListener("mousedown", maybeRetry);
+        romSel.addEventListener("focus", maybeRetry);
+    }
     if (intervalSlider) {
         intervalSlider.addEventListener("input", () => {
             const v = parseInt(intervalSlider.value, 10);
