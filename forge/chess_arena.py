@@ -41,6 +41,7 @@ import chess
 from forge.config import (
     XAI_API_KEY, ANTHROPIC_API_KEY, OPENAI_API_KEY,
     LMSTUDIO_BASE_URL, OLLAMA_BASE_URL,
+    EXECUTOR_MODELS,
 )
 
 log = logging.getLogger("forge.chess_arena")
@@ -77,10 +78,33 @@ def _model_rejects_temperature(model: str) -> bool:
     return False
 
 
+def _compute_cost(model: str, input_tokens: int, output_tokens: int) -> float:
+    """Dollars spent for a single call, using the per-million pricing in
+    forge.config.EXECUTOR_MODELS. Unknown models default to zero cost
+    rather than raising — we'd rather undercount than surface errors on
+    an experimental model."""
+    info = EXECUTOR_MODELS.get(model)
+    if not info:
+        return 0.0
+    ci = float(info.get("cost_in", 0) or 0)
+    co = float(info.get("cost_out", 0) or 0)
+    return (input_tokens * ci + output_tokens * co) / 1_000_000.0
+
+
 def _llm_oneshot(prompt: str, system: str, model: str,
-                 temperature: float = 0.3, max_tokens: int = 600) -> str:
+                 temperature: float = 0.3, max_tokens: int = 600
+                 ) -> tuple[str, dict[str, Any]]:
+    """
+    Call an LLM and return (text, usage) where usage is:
+      { input_tokens, output_tokens, cost_usd, model }
+    Token counts fall back to 0 if the provider doesn't include usage on
+    the response (rare but possible for local endpoints).
+    """
     provider = _provider_for(model)
     skip_temp = _model_rejects_temperature(model)
+    usage: dict[str, Any] = {
+        "input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0, "model": model,
+    }
 
     if provider == "anthropic":
         import anthropic
@@ -94,7 +118,13 @@ def _llm_oneshot(prompt: str, system: str, model: str,
         if not skip_temp:
             kwargs["temperature"] = min(temperature, 1.0)
         resp = client.messages.create(**kwargs)
-        return resp.content[0].text
+        text = resp.content[0].text
+        u = getattr(resp, "usage", None)
+        if u is not None:
+            usage["input_tokens"] = int(getattr(u, "input_tokens", 0) or 0)
+            usage["output_tokens"] = int(getattr(u, "output_tokens", 0) or 0)
+        usage["cost_usd"] = _compute_cost(model, usage["input_tokens"], usage["output_tokens"])
+        return text, usage
 
     from openai import OpenAI
     base_url: Optional[str] = None
@@ -124,7 +154,13 @@ def _llm_oneshot(prompt: str, system: str, model: str,
     if not skip_temp:
         call_kwargs["temperature"] = temperature
     resp = client.chat.completions.create(**call_kwargs)
-    return resp.choices[0].message.content or ""
+    text = resp.choices[0].message.content or ""
+    u = getattr(resp, "usage", None)
+    if u is not None:
+        usage["input_tokens"] = int(getattr(u, "prompt_tokens", 0) or 0)
+        usage["output_tokens"] = int(getattr(u, "completion_tokens", 0) or 0)
+    usage["cost_usd"] = _compute_cost(model, usage["input_tokens"], usage["output_tokens"])
+    return text, usage
 
 
 # ────────────────────────────────────────────────────────────────────────
@@ -141,6 +177,10 @@ class MoveRecord:
     forced: bool           # true if we had to pick a random legal move
     attempts: int          # how many LLM calls it took
     ms: int                # wall-clock for the move
+    # Token accounting — summed across all retry attempts for this move.
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cost_usd: float = 0.0
 
 
 @dataclass
@@ -154,6 +194,20 @@ class CommentaryRecord:
     model: str
     ms: int                # wall-clock for the judge call
     emitted_at: str
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cost_usd: float = 0.0
+
+
+@dataclass
+class CapturedPiece:
+    """A piece removed from the board. `by` is the side that did the
+    capturing, `piece_symbol` is python-chess's one-letter notation
+    (uppercase = white piece taken, lowercase = black piece taken)."""
+    by: str                # "white" | "black" — who made the capture
+    piece_symbol: str      # "P", "p", "N", "n", ... (upper=white, lower=black)
+    move_n: int            # which half-move this happened on
+    move_san: str          # SAN of the capturing move
 
 
 @dataclass
@@ -177,6 +231,21 @@ class ChessMatch:
     judge_model: str = "grok-4.20-0309-reasoning"
     commentary_interval: int = 2             # full-move pairs between commentary
     commentary: list[CommentaryRecord] = field(default_factory=list)
+
+    # ── Captured pieces + token accounting ─────────────────────────────
+    # Captures are recorded in play order so the UI can animate new takes.
+    # Token counters are rolling per-role sums — per-move tokens live on
+    # MoveRecord / CommentaryRecord, these are the cheap UI readouts.
+    captures: list[CapturedPiece] = field(default_factory=list)
+    tokens_white_in: int = 0
+    tokens_white_out: int = 0
+    tokens_black_in: int = 0
+    tokens_black_out: int = 0
+    tokens_judge_in: int = 0
+    tokens_judge_out: int = 0
+    cost_white_usd: float = 0.0
+    cost_black_usd: float = 0.0
+    cost_judge_usd: float = 0.0
 
     # ── Derived ────────────────────────────────────────────────────────
 
@@ -266,6 +335,9 @@ def serialize_match(m: ChessMatch) -> dict:
                 "n": mv.n, "side": mv.side, "san": mv.san, "uci": mv.uci,
                 "thinking": mv.thinking[:1200],
                 "forced": mv.forced, "attempts": mv.attempts, "ms": mv.ms,
+                "input_tokens": mv.input_tokens,
+                "output_tokens": mv.output_tokens,
+                "cost_usd": round(mv.cost_usd, 6),
             }
             for mv in m.moves
         ],
@@ -279,9 +351,33 @@ def serialize_match(m: ChessMatch) -> dict:
                 "model": c.model,
                 "ms": c.ms,
                 "emitted_at": c.emitted_at,
+                "input_tokens": c.input_tokens,
+                "output_tokens": c.output_tokens,
+                "cost_usd": round(c.cost_usd, 6),
             }
             for c in m.commentary
         ],
+        "captures": [
+            {
+                "by": cap.by,
+                "piece_symbol": cap.piece_symbol,
+                "move_n": cap.move_n,
+                "move_san": cap.move_san,
+            }
+            for cap in m.captures
+        ],
+        "tokens": {
+            "white":  {"in": m.tokens_white_in,  "out": m.tokens_white_out,
+                       "cost_usd": round(m.cost_white_usd, 6)},
+            "black":  {"in": m.tokens_black_in,  "out": m.tokens_black_out,
+                       "cost_usd": round(m.cost_black_usd, 6)},
+            "judge":  {"in": m.tokens_judge_in,  "out": m.tokens_judge_out,
+                       "cost_usd": round(m.cost_judge_usd, 6)},
+            "total_in":  m.tokens_white_in + m.tokens_black_in + m.tokens_judge_in,
+            "total_out": m.tokens_white_out + m.tokens_black_out + m.tokens_judge_out,
+            "total_cost_usd": round(
+                m.cost_white_usd + m.cost_black_usd + m.cost_judge_usd, 6),
+        },
         "created_at": m.created_at,
         "last_move_at": m.last_move_at,
     }
@@ -457,6 +553,23 @@ def _build_prompt(m: ChessMatch, last_error: str = "") -> str:
     return "\n".join(lines)
 
 
+def _detect_capture(board: chess.Board, move: chess.Move) -> Optional[chess.Piece]:
+    """Return the piece that will be captured by `move`, or None. Handles
+    en passant correctly (victim is NOT on the destination square in that
+    case — it's on the same file one rank behind)."""
+    if not board.is_capture(move):
+        return None
+    if board.is_en_passant(move):
+        # Victim pawn sits on the same file as the destination but on the
+        # capturer's starting rank. turn == WHITE means a white pawn is
+        # capturing, so the victim is one rank SOUTH of the destination.
+        file = chess.square_file(move.to_square)
+        rank = chess.square_rank(move.to_square)
+        victim_rank = rank - 1 if board.turn == chess.WHITE else rank + 1
+        return board.piece_at(chess.square(file, victim_rank))
+    return board.piece_at(move.to_square)
+
+
 def make_move(match_id: str, max_attempts: int = 3) -> Optional[ChessMatch]:
     """
     Ask the current side's model for a move, apply it.
@@ -473,21 +586,30 @@ def make_move(match_id: str, max_attempts: int = 3) -> Optional[ChessMatch]:
 
         started = time.monotonic()
         model = m.current_model
+        mover_side = m.turn  # capture BEFORE the push so we know whose move this is
         chosen: Optional[chess.Move] = None
         thinking = ""
         last_error = ""
         attempts = 0
         forced = False
+        # Token accounting is summed across retry attempts — an illegal-
+        # move retry is still billable, so we don't throw those numbers
+        # away when we fall through to another attempt.
+        total_in, total_out, total_cost = 0, 0, 0.0
 
         for attempts in range(1, max_attempts + 1):
             try:
-                reply = _llm_oneshot(
+                reply, usage = _llm_oneshot(
                     prompt=_build_prompt(m, last_error=last_error),
                     system=_SYSTEM_PROMPT,
                     model=model,
                 )
             except Exception as e:
                 raise RuntimeError(f"LLM call failed for {model}: {type(e).__name__}: {e}")
+
+            total_in += usage["input_tokens"]
+            total_out += usage["output_tokens"]
+            total_cost += usage["cost_usd"]
 
             thinking = reply.strip()
             chosen = _extract_move(reply, m.board)
@@ -510,20 +632,45 @@ def make_move(match_id: str, max_attempts: int = 3) -> Optional[ChessMatch]:
             log.warning("chess %s: %s could not produce legal move after %d tries — forced %s",
                         m.id, model, max_attempts, chosen.uci())
 
+        # Capture detection has to happen BEFORE pushing — once we push,
+        # the victim is gone from the board and we can't identify it.
+        victim = _detect_capture(m.board, chosen)
         san = m.board.san(chosen)
         uci = chosen.uci()
         m.board.push(chosen)
+
+        if victim is not None:
+            m.captures.append(CapturedPiece(
+                by=mover_side,
+                piece_symbol=victim.symbol(),
+                move_n=len(m.moves) + 1,
+                move_san=san,
+            ))
+
         ms = int((time.monotonic() - started) * 1000)
         m.moves.append(MoveRecord(
             n=len(m.moves) + 1,
-            side="white" if (len(m.moves) % 2 == 0) else "black",
+            side=mover_side,
             san=san,
             uci=uci,
             thinking=_trim_thinking(thinking),
             forced=forced,
             attempts=attempts,
             ms=ms,
+            input_tokens=total_in,
+            output_tokens=total_out,
+            cost_usd=total_cost,
         ))
+        # Update rolling per-side totals for the UI.
+        if mover_side == "white":
+            m.tokens_white_in += total_in
+            m.tokens_white_out += total_out
+            m.cost_white_usd += total_cost
+        else:
+            m.tokens_black_in += total_in
+            m.tokens_black_out += total_out
+            m.cost_black_usd += total_cost
+
         m.last_move_at = datetime.now(timezone.utc).isoformat()
         return m
 
@@ -667,7 +814,7 @@ def generate_commentary(match_id: str) -> Optional[CommentaryRecord]:
 
     started = time.monotonic()
     try:
-        reply = _llm_oneshot(
+        reply, usage = _llm_oneshot(
             prompt=_build_judge_prompt(m),
             system=_JUDGE_SYSTEM,
             model=m.judge_model,
@@ -693,11 +840,18 @@ def generate_commentary(match_id: str) -> Optional[CommentaryRecord]:
         model=m.judge_model,
         ms=int((time.monotonic() - started) * 1000),
         emitted_at=datetime.now(timezone.utc).isoformat(),
+        input_tokens=usage["input_tokens"],
+        output_tokens=usage["output_tokens"],
+        cost_usd=usage["cost_usd"],
     )
     with m.lock:
         m.commentary.append(record)
-    log.info("chess %s: judge commentary fired (round %d, %dms)",
-             m.id, record.round_num, record.ms)
+        m.tokens_judge_in += usage["input_tokens"]
+        m.tokens_judge_out += usage["output_tokens"]
+        m.cost_judge_usd += usage["cost_usd"]
+    log.info("chess %s: judge commentary fired (round %d, %dms, %d→%d toks, $%.4f)",
+             m.id, record.round_num, record.ms,
+             usage["input_tokens"], usage["output_tokens"], usage["cost_usd"])
     return record
 
 
