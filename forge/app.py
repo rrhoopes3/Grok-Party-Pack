@@ -1261,6 +1261,114 @@ def nes_sessions_event(session_id: str):
     return jsonify({"ok": True, **vault_status})
 
 
+@app.route("/api/nes/sessions/<session_id>/controller", methods=["POST"])
+def nes_controller_grok(session_id: str):
+    """Fast controller via Forge's provider stack (Grok/Claude/GPT).
+
+    Use when LM Studio is too slow (or absent). Body:
+      { "frame_b64": "data:image/png;base64,...",
+        "coach_plan": "go right",
+        "recent_actions": "[...]",
+        "model": "grok-4-1-fast-non-reasoning" }
+
+    Returns {"buttons":[...],"hold_ms":N,"ms":latency,"raw":"..."}.
+    Vision-capable models get the frame; others get a text-only prompt
+    that degrades gracefully (still usable for menu nav).
+    """
+    s = _nes.get_session(session_id)
+    if s is None:
+        return jsonify({"error": f"Unknown session: {session_id!r}"}), 404
+    body = request.get_json(silent=True) or {}
+    model = (body.get("model") or s.controller_model or "grok-4-1-fast-non-reasoning").strip()
+    frame_b64 = body.get("frame_b64") or s.last_frame_b64
+    coach_plan = (body.get("coach_plan") or "").strip()[:300]
+    recent = (body.get("recent_actions") or "").strip()[:200]
+
+    # Reuse the NES coach's provider-agnostic LLM caller — it already
+    # handles vision vs text, Anthropic/OpenAI/Grok routing, and
+    # max_completion_tokens / temperature quirks.
+    from forge.nes_arena.coach import (
+        _call_openai_compat, _call_anthropic, _provider_for, _supports_vision,
+    )
+    from forge.config import (
+        XAI_API_KEY as _XAI, ANTHROPIC_API_KEY as _ANT, OPENAI_API_KEY as _OAI,
+        LMSTUDIO_BASE_URL as _LM, OLLAMA_BASE_URL as _OLL,
+    )
+
+    system = (
+        "You are the fast controller for an NES game. You receive one "
+        "frame and a strategic plan. Output EXACTLY one JSON object, no "
+        "prose, no markdown, no thinking:\n"
+        '  {"buttons":["LEFT"|"RIGHT"|"UP"|"DOWN"|"A"|"B"|"START"|"SELECT"],'
+        '"hold_ms":INTEGER_50_TO_400}\n'
+        "Empty buttons = do nothing this tick. Jump=A. Run=B+RIGHT. "
+        "If on a title/menu screen, press START. React to what you see."
+    )
+    user_prompt = (
+        f"Coach plan: {coach_plan or '(none — act on screen cues)'}\n"
+        f"Your last actions: {recent or '(none)'}\n"
+        f"Output JSON only."
+    )
+
+    import time as _t, re as _re
+    started = _t.monotonic()
+    use_vision = bool(frame_b64) and _supports_vision(model)
+    image = frame_b64 if use_vision else None
+
+    try:
+        provider = _provider_for(model)
+        if provider == "anthropic":
+            raw = _call_anthropic(user_prompt, system, model, image)
+        else:
+            if provider == "openai":
+                base_url, api_key = None, _OAI or ""
+            elif provider == "lmstudio":
+                base_url = _LM; api_key = "lm-studio"
+                model = model.removeprefix("lmstudio:") or "default"
+            elif provider == "ollama":
+                base_url = _OLL; api_key = "ollama"
+                model = model.removeprefix("ollama:") or "default"
+            else:  # xai
+                base_url = "https://api.x.ai/v1"; api_key = _XAI or ""
+            raw = _call_openai_compat(user_prompt, system, model, image, base_url, api_key)
+    except Exception as e:
+        log.exception("nes controller (grok path) failed for %s", session_id)
+        return jsonify({"error": f"{type(e).__name__}: {e}"}), 502
+
+    ms = int((_t.monotonic() - started) * 1000)
+
+    # Permissive JSON extraction — model might wrap in fences / prose.
+    text = (raw or "").strip()
+    if not text:
+        return jsonify({"buttons": [], "hold_ms": 120, "ms": ms,
+                        "raw": "", "warning": "empty reply"}), 200
+    fence = _re.search(r"```(?:json)?\s*\n?([\s\S]*?)\n?```", text)
+    body_text = fence.group(1) if fence else text
+    obj_match = _re.search(r"\{[\s\S]*?\}", body_text)
+    buttons: list = []
+    hold_ms = 120
+    if obj_match:
+        try:
+            import json as _json
+            parsed = _json.loads(obj_match.group(0))
+            raw_buttons = parsed.get("buttons") or []
+            if isinstance(raw_buttons, list):
+                valid = {"LEFT","RIGHT","UP","DOWN","A","B","START","SELECT"}
+                buttons = [str(b).upper().strip() for b in raw_buttons
+                           if str(b).upper().strip() in valid]
+            try:
+                hold_ms = max(40, min(400, int(parsed.get("hold_ms", 120))))
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    return jsonify({
+        "buttons": buttons, "hold_ms": hold_ms, "ms": ms,
+        "model": model, "used_vision": use_vision, "raw": text[:300],
+    })
+
+
 @app.route("/api/nes/controller", methods=["POST"])
 def nes_controller_proxy():
     """Same-origin proxy for the NES controller loop's LM Studio calls.

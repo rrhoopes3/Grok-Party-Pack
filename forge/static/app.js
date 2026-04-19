@@ -1989,9 +1989,9 @@ const nesState = {
     // plans in the controller prompt so the model varies its moves.
     controllerInFlight: false,
     lastControllerAt: 0,
-    controllerInterval: 250,
+    controllerInterval: 1000,
     controllerUrl: "http://localhost:1234/v1",
-    controllerModel: "google/gemma-4-e4b",
+    controllerModel: "grok-4-1-fast-non-reasoning",
     controllerLatencyMs: 0,
     lastActions: [],            // ring of last N {buttons, hold_ms} for prompt
     activeHolds: new Map(),     // button name → scheduled release timestamp
@@ -2164,9 +2164,9 @@ async function nesBoot() {
     nesState.controllerUrl = (document.getElementById("nes-controller-url")?.value
                               || "http://localhost:1234/v1").replace(/\/+$/, "");
     nesState.controllerModel = (document.getElementById("nes-controller-model")?.value
-                                || "google/gemma-4-e4b").trim();
+                                || "grok-4-1-fast-non-reasoning").trim();
     nesState.controllerInterval = parseInt(
-        document.getElementById("nes-controller-interval")?.value || "250", 10) || 250;
+        document.getElementById("nes-controller-interval")?.value || "1000", 10) || 1000;
 
     nesSetOverlay("Loading ROM…", true);
 
@@ -2605,29 +2605,95 @@ const NES_CONTROLLER_SYSTEM = (
 async function nesRunControllerTick() {
     const canvas = document.getElementById("nes-canvas");
     if (!canvas || !nesState.nes) return;
-    const url = (document.getElementById("nes-controller-url")?.value
-                 || nesState.controllerUrl).replace(/\/+$/, "");
-    const model = document.getElementById("nes-controller-model")?.value
-                  || nesState.controllerModel;
-    if (!url || !model) return;
+    const provider = document.getElementById("nes-controller-provider")?.value
+                     || "grok";
+    if (provider === "off") return;
 
     nesState.controllerInFlight = true;
     const frameB64 = nesDownscaleFrame(canvas);
     if (!frameB64) { nesState.controllerInFlight = false; return; }
 
     // Current coach plan lives in the DOM already — read it back so we
-    // don't have to pass it through state plumbing.
+    // don't have to plumb it through state.
     const coachPlanEl = document.getElementById("nes-coach-body");
     const coachPlan = (coachPlanEl?.textContent || "").trim().slice(0, 300);
     const recentActions = nesState.lastActions
         .slice(-3)
         .map(a => `[${a.buttons.join("+") || "NONE"}]@${a.hold_ms}ms`)
         .join(" ");
+    const model = (document.getElementById("nes-controller-model")?.value
+                   || nesState.controllerModel).trim();
 
+    const started = performance.now();
+    try {
+        let action;
+        if (provider === "grok") {
+            action = await nesControllerViaGrok({
+                model, frameB64, coachPlan, recentActions,
+            });
+        } else {
+            action = await nesControllerViaLMStudio({
+                model, frameB64, coachPlan, recentActions,
+            });
+        }
+        nesState.controllerLatencyMs = Math.round(performance.now() - started);
+        if (action === null) return;   // error already surfaced
+        nesState._controllerWarned = false;
+
+        if (action.buttons.length > 0) {
+            nesApplyButtons(action.buttons, action.hold_ms);
+        }
+        nesState.lastActions.push(action);
+        if (nesState.lastActions.length > 6) nesState.lastActions.shift();
+    } catch (e) {
+        console.warn("[nes controller]", e);
+        if (!nesState._controllerWarned) {
+            nesState._controllerWarned = true;
+            nesSetCoachText(`Controller error: ${e.message}`, "danger");
+        }
+    } finally {
+        nesState.controllerInFlight = false;
+    }
+}
+
+// Provider: Grok cloud via Forge backend. Fast (~300-800ms), supports
+// vision if the model does; the backend route falls back to text-only.
+async function nesControllerViaGrok({ model, frameB64, coachPlan, recentActions }) {
+    const sid = nesState.session?.id;
+    if (!sid) return null;
+    const resp = await fetch(`/api/nes/sessions/${encodeURIComponent(sid)}/controller`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+            model, frame_b64: frameB64, coach_plan: coachPlan,
+            recent_actions: recentActions,
+        }),
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok || data.error) {
+        if (!nesState._controllerWarned) {
+            nesState._controllerWarned = true;
+            nesSetCoachText(`Grok controller error (${model}): ${data.error || resp.status}`, "danger");
+        }
+        return null;
+    }
+    return {
+        buttons: Array.isArray(data.buttons) ? data.buttons : [],
+        hold_ms: data.hold_ms || 120,
+    };
+}
+
+// Provider: LM Studio via our /api/nes/controller same-origin proxy.
+// Gemma 4 and similar reasoning models consume the token budget on
+// reasoning before producing output — we bump max_tokens and dig JSON
+// out of reasoning_content as a fallback when content is empty.
+async function nesControllerViaLMStudio({ model, frameB64, coachPlan, recentActions }) {
+    const url = (document.getElementById("nes-controller-url")?.value
+                 || nesState.controllerUrl).replace(/\/+$/, "");
     const userText =
         `Coach plan: ${coachPlan || "(none yet — act on screen cues)"}\n` +
         `Your last actions: ${recentActions || "(none)"}\n` +
-        `Output JSON only.`;
+        `Output ONLY the JSON object now. No thinking, no prose.`;
 
     const body = {
         model: model,
@@ -2641,56 +2707,43 @@ async function nesRunControllerTick() {
                 ],
             },
         ],
-        max_tokens: 80,
+        // Bumped from 80 → 400 to survive reasoning-model chain-of-
+        // thought. At 47 tok/s this is ~8s/tick on Gemma 4 E4B — slow
+        // but at least produces output. Users who want speed should
+        // pick the Grok provider instead.
+        max_tokens: 400,
         temperature: 0.4,
         stream: false,
     };
 
-    const started = performance.now();
-    try {
-        // Proxy through the Forge backend — LM Studio's CORS preflight
-        // handler is broken (returns 400 to OPTIONS), and direct browser
-        // POST to a cross-origin localhost port is blocked anyway.
-        // The proxy adds ~20-50ms of Python hop but unblocks the call.
-        const resp = await fetch(`/api/nes/controller`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ target_url: url, body: body }),
-        });
-        const data = await resp.json().catch(() => ({}));
-        nesState.controllerLatencyMs = Math.round(performance.now() - started);
+    const resp = await fetch(`/api/nes/controller`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ target_url: url, body: body }),
+    });
+    const data = await resp.json().catch(() => ({}));
 
-        if (!resp.ok || data.error) {
-            const msg = data.error?.message || `HTTP ${resp.status}`;
-            console.warn("[nes controller]", msg);
-            // Surface first-time errors in the coach panel so the user
-            // knows the controller isn't wired up.
-            if (!nesState._controllerWarned) {
-                nesState._controllerWarned = true;
-                nesSetCoachText(`Controller error (${model}): ${msg}. ` +
-                    `Load the model in LM Studio first.`, "danger");
-            }
-            return;
-        }
-        nesState._controllerWarned = false;
-
-        const reply = data.choices?.[0]?.message?.content || "";
-        const action = nesParseControllerReply(reply);
-        if (action.buttons.length > 0) {
-            nesApplyButtons(action.buttons, action.hold_ms);
-        }
-        nesState.lastActions.push(action);
-        if (nesState.lastActions.length > 6) nesState.lastActions.shift();
-    } catch (e) {
-        console.warn("[nes controller]", e);
+    if (!resp.ok || data.error) {
+        const msg = data.error?.message || data.error || `HTTP ${resp.status}`;
         if (!nesState._controllerWarned) {
             nesState._controllerWarned = true;
-            nesSetCoachText(`Controller network error: ${e.message}. ` +
-                `Is LM Studio running at ${url}?`, "danger");
+            nesSetCoachText(`LM Studio controller error (${model}): ${msg}. `
+                + `Load the model first or switch Controller via = Grok.`, "danger");
         }
-    } finally {
-        nesState.controllerInFlight = false;
+        return null;
     }
+
+    const choice = data.choices?.[0]?.message || {};
+    // Reasoning-model recovery: some LM Studio models (Gemma 4, Qwen 3,
+    // Ministral reasoning) put chain-of-thought in `reasoning_content`
+    // and leave `content` empty when they hit max_tokens mid-think. If
+    // we see that, scan reasoning_content for a JSON object as a last
+    // resort — models often drop "{"buttons":[...]}" near the end of
+    // their reasoning even when they never formally finish.
+    const reply = (choice.content && choice.content.length > 0)
+        ? choice.content
+        : (choice.reasoning_content || "");
+    return nesParseControllerReply(reply);
 }
 
 function nesPauseToggle() {
@@ -2903,7 +2956,11 @@ function bindNesUi() {
         ctrlSlider.addEventListener("input", () => {
             const v = parseInt(ctrlSlider.value, 10);
             nesState.controllerInterval = v;
-            if (ctrlLabel) ctrlLabel.textContent = v + " ms";
+            if (ctrlLabel) {
+                ctrlLabel.textContent = v >= 1000
+                    ? (v / 1000).toFixed(1) + " s"
+                    : v + " ms";
+            }
         });
     }
 
