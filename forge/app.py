@@ -967,7 +967,8 @@ def chess_list():
 
 @app.route("/api/chess", methods=["POST"])
 def chess_new():
-    """Create a match. Body: {white_model, black_model, starting_fen?}."""
+    """Create a match. Body: {white_model, black_model, starting_fen?,
+    judge_model?, commentary_interval?}."""
     body = request.get_json(silent=True) or {}
     white = (body.get("white_model") or "").strip()
     black = (body.get("black_model") or "").strip()
@@ -978,6 +979,8 @@ def chess_new():
             white_model=white,
             black_model=black,
             starting_fen=body.get("starting_fen", "") or "",
+            judge_model=(body.get("judge_model") or "grok-4.20-0309-reasoning").strip(),
+            commentary_interval=int(body.get("commentary_interval") or 2),
         )
     except Exception as e:
         log.exception("chess_new failed")
@@ -995,7 +998,10 @@ def chess_get(match_id: str):
 
 @app.route("/api/chess/<match_id>/step", methods=["POST"])
 def chess_step(match_id: str):
-    """Ask the current side's LLM for a move and apply it."""
+    """Ask the current side's LLM for a move and apply it. If this step
+    lands on a commentary beat (every Nth full-move pair, or game-over),
+    the judge model is also called and its output included as
+    `new_commentary` in the response so the UI can render + TTS it."""
     m = _chess.get_match(match_id)
     if m is None:
         return jsonify({"error": f"Unknown match: {match_id!r}"}), 404
@@ -1007,7 +1013,47 @@ def chess_step(match_id: str):
     except Exception as e:
         log.exception("chess_step failed for %s", match_id)
         return jsonify({"error": f"{type(e).__name__}: {e}"}), 500
-    return jsonify(_chess.serialize_match(m))
+
+    # Fire the judge if this beat calls for it. Best-effort — a judge
+    # failure (missing key, timeout) never blocks the move response.
+    new_commentary = None
+    try:
+        rec = _chess.maybe_generate_commentary(match_id)
+        if rec is not None:
+            new_commentary = {
+                "after_move_n": rec.after_move_n,
+                "round_num": rec.round_num,
+                "text": rec.text,
+                "model": rec.model,
+                "ms": rec.ms,
+                "emitted_at": rec.emitted_at,
+            }
+    except Exception:
+        log.exception("chess commentary failed for %s (non-fatal)", match_id)
+
+    payload = _chess.serialize_match(m)
+    if new_commentary:
+        payload["new_commentary"] = new_commentary
+    return jsonify(payload)
+
+
+@app.route("/api/chess/<match_id>/commentary", methods=["POST"])
+def chess_commentary(match_id: str):
+    """Manually fire a commentary beat (ignoring the interval). Useful
+    for the UI "Ask judge now" button."""
+    if _chess.get_match(match_id) is None:
+        return jsonify({"error": f"Unknown match: {match_id!r}"}), 404
+    rec = _chess.generate_commentary(match_id)
+    if rec is None:
+        return jsonify({"error": "Judge call failed (see server logs)."}), 502
+    return jsonify({
+        "after_move_n": rec.after_move_n,
+        "round_num": rec.round_num,
+        "text": rec.text,
+        "model": rec.model,
+        "ms": rec.ms,
+        "emitted_at": rec.emitted_at,
+    })
 
 
 @app.route("/api/chess/<match_id>/resign", methods=["POST"])

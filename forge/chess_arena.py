@@ -124,6 +124,19 @@ class MoveRecord:
 
 
 @dataclass
+class CommentaryRecord:
+    """A single spoken commentary line from the judge. Emitted every Nth
+    full-move pair so TTS has something meaty to chew on without
+    yammering after every half-ply."""
+    after_move_n: int      # half-move count AT time of emission (even = black just moved)
+    round_num: int         # 1-indexed full-move pair number
+    text: str              # what the judge said
+    model: str
+    ms: int                # wall-clock for the judge call
+    emitted_at: str
+
+
+@dataclass
 class ChessMatch:
     id: str
     white_model: str
@@ -134,6 +147,16 @@ class ChessMatch:
     last_move_at: Optional[str] = None
     resigned_by: Optional[str] = None   # "white" | "black" | None
     lock: threading.Lock = field(default_factory=threading.Lock)
+
+    # ── Judge (arena-style TTS commentary) ────────────────────────────
+    # Fires every `commentary_interval` full-move pairs. The judge sees
+    # the full move list (SAN), the current position, and who's winning;
+    # returns 2-4 sentences of play-by-play. Default = every other round
+    # (every 2 full moves, i.e. every 4 half-moves) to match the pattern
+    # the user asked for.
+    judge_model: str = "grok-4.20-0309-reasoning"
+    commentary_interval: int = 2             # full-move pairs between commentary
+    commentary: list[CommentaryRecord] = field(default_factory=list)
 
     # ── Derived ────────────────────────────────────────────────────────
 
@@ -226,6 +249,19 @@ def serialize_match(m: ChessMatch) -> dict:
             }
             for mv in m.moves
         ],
+        "judge_model": m.judge_model,
+        "commentary_interval": m.commentary_interval,
+        "commentary": [
+            {
+                "after_move_n": c.after_move_n,
+                "round_num": c.round_num,
+                "text": c.text,
+                "model": c.model,
+                "ms": c.ms,
+                "emitted_at": c.emitted_at,
+            }
+            for c in m.commentary
+        ],
         "created_at": m.created_at,
         "last_move_at": m.last_move_at,
     }
@@ -297,7 +333,13 @@ def _evict_if_needed() -> None:
         _MATCHES.pop(m.id, None)
 
 
-def new_match(white_model: str, black_model: str, starting_fen: str = "") -> ChessMatch:
+def new_match(
+    white_model: str,
+    black_model: str,
+    starting_fen: str = "",
+    judge_model: str = "grok-4.20-0309-reasoning",
+    commentary_interval: int = 2,
+) -> ChessMatch:
     with _REGISTRY_LOCK:
         board = chess.Board(starting_fen) if starting_fen else chess.Board()
         m = ChessMatch(
@@ -305,10 +347,13 @@ def new_match(white_model: str, black_model: str, starting_fen: str = "") -> Che
             white_model=white_model,
             black_model=black_model,
             board=board,
+            judge_model=judge_model,
+            commentary_interval=max(1, int(commentary_interval)),
         )
         _MATCHES[m.id] = m
         _evict_if_needed()
-        log.info("chess match created: %s (%s vs %s)", m.id, white_model, black_model)
+        log.info("chess match created: %s (%s vs %s, judge=%s every %d rounds)",
+                 m.id, white_model, black_model, judge_model, m.commentary_interval)
         return m
 
 
@@ -473,3 +518,158 @@ def _trim_thinking(text: str, max_len: int = 1200) -> str:
     if len(cleaned) > max_len:
         cleaned = cleaned[: max_len - 1] + "…"
     return cleaned
+
+
+# ────────────────────────────────────────────────────────────────────────
+# Judge / TTS commentary
+# ────────────────────────────────────────────────────────────────────────
+# The judge watches the match and narrates every Nth round. Tuned for
+# speech: short, punchy, 2-4 sentences. Arena-style play-by-play —
+# name the move, its tactical purpose, and build a little tension.
+
+_JUDGE_SYSTEM = (
+    "You are a chess commentator for a live audience. Two AI models are "
+    "playing each other. Your job: produce crisp, broadcast-ready "
+    "commentary on the most recent pair of moves. Rules:\n"
+    " • 2–4 sentences. NO more. This is spoken aloud via TTS.\n"
+    " • Name the moves by their SAN (e.g. 'Nf3', 'O-O', 'Qxd5'). Briefly "
+    "   say what each move does (develop, attack, defend, trade, threaten).\n"
+    " • Pick a side to frame as 'ahead' or 'pressing' if the position "
+    "   clearly favors one — don't hedge.\n"
+    " • No bullet points. No markdown. No emojis. Pure prose, like a radio "
+    "   caller. End with a tiny cliffhanger when you can.\n"
+    " • NEVER say 'as an AI' or 'I cannot'. You're the voice of the arena."
+)
+
+
+def _should_emit_commentary(m: ChessMatch) -> bool:
+    """True when a commentary beat should fire after the just-applied move.
+
+    Fires on black's move (so a full pair has completed) every
+    `commentary_interval` full-move pairs. Also fires on the final move
+    if the game just ended, regardless of interval.
+    """
+    n = len(m.moves)
+    if n == 0:
+        return False
+    # Fire on game-over beats always (unless already fired for this n).
+    just_ended = m.is_over and (not m.commentary or m.commentary[-1].after_move_n != n)
+    if just_ended:
+        return True
+    # Only after a black move (completed pair)
+    if n % 2 != 0:
+        return False
+    full_pair_n = n // 2
+    return full_pair_n > 0 and full_pair_n % m.commentary_interval == 0
+
+
+def _build_judge_prompt(m: ChessMatch) -> str:
+    """Build the judge prompt with the full move history so it can reason
+    about momentum, not just the latest ply."""
+    # SAN history grouped by full move (e.g. "1. e4 e5  2. Nf3 Nc6")
+    history_tokens: list[str] = []
+    for rec in m.moves:
+        if rec.side == "white":
+            full_n = (rec.n + 1) // 2
+            history_tokens.append(f"{full_n}. {rec.san}")
+        else:
+            history_tokens.append(rec.san)
+    history_str = " ".join(history_tokens) if history_tokens else "(no moves yet)"
+
+    # Last pair for focus
+    last_pair: list[str] = []
+    if len(m.moves) >= 2:
+        w, b = m.moves[-2], m.moves[-1]
+        last_pair = [f"White: {w.san}", f"Black: {b.san}"]
+    elif len(m.moves) == 1:
+        only = m.moves[-1]
+        last_pair = [f"{only.side.capitalize()}: {only.san}"]
+
+    # End-of-game framing
+    outcome_line = ""
+    if m.is_over:
+        if m.status == "white_wins":
+            outcome_line = f"GAME OVER — White wins ({m.end_reason or ''})."
+        elif m.status == "black_wins":
+            outcome_line = f"GAME OVER — Black wins ({m.end_reason or ''})."
+        elif m.status == "draw":
+            outcome_line = f"GAME OVER — Draw ({m.end_reason or ''})."
+
+    check_line = "Black is in check." if m.board.is_check() and m.turn == "black" else (
+        "White is in check." if m.board.is_check() and m.turn == "white" else ""
+    )
+
+    lines = [
+        f"Match: {m.white_model} (White) vs {m.black_model} (Black).",
+        f"After move {len(m.moves)} ({(len(m.moves)+1)//2} full pairs).",
+        "",
+        "Full move history (SAN):",
+        history_str,
+    ]
+    if last_pair:
+        lines.extend(["", "Most recent pair:", *last_pair])
+    if check_line:
+        lines.extend(["", check_line])
+    if outcome_line:
+        lines.extend(["", outcome_line])
+    lines.extend([
+        "",
+        f"Position FEN: {m.board.fen()}",
+        "",
+        "Call the action. 2–4 sentences.",
+    ])
+    return "\n".join(lines)
+
+
+def generate_commentary(match_id: str) -> Optional[CommentaryRecord]:
+    """
+    Ask the judge to narrate the match state. Returns the new
+    CommentaryRecord on success, None if the match is unknown or the call
+    failed. Safe to call even when it's not "time" — caller decides when
+    to fire it via _should_emit_commentary().
+    """
+    m = _MATCHES.get(match_id)
+    if m is None:
+        return None
+
+    started = time.monotonic()
+    try:
+        reply = _llm_oneshot(
+            prompt=_build_judge_prompt(m),
+            system=_JUDGE_SYSTEM,
+            model=m.judge_model,
+            temperature=0.7,
+            max_tokens=300,
+        )
+    except Exception as e:
+        log.warning("chess %s: judge call failed: %s", m.id, e)
+        return None
+
+    text = (reply or "").strip()
+    if not text:
+        return None
+
+    record = CommentaryRecord(
+        after_move_n=len(m.moves),
+        round_num=(len(m.moves) + 1) // 2,
+        text=text,
+        model=m.judge_model,
+        ms=int((time.monotonic() - started) * 1000),
+        emitted_at=datetime.now(timezone.utc).isoformat(),
+    )
+    with m.lock:
+        m.commentary.append(record)
+    log.info("chess %s: judge commentary fired (round %d, %dms)",
+             m.id, record.round_num, record.ms)
+    return record
+
+
+def maybe_generate_commentary(match_id: str) -> Optional[CommentaryRecord]:
+    """Fire commentary if it's the right beat; otherwise return None.
+    Called by the /step route after a move is applied."""
+    m = _MATCHES.get(match_id)
+    if m is None:
+        return None
+    if not _should_emit_commentary(m):
+        return None
+    return generate_commentary(match_id)

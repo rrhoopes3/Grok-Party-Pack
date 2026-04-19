@@ -1178,7 +1178,29 @@
                         <span>Black ♚</span>
                         <select id="chess-black-model" class="chess-model-select"></select>
                     </label>
+                    <label class="field">
+                        <span>Judge 🎙</span>
+                        <select id="chess-judge-model" class="chess-model-select"></select>
+                    </label>
                     <button class="btn-primary chess-btn chess-new-btn" id="chess-new-btn">Start match</button>
+                </div>
+                <div class="chess-setup-row2">
+                    <label class="field chess-interval-field">
+                        <span>Commentary every</span>
+                        <select id="chess-commentary-interval" class="chess-model-select">
+                            <option value="1">every round</option>
+                            <option value="2" selected>every 2 rounds</option>
+                            <option value="3">every 3 rounds</option>
+                            <option value="4">every 4 rounds</option>
+                        </select>
+                    </label>
+                    <label class="toggle-field chess-tts-toggle">
+                        <span>TTS voice</span>
+                        <span class="switch">
+                            <input type="checkbox" id="chess-tts-toggle">
+                            <span class="switch-track"></span>
+                        </span>
+                    </label>
                 </div>
             </section>
 
@@ -1219,6 +1241,18 @@
                         </div>
 
                         <div class="chess-status-msg" id="chess-status-msg"></div>
+
+                        <div class="chess-commentary-block">
+                            <div class="chess-commentary-header">
+                                <span>🎙 Judge Commentary</span>
+                                <span class="chess-commentary-meta" id="chess-commentary-meta">—</span>
+                                <button class="chess-btn chess-mini-btn" id="chess-commentary-now-btn" disabled>Call it</button>
+                            </div>
+                            <div class="chess-commentary-body" id="chess-commentary-body">
+                                Commentary will appear here after the first full round.
+                            </div>
+                            <div class="chess-commentary-history" id="chess-commentary-history"></div>
+                        </div>
 
                         <div class="chess-moves-block">
                             <div class="chess-moves-header">Move log</div>

@@ -1824,6 +1824,141 @@ body.lcars .chess-move-row.forced .move-san::after {
   color: var(--lcars-red);
 }
 
+/* ── Chess setup: second row + commentary block ─────────────────────── */
+body.lcars .chess-setup-row2 {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 0 18px 14px;
+  flex-wrap: wrap;
+}
+body.lcars .chess-interval-field {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center;
+  gap: 8px;
+}
+body.lcars .chess-interval-field > span {
+  font-family: "Antonio", "Oswald", sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 0.72rem;
+  color: var(--lcars-muted);
+}
+body.lcars .chess-interval-field .chess-model-select {
+  padding: 4px 10px;
+  font-size: 0.76rem;
+}
+body.lcars .chess-tts-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+body.lcars .chess-tts-toggle > span:first-child {
+  font-family: "Antonio", "Oswald", sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 0.72rem;
+  color: var(--lcars-muted);
+}
+
+body.lcars .chess-mini-btn {
+  padding: 3px 10px;
+  font-size: 0.64rem;
+  background: var(--lcars-plum);
+  color: #ffe4c4;
+}
+
+/* Judge commentary block — amber-bordered, prose card with a pulsing
+   "thinking…" state and a rolling history list underneath. */
+body.lcars .chess-commentary-block {
+  background: #0a0d12;
+  border: 1px solid var(--lcars-amber);
+  border-radius: 10px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  box-shadow: 0 0 14px rgba(255, 153, 0, 0.12);
+}
+body.lcars .chess-commentary-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  justify-content: space-between;
+  font-family: "Antonio", "Oswald", sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  font-size: 0.74rem;
+  color: var(--lcars-amber);
+  border-bottom: 1px solid rgba(255, 153, 0, 0.35);
+  padding-bottom: 4px;
+}
+body.lcars .chess-commentary-meta {
+  color: var(--lcars-muted);
+  font-size: 0.66rem;
+  letter-spacing: 0.06em;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+body.lcars .chess-commentary-header .chess-mini-btn {
+  margin-left: 8px;
+  flex-shrink: 0;
+}
+body.lcars .chess-commentary-body {
+  font-family: "Georgia", "Times New Roman", serif;
+  font-size: 0.95rem;
+  line-height: 1.45;
+  color: var(--lcars-text);
+  min-height: 72px;
+  padding: 4px 2px;
+  font-style: italic;
+}
+body.lcars .chess-commentary-body.thinking {
+  color: var(--lcars-canary);
+  animation: chess-thinking-pulse 1.4s ease-in-out infinite;
+  font-style: normal;
+}
+body.lcars .chess-commentary-body.speaking {
+  color: var(--lcars-amber);
+  text-shadow: 0 0 6px rgba(255, 153, 0, 0.28);
+}
+body.lcars .chess-commentary-history {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 140px;
+  overflow-y: auto;
+  font-size: 0.74rem;
+  color: var(--lcars-muted);
+  padding: 2px 4px;
+  border-top: 1px dashed rgba(255, 153, 0, 0.22);
+  padding-top: 6px;
+  margin-top: 2px;
+}
+body.lcars .chess-commentary-history:empty { display: none; }
+body.lcars .chess-history-row {
+  display: grid;
+  grid-template-columns: 60px 1fr;
+  gap: 8px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  line-height: 1.35;
+}
+body.lcars .chess-history-row:hover { background: rgba(255, 153, 0, 0.06); }
+body.lcars .chess-history-row .history-round {
+  color: var(--lcars-amber);
+  font-family: "JetBrains Mono", "Consolas", monospace;
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+}
+body.lcars .chess-history-row .history-text {
+  color: var(--lcars-text);
+  font-family: "Georgia", "Times New Roman", serif;
+  font-style: italic;
+  font-size: 0.76rem;
+}
+
 /* Narrow viewports: stack board + panel */
 @media (max-width: 860px) {
   body.lcars .chess-main-grid {

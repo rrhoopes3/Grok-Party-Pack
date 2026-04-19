@@ -1340,7 +1340,8 @@ function chessPopulateModelSelects() {
     // Reuse state.models from loadModels() (already fetched during init).
     const whiteSel = document.getElementById("chess-white-model");
     const blackSel = document.getElementById("chess-black-model");
-    if (!whiteSel || !blackSel) return;
+    const judgeSel = document.getElementById("chess-judge-model");
+    if (!whiteSel || !blackSel || !judgeSel) return;
     const models = (state.models || []).filter(m => m.id !== "auto");
     if (models.length === 0) return;
     if (whiteSel.options.length > 0) return;  // already populated
@@ -1352,7 +1353,7 @@ function chessPopulateModelSelects() {
         (grouped[provider] ||= []).push(m);
     }
 
-    [whiteSel, blackSel].forEach((sel, idx) => {
+    const fillSelect = (sel, pickIdx) => {
         sel.innerHTML = "";
         for (const [provider, list] of Object.entries(grouped)) {
             const group = document.createElement("optgroup");
@@ -1365,11 +1366,28 @@ function chessPopulateModelSelects() {
             });
             sel.appendChild(group);
         }
-        // Pick sensible defaults: white = first fast model, black = second.
         if (sel.options.length > 0) {
-            sel.selectedIndex = Math.min(idx, sel.options.length - 1);
+            sel.selectedIndex = Math.min(pickIdx, sel.options.length - 1);
         }
-    });
+    };
+
+    fillSelect(whiteSel, 0);
+    fillSelect(blackSel, 1);
+    fillSelect(judgeSel, 0);
+
+    // Judge default — prefer Grok 4.20 reasoning if present (matches what the
+    // user asked for: "Grok 4.20 judge"). Falls back to the first option.
+    const preferredJudges = ["grok-4.20-0309-reasoning",
+                             "grok-4.20-multi-agent-0309",
+                             "claude-sonnet-4-6", "gpt-4o"];
+    for (const preferred of preferredJudges) {
+        for (let i = 0; i < judgeSel.options.length; i++) {
+            if (judgeSel.options[i].value === preferred) {
+                judgeSel.selectedIndex = i;
+                return;
+            }
+        }
+    }
 }
 
 // FEN → 8x8 array of piece chars. First rank in FEN is rank 8 (top).
@@ -1485,6 +1503,8 @@ function renderChess() {
     document.getElementById("chess-auto-btn").disabled = !active || chessState.stepInFlight;
     document.getElementById("chess-resign-white-btn").disabled = !active || busy;
     document.getElementById("chess-resign-black-btn").disabled = !active || busy;
+    const callBtn = document.getElementById("chess-commentary-now-btn");
+    if (callBtn) callBtn.disabled = !active || busy;
 
     const autoBtn = document.getElementById("chess-auto-btn");
     autoBtn.textContent = chessState.autoPlaying ? "Stop auto-play" : "Auto-play";
@@ -1534,6 +1554,11 @@ function renderChessMoves(moves) {
 async function chessNewMatch() {
     const white = document.getElementById("chess-white-model").value;
     const black = document.getElementById("chess-black-model").value;
+    const judge = document.getElementById("chess-judge-model")?.value
+               || "grok-4.20-0309-reasoning";
+    const interval = parseInt(
+        document.getElementById("chess-commentary-interval")?.value || "2", 10
+    ) || 2;
     if (!white || !black) {
         chessSetStatus("Select both models first.", "err");
         return;
@@ -1543,13 +1568,20 @@ async function chessNewMatch() {
         const resp = await fetchJson("/api/chess", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ white_model: white, black_model: black }),
+            body: JSON.stringify({
+                white_model: white,
+                black_model: black,
+                judge_model: judge,
+                commentary_interval: interval,
+            }),
         });
         if (resp.error) { chessSetStatus(resp.error, "err"); return; }
         chessState.match = resp;
         chessState.autoPlaying = false;
+        // Fresh commentary state — clear the body + history from previous matches
+        chessResetCommentary();
         renderChess();
-        chessSetStatus(`Match started — ${white} vs ${black}. Auto-playing…`, "ok");
+        chessSetStatus(`Match started — ${white} vs ${black} · Judge ${judge} every ${interval} round${interval>1?"s":""}. Auto-playing…`, "ok");
         // Kick off auto-play automatically. Users expected "start match" to
         // mean "begin the game" — making them hunt for a separate Step /
         // Auto-play button was a UX footgun. They can still pause anytime.
@@ -1582,6 +1614,10 @@ async function chessStep() {
                 const flag = last.forced ? " ⚠ forced random" : "";
                 chessSetStatus(`${last.side} played ${last.san}${flag}`, last.forced ? "err" : "ok");
             }
+            // Judge commentary lands here when it's the right beat.
+            if (resp.new_commentary) {
+                chessApplyCommentary(resp.new_commentary);
+            }
         }
     } catch (err) {
         chessSetStatus(`Step failed: ${err.message}`, "err");
@@ -1589,6 +1625,113 @@ async function chessStep() {
     } finally {
         chessState.stepInFlight = false;
         renderChess();
+    }
+}
+
+// ── Chess commentary (TTS judge) ────────────────────────────────────────
+// The judge fires server-side every N full moves; the /step response
+// includes `new_commentary` when it's a commentary beat. We also let the
+// user hit "Call it" to trigger an out-of-band narration via POST
+// /api/chess/<id>/commentary.
+
+function chessResetCommentary() {
+    const body = document.getElementById("chess-commentary-body");
+    const meta = document.getElementById("chess-commentary-meta");
+    const hist = document.getElementById("chess-commentary-history");
+    if (body) {
+        body.textContent = "Commentary will appear here after the first full round.";
+        body.className = "chess-commentary-body";
+    }
+    if (meta) meta.textContent = "—";
+    if (hist) hist.innerHTML = "";
+}
+
+function chessApplyCommentary(rec) {
+    if (!rec || !rec.text) return;
+    const body = document.getElementById("chess-commentary-body");
+    const meta = document.getElementById("chess-commentary-meta");
+    const hist = document.getElementById("chess-commentary-history");
+    if (!body) return;
+
+    // Slide the previous live line into the history before writing the new one.
+    const prevText = body.textContent || "";
+    const prevMeta = meta?.dataset?.prevHeader;
+    if (prevText
+        && !body.classList.contains("placeholder")
+        && prevMeta
+        && hist) {
+        chessAddCommentaryHistoryRow(prevMeta, prevText);
+    }
+
+    body.textContent = rec.text;
+    body.className = "chess-commentary-body speaking";
+    const header = `Round ${rec.round_num} · ${rec.model} · ${rec.ms}ms`;
+    if (meta) {
+        meta.textContent = header;
+        meta.dataset.prevHeader = header;
+    }
+    // Re-enable the "Call it" button after any in-flight judge call.
+    const callBtn = document.getElementById("chess-commentary-now-btn");
+    if (callBtn) callBtn.disabled = false;
+
+    // TTS it if enabled
+    const ttsOn = document.getElementById("chess-tts-toggle")?.checked;
+    if (ttsOn) {
+        flushSpeechBuffer();
+        speakText(rec.text);
+    }
+    // Drop the "speaking" glow after a beat so it doesn't stay lit all match
+    setTimeout(() => {
+        if (body.textContent === rec.text) body.classList.remove("speaking");
+    }, 4500);
+}
+
+function chessAddCommentaryHistoryRow(header, text) {
+    const hist = document.getElementById("chess-commentary-history");
+    if (!hist) return;
+    const row = document.createElement("div");
+    row.className = "chess-history-row";
+    const roundMatch = header.match(/Round (\d+)/);
+    const roundLabel = roundMatch ? `R${roundMatch[1]}` : "—";
+    row.innerHTML = `
+        <span class="history-round">${escapeHtml(roundLabel)}</span>
+        <span class="history-text">${escapeHtml(text)}</span>
+    `;
+    // Newest on top
+    hist.insertBefore(row, hist.firstChild);
+    // Cap the history — anything beyond 12 rows is just noise.
+    while (hist.children.length > 12) hist.removeChild(hist.lastChild);
+}
+
+async function chessCommentaryNow() {
+    if (!chessState.match || chessState.match.status !== "active") return;
+    const btn = document.getElementById("chess-commentary-now-btn");
+    const body = document.getElementById("chess-commentary-body");
+    if (btn) btn.disabled = true;
+    if (body) {
+        body.textContent = "Judge is thinking…";
+        body.className = "chess-commentary-body thinking";
+    }
+    try {
+        const resp = await fetchJson(
+            `/api/chess/${encodeURIComponent(chessState.match.id)}/commentary`,
+            { method: "POST" }
+        );
+        if (resp.error) {
+            if (body) {
+                body.textContent = resp.error;
+                body.className = "chess-commentary-body";
+            }
+            return;
+        }
+        chessApplyCommentary(resp);
+    } catch (err) {
+        if (body) {
+            body.textContent = `Judge call failed: ${err.message}`;
+            body.className = "chess-commentary-body";
+        }
+    } finally {
+        if (btn) btn.disabled = false;
     }
 }
 
@@ -1639,11 +1782,27 @@ function bindChessUi() {
     const autoBtn   = document.getElementById("chess-auto-btn");
     const resignW   = document.getElementById("chess-resign-white-btn");
     const resignB   = document.getElementById("chess-resign-black-btn");
+    const callBtn   = document.getElementById("chess-commentary-now-btn");
+    const ttsBtn    = document.getElementById("chess-tts-toggle");
     if (newBtn)  newBtn .addEventListener("click", chessNewMatch);
     if (stepBtn) stepBtn.addEventListener("click", chessStep);
     if (autoBtn) autoBtn.addEventListener("click", chessToggleAuto);
     if (resignW) resignW.addEventListener("click", () => chessResign("white"));
     if (resignB) resignB.addEventListener("click", () => chessResign("black"));
+    if (callBtn) callBtn.addEventListener("click", chessCommentaryNow);
+    // Chess TTS piggy-backs the arena TTS engine — flipping this toggle
+    // also flips the shared state.ttsEnabled flag so speakText() actually
+    // synthesizes. Persist the preference so tab reloads respect it.
+    if (ttsBtn) {
+        const savedTts = localStorage.getItem("forge_chess_tts");
+        if (savedTts !== null) ttsBtn.checked = savedTts === "true";
+        state.ttsEnabled = ttsBtn.checked || state.ttsEnabled;
+        ttsBtn.addEventListener("change", () => {
+            state.ttsEnabled = ttsBtn.checked;
+            localStorage.setItem("forge_chess_tts", String(ttsBtn.checked));
+            if (!ttsBtn.checked) stopTTS();
+        });
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════
