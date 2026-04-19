@@ -107,6 +107,18 @@ def _strip_data_url_prefix(data_url: str) -> tuple[str, str]:
     return "image/png", data_url
 
 
+# Claude 4.5+ and OpenAI reasoning models (o-series, GPT-5 family) deprecate
+# the `temperature` kwarg and 400 if sent. Detect by name prefix and drop it.
+def _model_rejects_temperature(model: str) -> bool:
+    m = model.lower()
+    if m.startswith(("claude-opus-4-7", "claude-sonnet-4-7", "claude-haiku-4-5",
+                     "claude-opus-4-5", "claude-sonnet-4-5")):
+        return True
+    if m.startswith(("o1-", "o3-", "o4-", "gpt-5")):
+        return True
+    return False
+
+
 def _call_anthropic(prompt: str, system: str, model: str,
                     image_b64: Optional[str]) -> str:
     import anthropic
@@ -121,13 +133,13 @@ def _call_anthropic(prompt: str, system: str, model: str,
         })
     content.append({"type": "text", "text": prompt})
 
-    resp = client.messages.create(
-        model=model,
-        max_tokens=400,
-        system=system,
-        messages=[{"role": "user", "content": content}],
-        temperature=0.6,
-    )
+    kwargs: dict[str, Any] = {
+        "model": model, "max_tokens": 400, "system": system,
+        "messages": [{"role": "user", "content": content}],
+    }
+    if not _model_rejects_temperature(model):
+        kwargs["temperature"] = 0.6
+    resp = client.messages.create(**kwargs)
     return resp.content[0].text
 
 
@@ -151,9 +163,12 @@ def _call_openai_compat(prompt: str, system: str, model: str,
         messages.append({"role": "system", "content": system})
     messages.append({"role": "user", "content": user_content})
 
-    resp = client.chat.completions.create(
-        model=model, messages=messages, max_tokens=400, temperature=0.6,
-    )
+    call_kwargs: dict[str, Any] = {
+        "model": model, "messages": messages, "max_tokens": 400,
+    }
+    if not _model_rejects_temperature(model):
+        call_kwargs["temperature"] = 0.6
+    resp = client.chat.completions.create(**call_kwargs)
     return resp.choices[0].message.content or ""
 
 

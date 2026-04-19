@@ -62,9 +62,26 @@ def _provider_for(model: str) -> str:
     return "xai"
 
 
+# Models that reject the `temperature` parameter outright (Claude 4.5+
+# and the o3/o4/gpt-5 reasoning tiers on OpenAI). Anthropic returns
+# 400 `invalid_request_error` "temperature is deprecated for this model"
+# on Opus 4.7 etc. Safest to just drop the knob when we see them.
+def _model_rejects_temperature(model: str) -> bool:
+    m = model.lower()
+    if m.startswith(("claude-opus-4-7", "claude-sonnet-4-7", "claude-haiku-4-5",
+                     "claude-opus-4-5", "claude-sonnet-4-5")):
+        return True
+    # OpenAI reasoning models — o-series + GPT-5 family
+    if m.startswith(("o1-", "o3-", "o4-", "gpt-5")):
+        return True
+    return False
+
+
 def _llm_oneshot(prompt: str, system: str, model: str,
                  temperature: float = 0.3, max_tokens: int = 600) -> str:
     provider = _provider_for(model)
+    skip_temp = _model_rejects_temperature(model)
+
     if provider == "anthropic":
         import anthropic
         client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
@@ -74,7 +91,8 @@ def _llm_oneshot(prompt: str, system: str, model: str,
         }
         if system:
             kwargs["system"] = system
-        kwargs["temperature"] = min(temperature, 1.0)
+        if not skip_temp:
+            kwargs["temperature"] = min(temperature, 1.0)
         resp = client.messages.create(**kwargs)
         return resp.content[0].text
 
@@ -100,10 +118,12 @@ def _llm_oneshot(prompt: str, system: str, model: str,
     if system:
         messages.append({"role": "system", "content": system})
     messages.append({"role": "user", "content": prompt})
-    resp = client.chat.completions.create(
-        model=model, messages=messages,
-        temperature=temperature, max_tokens=max_tokens,
-    )
+    call_kwargs: dict[str, Any] = {
+        "model": model, "messages": messages, "max_tokens": max_tokens,
+    }
+    if not skip_temp:
+        call_kwargs["temperature"] = temperature
+    resp = client.chat.completions.create(**call_kwargs)
     return resp.choices[0].message.content or ""
 
 

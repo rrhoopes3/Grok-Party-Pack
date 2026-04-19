@@ -108,6 +108,19 @@ def _llm_call(
         )
 
 
+# Reasoning / newest-gen models that 400 on `temperature`. Anthropic Claude
+# 4.5+ and OpenAI o-series / GPT-5 tier all refuse it. Detect by name
+# prefix and drop the knob.
+def _model_rejects_temperature(model: str) -> bool:
+    m = (model or "").lower()
+    if m.startswith(("claude-opus-4-7", "claude-sonnet-4-7", "claude-haiku-4-5",
+                     "claude-opus-4-5", "claude-sonnet-4-5")):
+        return True
+    if m.startswith(("o1-", "o3-", "o4-", "gpt-5")):
+        return True
+    return False
+
+
 def _call_anthropic(prompt: str, system: str, model: str, temperature: float, max_tokens: int) -> str:
     import anthropic
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
@@ -118,7 +131,7 @@ def _call_anthropic(prompt: str, system: str, model: str, temperature: float, ma
     }
     if system:
         kwargs["system"] = system
-    if temperature is not None:
+    if temperature is not None and not _model_rejects_temperature(model):
         kwargs["temperature"] = min(temperature, 1.0)  # Anthropic caps at 1.0
     resp = client.messages.create(**kwargs)
     return resp.content[0].text
@@ -137,12 +150,12 @@ def _call_openai_compat(
     if system:
         messages.append({"role": "system", "content": system})
     messages.append({"role": "user", "content": prompt})
-    resp = client.chat.completions.create(
-        model=model,
-        messages=messages,
-        temperature=temperature,
-        max_tokens=max_tokens,
-    )
+    call_kwargs: dict[str, Any] = {
+        "model": model, "messages": messages, "max_tokens": max_tokens,
+    }
+    if not _model_rejects_temperature(model):
+        call_kwargs["temperature"] = temperature
+    resp = client.chat.completions.create(**call_kwargs)
     return resp.choices[0].message.content or ""
 
 
