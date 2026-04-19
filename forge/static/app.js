@@ -1995,6 +1995,20 @@ const nesState = {
     controllerLatencyMs: 0,
     lastActions: [],            // ring of last N {buttons, hold_ms} for prompt
     activeHolds: new Map(),     // button name → scheduled release timestamp
+
+    // ── Audio pipeline ─────────────────────────────────────────────
+    // jsnes produces ~44100Hz samples (two floats per tick) via the
+    // onAudioSample callback. We buffer them in a ring and pump into a
+    // WebAudio ScriptProcessorNode that WebAudio pulls at its own
+    // sample-rate. Ring is oversized (~4× bufferSize) so the emulator
+    // can be ahead or behind without glitching.
+    audioCtx: null,
+    audioNode: null,
+    audioRingL: null,
+    audioRingR: null,
+    audioWritePos: 0,
+    audioReadPos: 0,
+    audioMuted: false,
 };
 
 function nesSetOverlay(msg, visible = true) {
@@ -2202,9 +2216,17 @@ async function nesBoot() {
     nesState.imageData = img;
     nesState.frameBuf = new Uint32Array(img.data.buffer);
 
+    // Initialise WebAudio lazily — browsers require a user gesture to
+    // unlock, and clicking "Boot ROM" IS a user gesture, so here is the
+    // right spot. Keep the AudioContext across boots so we don't spam
+    // "context created" warnings, but rebuild the ring + node each
+    // time so stale samples don't leak between games.
+    nesSetupAudio();
+
     nesState.nes = new jsnes.NES({
         onFrame: nesOnFrame,
-        onAudioSample: (l, r) => { /* audio intentionally off for v1 */ },
+        onAudioSample: nesOnAudioSample,
+        sampleRate: nesState.audioCtx ? nesState.audioCtx.sampleRate : 44100,
     });
     try {
         nesState.nes.loadROM(romData);
@@ -2238,7 +2260,7 @@ async function nesBoot() {
     nesSetCoachMeta(`${coachModel || "default coach"} · 0ms`);
 
     // Enable controls
-    ["nes-pause-btn","nes-reset-btn","nes-stop-btn","nes-coach-now-btn","nes-note-btn"]
+    ["nes-pause-btn","nes-reset-btn","nes-stop-btn","nes-coach-now-btn","nes-note-btn","nes-mute-btn"]
         .forEach(id => { const b = document.getElementById(id); if (b) b.disabled = false; });
     // Start RAF
     nesRafLoop();
@@ -2246,6 +2268,107 @@ async function nesBoot() {
     if (mode !== "human") {
         setTimeout(() => nesAskCoach(true), 800);
     }
+}
+
+// ── Audio pipeline ─────────────────────────────────────────────────────
+// jsnes fires onAudioSample(l, r) once per audio sample (at whatever
+// sampleRate we configured the NES with). We push into a ring buffer
+// and let the WebAudio ScriptProcessorNode pull at its own pace.
+
+function nesSetupAudio() {
+    if (!nesState.audioCtx) {
+        try {
+            const AC = window.AudioContext || window.webkitAudioContext;
+            if (!AC) return;  // no WebAudio — silent playback
+            nesState.audioCtx = new AC({ sampleRate: 44100 });
+        } catch (e) {
+            console.warn("[nes audio] AudioContext failed:", e);
+            return;
+        }
+    }
+    // Browser may have auto-suspended the context; resume now that we
+    // have a user gesture (the Boot click).
+    if (nesState.audioCtx.state === "suspended") {
+        nesState.audioCtx.resume().catch(() => {});
+    }
+    // Tear down the old node so we don't leak handlers between boots
+    if (nesState.audioNode) {
+        try { nesState.audioNode.disconnect(); } catch (_) {}
+        nesState.audioNode.onaudioprocess = null;
+        nesState.audioNode = null;
+    }
+    // Ring sized for ~4× one audio-processor buffer so the emulator can
+    // drift ahead/behind without underflowing. bufferSize 1024 = ~23ms
+    // per pull on a 44.1kHz context.
+    const bufferSize = 1024;
+    const ringLen = bufferSize * 4;
+    nesState.audioRingL = new Float32Array(ringLen);
+    nesState.audioRingR = new Float32Array(ringLen);
+    nesState.audioWritePos = 0;
+    nesState.audioReadPos = 0;
+
+    // ScriptProcessorNode is deprecated but universally supported and
+    // simpler than AudioWorklet for a one-off demo. 0 input channels,
+    // 2 output channels (stereo).
+    try {
+        nesState.audioNode = nesState.audioCtx.createScriptProcessor(bufferSize, 0, 2);
+    } catch (e) {
+        console.warn("[nes audio] createScriptProcessor failed:", e);
+        return;
+    }
+    nesState.audioNode.onaudioprocess = (ev) => {
+        const outL = ev.outputBuffer.getChannelData(0);
+        const outR = ev.outputBuffer.getChannelData(1);
+        const ringL = nesState.audioRingL;
+        const ringR = nesState.audioRingR;
+        const len = ringL.length;
+        // If the emulator hasn't produced enough samples (underflow),
+        // read the last written value to avoid clicks.
+        for (let i = 0; i < outL.length; i++) {
+            if (nesState.audioMuted || !nesState.running || nesState.paused) {
+                outL[i] = 0; outR[i] = 0;
+                continue;
+            }
+            if (nesState.audioReadPos === nesState.audioWritePos) {
+                outL[i] = 0; outR[i] = 0;
+                continue;
+            }
+            outL[i] = ringL[nesState.audioReadPos];
+            outR[i] = ringR[nesState.audioReadPos];
+            nesState.audioReadPos = (nesState.audioReadPos + 1) % len;
+        }
+    };
+    nesState.audioNode.connect(nesState.audioCtx.destination);
+}
+
+function nesOnAudioSample(l, r) {
+    const ringL = nesState.audioRingL;
+    if (!ringL) return;
+    const ringR = nesState.audioRingR;
+    const len = ringL.length;
+    ringL[nesState.audioWritePos] = l;
+    ringR[nesState.audioWritePos] = r;
+    nesState.audioWritePos = (nesState.audioWritePos + 1) % len;
+    // Overflow safety: if the ring is full (write caught up to read),
+    // bump the read pointer to drop the oldest sample rather than
+    // stalling. Keeps latency bounded.
+    if (nesState.audioWritePos === nesState.audioReadPos) {
+        nesState.audioReadPos = (nesState.audioReadPos + 1) % len;
+    }
+}
+
+function nesTeardownAudio() {
+    if (nesState.audioNode) {
+        try { nesState.audioNode.disconnect(); } catch (_) {}
+        nesState.audioNode.onaudioprocess = null;
+        nesState.audioNode = null;
+    }
+    nesState.audioRingL = null;
+    nesState.audioRingR = null;
+    nesState.audioWritePos = 0;
+    nesState.audioReadPos = 0;
+    // Keep the AudioContext alive across boots — creating a new one on
+    // every Boot ROM click risks exhausting browser context quotas.
 }
 
 function nesRafLoop() {
@@ -2525,10 +2648,14 @@ async function nesRunControllerTick() {
 
     const started = performance.now();
     try {
-        const resp = await fetch(`${url}/chat/completions`, {
+        // Proxy through the Forge backend — LM Studio's CORS preflight
+        // handler is broken (returns 400 to OPTIONS), and direct browser
+        // POST to a cross-origin localhost port is blocked anyway.
+        // The proxy adds ~20-50ms of Python hop but unblocks the call.
+        const resp = await fetch(`/api/nes/controller`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(body),
+            body: JSON.stringify({ target_url: url, body: body }),
         });
         const data = await resp.json().catch(() => ({}));
         nesState.controllerLatencyMs = Math.round(performance.now() - started);
@@ -2600,6 +2727,7 @@ function nesStop() {
     nesState.paused = false;
     if (nesState.rafHandle) cancelAnimationFrame(nesState.rafHandle);
     nesState.rafHandle = 0;
+    nesTeardownAudio();
     if (nesState.session) {
         fetchJson(`/api/nes/sessions/${nesState.session.id}`, {method:"DELETE"}).catch(()=>{});
     }
@@ -2613,8 +2741,14 @@ function nesStop() {
     const ctrl = document.getElementById("nes-ctrl-ms");
     if (ctrl) ctrl.textContent = "—";
     nesState.controllerLatencyMs = 0;
-    ["nes-pause-btn","nes-reset-btn","nes-stop-btn","nes-coach-now-btn","nes-note-btn"]
+    ["nes-pause-btn","nes-reset-btn","nes-stop-btn","nes-coach-now-btn","nes-note-btn","nes-mute-btn"]
         .forEach(id => { const b = document.getElementById(id); if (b) b.disabled = true; });
+}
+
+function nesToggleMute() {
+    nesState.audioMuted = !nesState.audioMuted;
+    const btn = document.getElementById("nes-mute-btn");
+    if (btn) btn.textContent = nesState.audioMuted ? "🔇 Muted" : "🔊 Sound";
 }
 
 async function nesAddNote() {
@@ -2706,6 +2840,8 @@ function bindNesUi() {
     if (stopBtn)  stopBtn .addEventListener("click", nesStop);
     if (coachNowBtn) coachNowBtn.addEventListener("click", () => nesAskCoach(false));
     if (noteBtn)  noteBtn .addEventListener("click", nesAddNote);
+    const muteBtn = document.getElementById("nes-mute-btn");
+    if (muteBtn) muteBtn.addEventListener("click", nesToggleMute);
     if (intervalSlider) {
         intervalSlider.addEventListener("input", () => {
             const v = parseInt(intervalSlider.value, 10);
