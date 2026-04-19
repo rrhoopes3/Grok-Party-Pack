@@ -327,6 +327,12 @@ class ChessMatch:
     # the user asked for.
     judge_model: str = "grok-4.20-0309-reasoning"
     commentary_interval: int = 2             # full-move pairs between commentary
+    # Number of recent plies to show the judge. 0 = full history (old
+    # behaviour — running commentary sees the whole game). >0 = recap
+    # mode — the judge only sees the last N half-moves, so commentary
+    # focuses on what just happened instead of rehashing move 3 on
+    # move 20.
+    commentary_window_plies: int = 0
     commentary: list[CommentaryRecord] = field(default_factory=list)
 
     # ── Captured pieces + token accounting ─────────────────────────────
@@ -440,6 +446,7 @@ def serialize_match(m: ChessMatch) -> dict:
         ],
         "judge_model": m.judge_model,
         "commentary_interval": m.commentary_interval,
+        "commentary_window_plies": m.commentary_window_plies,
         "commentary": [
             {
                 "after_move_n": c.after_move_n,
@@ -552,6 +559,7 @@ def new_match(
     starting_fen: str = "",
     judge_model: str = "grok-4.20-0309-reasoning",
     commentary_interval: int = 2,
+    commentary_window_plies: int = 0,
 ) -> ChessMatch:
     with _REGISTRY_LOCK:
         board = chess.Board(starting_fen) if starting_fen else chess.Board()
@@ -562,11 +570,15 @@ def new_match(
             board=board,
             judge_model=judge_model,
             commentary_interval=max(1, int(commentary_interval)),
+            commentary_window_plies=max(0, int(commentary_window_plies)),
         )
         _MATCHES[m.id] = m
         _evict_if_needed()
-        log.info("chess match created: %s (%s vs %s, judge=%s every %d rounds)",
-                 m.id, white_model, black_model, judge_model, m.commentary_interval)
+        window_note = (f"recap last {m.commentary_window_plies} plies"
+                       if m.commentary_window_plies else "full history")
+        log.info("chess match created: %s (%s vs %s, judge=%s every %d rounds, %s)",
+                 m.id, white_model, black_model, judge_model,
+                 m.commentary_interval, window_note)
         return m
 
 
@@ -828,16 +840,37 @@ def _should_emit_commentary(m: ChessMatch) -> bool:
 
 
 def _build_judge_prompt(m: ChessMatch) -> str:
-    """Build the judge prompt with the full move history so it can reason
-    about momentum, not just the latest ply."""
-    # SAN history grouped by full move (e.g. "1. e4 e5  2. Nf3 Nc6")
+    """Build the judge prompt. Two modes:
+
+      * Running commentary (commentary_window_plies == 0): full game
+        history, judge can reference any earlier move. Good for
+        narrative arcs but meanders on long games.
+
+      * Recap mode (commentary_window_plies > 0): only the last N plies
+        are included as "since last beat". Judge is explicitly told to
+        focus on just that window. Earlier moves summarised as a count.
+    """
+    window = m.commentary_window_plies
+    recap_mode = window > 0 and len(m.moves) > window
+
+    # Slice to the recap window (or show everything if running mode).
+    visible_moves = m.moves[-window:] if recap_mode else m.moves
+    skipped_count = len(m.moves) - len(visible_moves)
+
+    # SAN history grouped by full move (e.g. "1. e4 e5  2. Nf3 Nc6").
+    # If we're in recap mode and the first visible move is Black, emit
+    # "N...Nf6" so the move-number column stays honest.
     history_tokens: list[str] = []
-    for rec in m.moves:
+    for rec in visible_moves:
         if rec.side == "white":
             full_n = (rec.n + 1) // 2
             history_tokens.append(f"{full_n}. {rec.san}")
         else:
-            history_tokens.append(rec.san)
+            if not history_tokens:
+                full_n = (rec.n + 1) // 2
+                history_tokens.append(f"{full_n}...{rec.san}")
+            else:
+                history_tokens.append(rec.san)
     history_str = " ".join(history_tokens) if history_tokens else "(no moves yet)"
 
     # Last pair for focus
@@ -867,9 +900,18 @@ def _build_judge_prompt(m: ChessMatch) -> str:
         f"Match: {m.white_model} (White) vs {m.black_model} (Black).",
         f"After move {len(m.moves)} ({(len(m.moves)+1)//2} full pairs).",
         "",
-        "Full move history (SAN):",
-        history_str,
     ]
+    if recap_mode:
+        lines.append(
+            f"RECAP MODE — comment only on the LAST {len(visible_moves)} plies below. "
+            f"{skipped_count} earlier plies happened but are out of scope for this beat."
+        )
+        lines.append("")
+        lines.append(f"Last {len(visible_moves)} plies (SAN):")
+    else:
+        lines.append("Full move history (SAN):")
+    lines.append(history_str)
+
     if last_pair:
         lines.extend(["", "Most recent pair:", *last_pair])
     if check_line:
@@ -880,6 +922,9 @@ def _build_judge_prompt(m: ChessMatch) -> str:
         "",
         f"Position FEN: {m.board.fen()}",
         "",
+        ("Recap what happened in these last plies in 2–4 sentences. "
+         "Do NOT reference earlier moves — they are out of scope.")
+        if recap_mode else
         "Call the action. 2–4 sentences.",
     ])
     return "\n".join(lines)

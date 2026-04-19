@@ -1708,9 +1708,15 @@ async function chessNewMatch() {
     const black = document.getElementById("chess-black-model").value;
     const judge = document.getElementById("chess-judge-model")?.value
                || "grok-4.20-0309-reasoning";
-    const interval = parseInt(
-        document.getElementById("chess-commentary-interval")?.value || "2", 10
-    ) || 2;
+    // The commentary dropdown encodes "interval:window_plies". A window
+    // of 0 means running commentary (judge sees the whole game); >0
+    // means recap mode (judge only sees the last N plies + is told to
+    // not reference earlier moves). Default 2:0 = every 2 rounds, full
+    // history — same as before.
+    const ciRaw = document.getElementById("chess-commentary-interval")?.value || "2:0";
+    const [ciPart, winPart] = ciRaw.split(":");
+    const interval = parseInt(ciPart, 10) || 2;
+    const windowPlies = parseInt(winPart || "0", 10) || 0;
     if (!white || !black) {
         chessSetStatus("Select both models first.", "err");
         return;
@@ -1725,6 +1731,7 @@ async function chessNewMatch() {
                 black_model: black,
                 judge_model: judge,
                 commentary_interval: interval,
+                commentary_window_plies: windowPlies,
             }),
         });
         if (resp.error) { chessSetStatus(resp.error, "err"); return; }
@@ -1734,7 +1741,10 @@ async function chessNewMatch() {
         // Fresh commentary state — clear the body + history from previous matches
         chessResetCommentary();
         renderChess();
-        chessSetStatus(`Match started — ${white} vs ${black} · Judge ${judge} every ${interval} round${interval>1?"s":""}. Auto-playing…`, "ok");
+        const modeTag = windowPlies > 0
+            ? `recap-last-${windowPlies/2}-rounds`
+            : "full-history";
+        chessSetStatus(`Match started — ${white} vs ${black} · Judge ${judge} every ${interval} round${interval>1?"s":""} (${modeTag}). Auto-playing…`, "ok");
         // Kick off auto-play automatically. Users expected "start match" to
         // mean "begin the game" — making them hunt for a separate Step /
         // Auto-play button was a UX footgun. They can still pause anytime.

@@ -981,6 +981,7 @@ def chess_new():
             starting_fen=body.get("starting_fen", "") or "",
             judge_model=(body.get("judge_model") or "grok-4.20-0309-reasoning").strip(),
             commentary_interval=int(body.get("commentary_interval") or 2),
+            commentary_window_plies=int(body.get("commentary_window_plies") or 0),
         )
     except Exception as e:
         log.exception("chess_new failed")
