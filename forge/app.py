@@ -1301,8 +1301,16 @@ def nes_controller_grok(session_id: str):
         "prose, no markdown, no thinking:\n"
         '  {"buttons":["LEFT"|"RIGHT"|"UP"|"DOWN"|"A"|"B"|"START"|"SELECT"],'
         '"hold_ms":INTEGER_50_TO_400}\n'
-        "Empty buttons = do nothing this tick. Jump=A. Run=B+RIGHT. "
-        "If on a title/menu screen, press START. React to what you see."
+        "Empty buttons = do nothing this tick. Jump=A. Run=B+RIGHT.\n\n"
+        "CRITICAL — START BUTTON RULES:\n"
+        "• In actual gameplay (Mario running, Link exploring, etc.), "
+        "START *pauses the game*. NEVER press START during gameplay.\n"
+        "• Only press START when the screen shows a title/menu image: "
+        "logo + 'PRESS START' text + no HUD. If you see score, lives, "
+        "or a character, it's gameplay — do NOT press START.\n"
+        "• If you just pressed START on the prior tick, do NOT press it "
+        "again. The menu has already advanced.\n\n"
+        "React to what you see. Prefer movement + jumps over menu buttons."
     )
     user_prompt = (
         f"Coach plan: {coach_plan or '(none — act on screen cues)'}\n"

@@ -2582,8 +2582,31 @@ function nesReleaseExpiredHolds(now) {
     }
 }
 
+// Guard against the "game pauses every second" symptom: if the model
+// keeps asking for START, we strip it because in ~every NES game START
+// is the pause button and repeated presses toggle pause ⇄ unpause.
+// The model CAN still press START — just not two ticks in a row, and
+// not more than a handful of times per session.
+function nesFilterButtons(buttons) {
+    if (!buttons.includes("START")) return buttons;
+    // Last-press recency: was START in either of the last 2 actions?
+    const recentStart = nesState.lastActions.slice(-2)
+        .some(a => a.buttons.includes("START"));
+    // Session cap: how many total START presses so far?
+    const totalStart = nesState.lastActions
+        .filter(a => a.buttons.includes("START")).length;
+    const SESSION_START_CAP = 4;
+    if (recentStart || totalStart >= SESSION_START_CAP) {
+        // Keep any other buttons the model wanted — just drop START.
+        return buttons.filter(b => b !== "START");
+    }
+    return buttons;
+}
+
 function nesApplyButtons(buttons, hold_ms) {
     if (!nesState.nes) return;
+    buttons = nesFilterButtons(buttons);
+    if (buttons.length === 0) return;   // all-filtered → no-op tick
     // Release any holds first so each tick starts clean. This matches
     // how a human plays — a new "press" fully replaces the prior one.
     for (const [button, _] of nesState.activeHolds) {
@@ -2607,14 +2630,19 @@ function nesApplyButtons(buttons, hold_ms) {
 
 const NES_CONTROLLER_SYSTEM = (
     "You are the fast controller for an NES player character. On every " +
-    "call you see one screenshot of the current frame plus a brief " +
-    "coach plan. Output ONE JSON object, no prose, no markdown:\n" +
+    "call you see one screenshot plus a coach plan. Output ONE JSON " +
+    "object, no prose, no markdown:\n" +
     '  {"buttons":["LEFT"|"RIGHT"|"UP"|"DOWN"|"A"|"B"|"START"|"SELECT"], ' +
-    '"hold_ms":INTEGER_40_TO_400}\n' +
-    "Guidelines: empty buttons array = do nothing this tick. Running right " +
-    "is B+RIGHT. Jump = A (hold ~150ms for big jump, ~80ms for short). " +
-    "Avoid enemies. If paused on a title screen, press START. React to " +
-    "what you SEE on the screen — don't just repeat the coach plan."
+    '"hold_ms":INTEGER_40_TO_400}\n\n' +
+    "Empty buttons = do nothing this tick. Running right is B+RIGHT. " +
+    "Jump = A (hold ~150ms for big jump, ~80ms for short). Avoid enemies.\n\n" +
+    "CRITICAL — START BUTTON:\n" +
+    "• In gameplay, START *pauses the game*. NEVER press START if you " +
+    "see score/lives/character on screen.\n" +
+    "• Only press START on an obvious title screen (logo + PRESS START " +
+    "text + no HUD).\n" +
+    "• If you just pressed START last tick, do NOT press it again.\n\n" +
+    "React to what you SEE — don't just echo the coach plan."
 );
 
 async function nesRunControllerTick() {
