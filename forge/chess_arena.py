@@ -105,6 +105,37 @@ def _qwen3_no_think_kwargs(model: str) -> dict[str, Any]:
     return {}
 
 
+# Cache LM Studio's currently-loaded model id. LM Studio 0.3+ rejects
+# the literal "default" that older configs shipped with; we have to
+# ask /v1/models and use whatever's actually loaded. TTL short so
+# hot-swapping models in LM Studio takes effect within 30s.
+_LMSTUDIO_DEFAULT_CACHE: dict[str, Any] = {"id": None, "fetched_at": 0.0}
+
+
+def _resolve_lmstudio_default(base_url: str) -> str:
+    """Return the first non-embedding loaded model id in LM Studio, or
+    '' if none. Cached for 30s so rapid-fire chess calls don't hammer
+    the /v1/models endpoint."""
+    import json as _json, urllib.request
+    now = time.monotonic()
+    if (_LMSTUDIO_DEFAULT_CACHE["id"]
+            and now - _LMSTUDIO_DEFAULT_CACHE["fetched_at"] < 30):
+        return _LMSTUDIO_DEFAULT_CACHE["id"]
+    try:
+        with urllib.request.urlopen(base_url.rstrip("/") + "/models", timeout=3) as resp:
+            data = _json.loads(resp.read().decode("utf-8"))
+        for m in data.get("data") or []:
+            mid = m.get("id") or ""
+            if mid and "embed" not in mid.lower():
+                _LMSTUDIO_DEFAULT_CACHE["id"] = mid
+                _LMSTUDIO_DEFAULT_CACHE["fetched_at"] = now
+                log.info("chess lmstudio default → %s", mid)
+                return mid
+    except Exception as e:
+        log.warning("chess lmstudio /v1/models probe failed: %s", e)
+    return ""
+
+
 def _compute_cost(model: str, input_tokens: int, output_tokens: int) -> float:
     """Dollars spent for a single call, using the per-million pricing in
     forge.config.EXECUTOR_MODELS. Unknown models default to zero cost
@@ -172,6 +203,13 @@ def _llm_oneshot(prompt: str, system: str, model: str,
         base_url = LMSTUDIO_BASE_URL
         api_key = "lm-studio"
         model = model.removeprefix("lmstudio:") or "default"
+        # LM Studio 0.3+ rejects "default" — resolve to the actually-
+        # loaded model id at call time. Falls back to the raw string so
+        # a specific `lmstudio:qwen/qwen3.5-9b` still works.
+        if model == "default":
+            resolved = _resolve_lmstudio_default(base_url)
+            if resolved:
+                model = resolved
     elif provider == "ollama":
         base_url = OLLAMA_BASE_URL
         api_key = "ollama"

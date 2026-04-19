@@ -1351,15 +1351,40 @@ function chessSetStatus(msg, kind = "") {
     el.className = "chess-status-msg" + (kind ? " " + kind : "");
 }
 
-function chessPopulateModelSelects() {
+async function chessPopulateModelSelects() {
     // Reuse state.models from loadModels() (already fetched during init).
     const whiteSel = document.getElementById("chess-white-model");
     const blackSel = document.getElementById("chess-black-model");
     const judgeSel = document.getElementById("chess-judge-model");
     if (!whiteSel || !blackSel || !judgeSel) return;
-    const models = (state.models || []).filter(m => m.id !== "auto");
-    if (models.length === 0) return;
+    const baseModels = (state.models || []).filter(m => m.id !== "auto");
+    if (baseModels.length === 0) return;
     if (whiteSel.options.length > 0) return;  // already populated
+
+    // Ask LM Studio what's actually loaded right now — replaces the
+    // static "lmstudio:default" entry (which 400s on modern LM Studio)
+    // with real model ids like "lmstudio:qwen/qwen3.5-9b". Fetch is
+    // best-effort; if LM Studio isn't running we just fall back to the
+    // config-declared "LM Studio (Local)" placeholder.
+    let lmStudioModels = [];
+    try {
+        const resp = await fetch("/api/lmstudio/models");
+        const data = await resp.json().catch(() => ({}));
+        if (Array.isArray(data.models)) {
+            lmStudioModels = data.models.map(m => ({
+                id: "lmstudio:" + m.id,
+                label: m.id + " (local)",
+                provider: "Local (LM Studio)",
+            }));
+        }
+    } catch (_) { /* LM Studio down — skip live models */ }
+
+    // Replace the generic "Local" placeholder with the live list when
+    // we have one; otherwise keep whatever's in the base registry.
+    const models = lmStudioModels.length > 0
+        ? [...baseModels.filter(m => !m.id.startsWith("lmstudio:") && !m.id.startsWith("ollama:")),
+           ...lmStudioModels]
+        : baseModels;
 
     // Group by provider the same way populateModelSelect does
     const grouped = {};

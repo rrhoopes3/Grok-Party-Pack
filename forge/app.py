@@ -1445,6 +1445,39 @@ def nes_controller_grok(session_id: str):
     })
 
 
+@app.route("/api/lmstudio/models", methods=["GET"])
+def lmstudio_models():
+    """Proxy LM Studio's /v1/models so the UI can populate dropdowns
+    with the user's actually-loaded-right-now models instead of a stale
+    hard-coded list. Returns {models: [...]} on success, {error} on
+    reach failure. ~3s timeout — we'd rather fail fast than block a
+    page load when LM Studio isn't running."""
+    import json as _json, urllib.request, urllib.error
+    from forge.config import LMSTUDIO_BASE_URL as _LM
+    base = (_LM or "http://localhost:1234/v1").rstrip("/")
+    try:
+        with urllib.request.urlopen(base + "/models", timeout=3) as resp:
+            data = _json.loads(resp.read().decode("utf-8"))
+    except urllib.error.URLError as e:
+        return jsonify({
+            "error": f"LM Studio unreachable at {base}: {e.reason}",
+            "models": [],
+        }), 502
+    except Exception as e:
+        return jsonify({"error": f"{type(e).__name__}: {e}", "models": []}), 500
+
+    # LM Studio returns {"data":[{"id":"qwen/qwen3.5-9b", "object":"model", ...}, ...]}.
+    # Filter out embedding models — they can't do chat.
+    raw = data.get("data") or []
+    out = []
+    for m in raw:
+        mid = m.get("id") or ""
+        if not mid: continue
+        if "embed" in mid.lower(): continue
+        out.append({"id": mid, "label": mid})
+    return jsonify({"base_url": base, "models": out})
+
+
 @app.route("/api/nes/controller", methods=["POST"])
 def nes_controller_proxy():
     """Same-origin proxy for the NES controller loop's LM Studio calls.
