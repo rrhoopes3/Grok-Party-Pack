@@ -1343,6 +1343,30 @@
                         P1: <kbd>←↑→↓</kbd> D-pad · <kbd>Z</kbd>=B · <kbd>X</kbd>=A · <kbd>Enter</kbd>=Start · <kbd>Shift</kbd>=Select
                     </div>
                 </div>
+
+                <!-- Controller row — local VLM (LM Studio) as the tight-loop
+                     button-pusher. Coach sets strategy; controller translates
+                     the current frame + plan into button presses every N ms.
+                     Lives behind the Mode selector: only fires when Mode ≠ human. -->
+                <div class="nes-setup-row2 nes-controller-row">
+                    <label class="field">
+                        <span>Controller (LM Studio)</span>
+                        <input type="text" id="nes-controller-model" class="nes-select"
+                               value="google/gemma-4-e4b"
+                               placeholder="google/gemma-4-e4b">
+                    </label>
+                    <label class="field nes-interval">
+                        <span>Button every</span>
+                        <input type="range" id="nes-controller-interval" min="100" max="1000" step="50" value="250">
+                        <span class="nes-interval-label" id="nes-controller-interval-label">250 ms</span>
+                    </label>
+                    <label class="field">
+                        <span>LM Studio URL</span>
+                        <input type="text" id="nes-controller-url" class="nes-select"
+                               value="http://localhost:1234/v1"
+                               placeholder="http://localhost:1234/v1">
+                    </label>
+                </div>
             </section>
 
             <section class="panel nes-main-panel" id="nes-main-panel">
@@ -1356,6 +1380,7 @@
                         <div class="nes-hud">
                             <span class="nes-hud-item">FR <strong id="nes-fps">0</strong></span>
                             <span class="nes-hud-item">FN <strong id="nes-frame-n">0</strong></span>
+                            <span class="nes-hud-item">CTRL <strong id="nes-ctrl-ms">—</strong></span>
                             <span class="nes-hud-item">SCORE <strong id="nes-score">-</strong></span>
                             <span class="nes-hud-item">LIVES <strong id="nes-lives">-</strong></span>
                             <button class="nes-btn nes-mini-btn" id="nes-pause-btn" disabled>⏸ Pause</button>
