@@ -1357,12 +1357,26 @@ function chessPopulateModelSelects() {
         (grouped[provider] ||= []).push(m);
     }
 
-    const fillSelect = (sel, pickIdx) => {
+    // Models that can't serve as judge: multi-agent grok needs xai_sdk's
+    // native `agent_count` path, which our judge caller (OpenAI-compat)
+    // can't drive. Filter them out of the judge dropdown so the user
+    // doesn't pick a choice that silently 400s.
+    const isJudgeCompatible = (m) => {
+        const id = (m.id || "").toLowerCase();
+        const label = (m.label || "").toLowerCase();
+        if (id.includes("multi-agent") || label.includes("multi-agent")) return false;
+        if (label.includes("planner only")) return false;
+        return true;
+    };
+
+    const fillSelect = (sel, pickIdx, filter = null) => {
         sel.innerHTML = "";
         for (const [provider, list] of Object.entries(grouped)) {
+            const filtered = filter ? list.filter(filter) : list;
+            if (!filtered.length) continue;
             const group = document.createElement("optgroup");
             group.label = provider;
-            list.forEach(m => {
+            filtered.forEach(m => {
                 const opt = document.createElement("option");
                 opt.value = m.id;
                 opt.textContent = m.label || m.id;
@@ -1377,7 +1391,7 @@ function chessPopulateModelSelects() {
 
     fillSelect(whiteSel, 0);
     fillSelect(blackSel, 1);
-    fillSelect(judgeSel, 0);
+    fillSelect(judgeSel, 0, isJudgeCompatible);
 
     // Judge default — prefer Grok 4.20 reasoning if present (matches what the
     // user asked for: "Grok 4.20 judge"). Falls back through the newer
@@ -1625,6 +1639,12 @@ async function chessStep() {
             // Judge commentary lands here when it's the right beat.
             if (resp.new_commentary) {
                 chessApplyCommentary(resp.new_commentary);
+            } else if (resp.commentary_error) {
+                // Judge failed (bad model choice, missing key, etc.).
+                // Surface it in the commentary panel so the user knows why
+                // nothing is appearing. Kill auto-play so they can fix it.
+                chessShowCommentaryError(resp.commentary_error);
+                chessState.autoPlaying = false;
             }
         }
     } catch (err) {
@@ -1652,6 +1672,18 @@ function chessResetCommentary() {
     }
     if (meta) meta.textContent = "—";
     if (hist) hist.innerHTML = "";
+}
+
+function chessShowCommentaryError(msg) {
+    const body = document.getElementById("chess-commentary-body");
+    const meta = document.getElementById("chess-commentary-meta");
+    if (body) {
+        body.textContent = msg;
+        body.className = "chess-commentary-body error";
+    }
+    if (meta) meta.textContent = "judge failed";
+    // Kill any in-flight TTS so a stale earlier line doesn't keep speaking
+    try { stopTTS(); } catch (_) {}
 }
 
 function chessApplyCommentary(rec) {
@@ -1726,18 +1758,12 @@ async function chessCommentaryNow() {
             { method: "POST" }
         );
         if (resp.error) {
-            if (body) {
-                body.textContent = resp.error;
-                body.className = "chess-commentary-body";
-            }
+            chessShowCommentaryError(resp.error);
             return;
         }
         chessApplyCommentary(resp);
     } catch (err) {
-        if (body) {
-            body.textContent = `Judge call failed: ${err.message}`;
-            body.className = "chess-commentary-body";
-        }
+        chessShowCommentaryError(`Judge call failed: ${err.message}`);
     } finally {
         if (btn) btn.disabled = false;
     }

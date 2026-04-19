@@ -644,13 +644,26 @@ def _build_judge_prompt(m: ChessMatch) -> str:
 def generate_commentary(match_id: str) -> Optional[CommentaryRecord]:
     """
     Ask the judge to narrate the match state. Returns the new
-    CommentaryRecord on success, None if the match is unknown or the call
-    failed. Safe to call even when it's not "time" — caller decides when
-    to fire it via _should_emit_commentary().
+    CommentaryRecord on success; returns None only if the match is
+    unknown. On any LLM-side failure (API 400, missing key, empty reply)
+    raises RuntimeError — the /step route maps that to a `commentary_error`
+    field in its response so the UI surfaces the actual cause rather than
+    silently skipping beats.
     """
     m = _MATCHES.get(match_id)
     if m is None:
         return None
+
+    # Multi-agent grok models use a different API shape (`agent_count`
+    # kwarg via xai_sdk) — calling them through OpenAI-compat fails in
+    # ways that aren't useful to retry. Refuse up front with a clear
+    # message rather than eat a cryptic upstream 4xx.
+    if "multi-agent" in m.judge_model.lower():
+        raise RuntimeError(
+            f"{m.judge_model} is a planner-only multi-agent model and "
+            f"can't be used as a judge. Pick a single-agent model "
+            f"(Grok 4.20 Reasoning, Claude 4.7, GPT-5.4, etc.)."
+        )
 
     started = time.monotonic()
     try:
@@ -663,11 +676,15 @@ def generate_commentary(match_id: str) -> Optional[CommentaryRecord]:
         )
     except Exception as e:
         log.warning("chess %s: judge call failed: %s", m.id, e)
-        return None
+        raise RuntimeError(
+            f"Judge call failed ({m.judge_model}): {type(e).__name__}: {e}"
+        ) from e
 
     text = (reply or "").strip()
     if not text:
-        return None
+        raise RuntimeError(
+            f"Judge ({m.judge_model}) returned an empty reply."
+        )
 
     record = CommentaryRecord(
         after_move_n=len(m.moves),

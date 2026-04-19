@@ -1923,6 +1923,13 @@ body.lcars .chess-commentary-body.speaking {
   color: var(--lcars-amber);
   text-shadow: 0 0 6px rgba(255, 153, 0, 0.28);
 }
+body.lcars .chess-commentary-body.error {
+  color: var(--lcars-red);
+  font-style: normal;
+  font-family: "JetBrains Mono", "Consolas", monospace;
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
 body.lcars .chess-commentary-history {
   display: flex;
   flex-direction: column;

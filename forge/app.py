@@ -1014,9 +1014,12 @@ def chess_step(match_id: str):
         log.exception("chess_step failed for %s", match_id)
         return jsonify({"error": f"{type(e).__name__}: {e}"}), 500
 
-    # Fire the judge if this beat calls for it. Best-effort — a judge
-    # failure (missing key, timeout) never blocks the move response.
+    # Fire the judge if this beat calls for it. A judge failure never
+    # blocks the move response — we surface it as `commentary_error` so
+    # the UI can render the actual cause (missing key, multi-agent model,
+    # upstream 4xx, etc.) rather than silently staring at "no commentary".
     new_commentary = None
+    commentary_error = None
     try:
         rec = _chess.maybe_generate_commentary(match_id)
         if rec is not None:
@@ -1028,24 +1031,37 @@ def chess_step(match_id: str):
                 "ms": rec.ms,
                 "emitted_at": rec.emitted_at,
             }
-    except Exception:
+    except RuntimeError as e:
+        commentary_error = str(e)
+        log.warning("chess %s commentary: %s", match_id, e)
+    except Exception as e:
+        commentary_error = f"{type(e).__name__}: {e}"
         log.exception("chess commentary failed for %s (non-fatal)", match_id)
 
     payload = _chess.serialize_match(m)
     if new_commentary:
         payload["new_commentary"] = new_commentary
+    if commentary_error:
+        payload["commentary_error"] = commentary_error
     return jsonify(payload)
 
 
 @app.route("/api/chess/<match_id>/commentary", methods=["POST"])
 def chess_commentary(match_id: str):
     """Manually fire a commentary beat (ignoring the interval). Useful
-    for the UI "Ask judge now" button."""
+    for the UI "Call it" button. Returns 502 with the actual upstream
+    error on judge-call failure so the UI can show a useful message."""
     if _chess.get_match(match_id) is None:
         return jsonify({"error": f"Unknown match: {match_id!r}"}), 404
-    rec = _chess.generate_commentary(match_id)
+    try:
+        rec = _chess.generate_commentary(match_id)
+    except RuntimeError as e:
+        return jsonify({"error": str(e)}), 502
+    except Exception as e:
+        log.exception("chess_commentary failed for %s", match_id)
+        return jsonify({"error": f"{type(e).__name__}: {e}"}), 500
     if rec is None:
-        return jsonify({"error": "Judge call failed (see server logs)."}), 502
+        return jsonify({"error": f"Unknown match: {match_id!r}"}), 404
     return jsonify({
         "after_move_n": rec.after_move_n,
         "round_num": rec.round_num,
