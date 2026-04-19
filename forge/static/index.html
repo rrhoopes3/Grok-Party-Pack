@@ -15,6 +15,7 @@
 <body class="lcars">
     <header class="topbar">
         <div class="brand-block">
+            <img src="/static/GPP.png" alt="Grok Party Pack" class="gpp-logo" />
             <div class="logo">THE FORGE <span class="logo-sub">NX-7430</span></div>
         </div>
         <nav class="tab-bar" id="tab-bar">
@@ -1419,6 +1420,25 @@
     <!-- ── LCARS MCP Hub sidebar (vault/graph + external MCP servers) ─── -->
     <aside id="mcp-hub"></aside>
 
+    <!-- ── LCARS bottom bar — mirrors the topbar, fills dead space ──── -->
+    <footer class="lcars-footer">
+        <div class="lcars-footer-brand">
+            <span class="footer-elbow"></span>
+            <span class="footer-pill footer-pill-amber">GROK PARTY PACK</span>
+            <span class="footer-pill footer-pill-peach">NCC-7430</span>
+        </div>
+        <div class="lcars-footer-readout" id="lcars-footer-readout">
+            <span class="footer-stat"><span class="stat-k">STARDATE</span><strong id="footer-stardate">—</strong></span>
+            <span class="footer-stat"><span class="stat-k">SESSION</span><strong id="footer-session">—</strong></span>
+            <span class="footer-stat"><span class="stat-k">COST</span><strong id="footer-cost">$0.00</strong></span>
+            <span class="footer-stat"><span class="stat-k">UPTIME</span><strong id="footer-uptime">00:00</strong></span>
+        </div>
+        <div class="lcars-footer-codes">
+            <span class="footer-code">47-ALPHA-TANGO</span>
+            <span class="footer-code footer-code-amber">LCARS v4.7</span>
+        </div>
+    </footer>
+
     <script src="/static/vendor/jsnes.min.js"></script>
     <script src="/static/app.js"></script>
     <script src="/static/mcp-hub.js"></script>
@@ -1468,6 +1488,52 @@
       sel()?.addEventListener("change", sync);
       setInterval(sync, 500);
       sync();
+    })();
+    </script>
+
+    <!-- LCARS footer live readouts: stardate, session id, running cost,
+         uptime. Purely client-side — stardate is a classic TNG encoding
+         of UTC; session is a hex token generated at page load; cost
+         pulls from the cost-pill the app.js SSE loop updates. -->
+    <script>
+    (function () {
+      "use strict";
+      // Star Trek TNG-era stardate encoding: year-shift base 41000 (2266)
+      // + day-of-year as fractional part ×1000. Mostly decorative but
+      // entirely deterministic.
+      function stardate(d = new Date()) {
+        const yearPart = 41000 + (d.getUTCFullYear() - 2266) * 1000;
+        const start = Date.UTC(d.getUTCFullYear(), 0, 1);
+        const diff  = d.getTime() - start;
+        const frac  = diff / (1000 * 60 * 60 * 24 * 365.25);
+        return (yearPart + frac * 1000).toFixed(1);
+      }
+      const startedAt = Date.now();
+      const sessionId =
+        Math.floor(Math.random() * 0xffffff).toString(16).toUpperCase().padStart(6, "0");
+      const $sd   = document.getElementById("footer-stardate");
+      const $sess = document.getElementById("footer-session");
+      const $cost = document.getElementById("footer-cost");
+      const $up   = document.getElementById("footer-uptime");
+      if ($sess) $sess.textContent = sessionId;
+
+      function tick() {
+        if ($sd) $sd.textContent = stardate();
+        if ($up) {
+          const s = Math.floor((Date.now() - startedAt) / 1000);
+          const h = String(Math.floor(s / 3600)).padStart(2, "0");
+          const m = String(Math.floor((s % 3600) / 60)).padStart(2, "0");
+          const ss = String(s % 60).padStart(2, "0");
+          $up.textContent = s >= 3600 ? `${h}:${m}:${ss}` : `${m}:${ss}`;
+        }
+        if ($cost) {
+          // The app has a session-cost element; copy its text if present.
+          const sc = document.getElementById("session-cost");
+          if (sc && sc.textContent) $cost.textContent = sc.textContent.trim() || "$0.00";
+        }
+      }
+      tick();
+      setInterval(tick, 1000);
     })();
     </script>
 </body>
