@@ -1315,10 +1315,36 @@ def nes_controller_grok(session_id: str):
     use_vision = bool(frame_b64) and _supports_vision(model)
     image = frame_b64 if use_vision else None
 
+    # Route through the openai SDK directly here (not via coach helpers)
+    # so we can pull the raw usage block back out for cost accounting —
+    # the coach helpers drop it on the floor since the coach has its own
+    # cost tracking on the session object.
+    from openai import OpenAI
+    import anthropic
+
     try:
         provider = _provider_for(model)
+        usage_in = 0
+        usage_out = 0
         if provider == "anthropic":
-            raw = _call_anthropic(user_prompt, system, model, image)
+            client = anthropic.Anthropic(api_key=_ANT)
+            content: list = []
+            if image:
+                import re as _r2
+                m = _r2.match(r"^data:([^;]+);base64,(.+)$", image)
+                mime, b64 = (m.group(1), m.group(2)) if m else ("image/png", image)
+                content.append({"type": "image",
+                    "source": {"type": "base64", "media_type": mime, "data": b64}})
+            content.append({"type": "text", "text": user_prompt})
+            resp = client.messages.create(
+                model=model, max_tokens=200, system=system,
+                messages=[{"role": "user", "content": content}],
+            )
+            raw = resp.content[0].text
+            u = getattr(resp, "usage", None)
+            if u:
+                usage_in = int(getattr(u, "input_tokens", 0) or 0)
+                usage_out = int(getattr(u, "output_tokens", 0) or 0)
         else:
             if provider == "openai":
                 base_url, api_key = None, _OAI or ""
@@ -1330,10 +1356,45 @@ def nes_controller_grok(session_id: str):
                 model = model.removeprefix("ollama:") or "default"
             else:  # xai
                 base_url = "https://api.x.ai/v1"; api_key = _XAI or ""
-            raw = _call_openai_compat(user_prompt, system, model, image, base_url, api_key)
+            client = OpenAI(api_key=api_key or "none", base_url=base_url)
+            if image:
+                m2 = _re.match(r"^data:([^;]+);base64,(.+)$", image)
+                mime, b64 = (m2.group(1), m2.group(2)) if m2 else ("image/png", image)
+                user_content = [
+                    {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}},
+                    {"type": "text", "text": user_prompt},
+                ]
+            else:
+                user_content = user_prompt
+            messages = [{"role": "system", "content": system},
+                        {"role": "user", "content": user_content}]
+            # Reasoning models use max_completion_tokens; everything else max_tokens
+            call_kwargs = {"model": model, "messages": messages}
+            m_lower = model.lower()
+            if m_lower.startswith(("o1-", "o3-", "o4-", "gpt-5")):
+                call_kwargs["max_completion_tokens"] = 200
+            else:
+                call_kwargs["max_tokens"] = 200
+            if not m_lower.startswith(("claude-opus-4-7", "claude-opus-4-6",
+                    "claude-sonnet-4-6", "claude-opus-4-5", "claude-sonnet-4-5",
+                    "claude-haiku-4-5", "o1-", "o3-", "o4-", "gpt-5")):
+                call_kwargs["temperature"] = 0.4
+            resp = client.chat.completions.create(**call_kwargs)
+            raw = resp.choices[0].message.content or ""
+            u = getattr(resp, "usage", None)
+            if u:
+                usage_in = int(getattr(u, "prompt_tokens", 0) or 0)
+                usage_out = int(getattr(u, "completion_tokens", 0) or 0)
     except Exception as e:
         log.exception("nes controller (grok path) failed for %s", session_id)
         return jsonify({"error": f"{type(e).__name__}: {e}"}), 502
+
+    # Cost lookup — same pricing source the chess tab uses.
+    from forge.config import EXECUTOR_MODELS as _EM
+    info = _EM.get(model, {})
+    cost_usd = (usage_in * float(info.get("cost_in", 0) or 0)
+                + usage_out * float(info.get("cost_out", 0) or 0)) / 1_000_000.0
+    s.add_cost(cost_usd)   # rolls up on the session for MCP tool visibility
 
     ms = int((_t.monotonic() - started) * 1000)
 
@@ -1366,6 +1427,13 @@ def nes_controller_grok(session_id: str):
     return jsonify({
         "buttons": buttons, "hold_ms": hold_ms, "ms": ms,
         "model": model, "used_vision": use_vision, "raw": text[:300],
+        "usage": {
+            "input_tokens": usage_in,
+            "output_tokens": usage_out,
+            "cost_usd": round(cost_usd, 6),
+            "session_total_cost_usd": round(s.cost_usd, 6),
+            "session_api_calls": s.api_calls,
+        },
     })
 
 
