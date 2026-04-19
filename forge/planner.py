@@ -27,6 +27,67 @@ log = logging.getLogger("forge.planner")
 MAX_RETRIES = 3
 RETRY_DELAYS = [2, 4, 8]  # seconds
 
+# Regex gate for "don't bother spinning up a 16-agent council" input.
+# Matches greetings, acknowledgements, and short yes/no-ish chatter. The
+# council burns ~30K reasoning tokens deliberating over these otherwise.
+_CHAT_PATTERNS = re.compile(
+    r"^\s*("
+    r"h(ello|i|ey|owdy)|"
+    r"yo|sup|greetings|"
+    r"how('?s| is| are| goes)\s+(it|you|things|everything|life|things going)|"
+    r"what('?s| is)\s+up|"
+    r"good\s+(morning|afternoon|evening|night)|"
+    r"(ok|okay|cool|nice|great|thanks|thank you|thx|ty|yep|yup|yeah|nah|nope)\b|"
+    r"bruh|dude|friend|buddy|"
+    r"ping|test|are you there|you there|you up"
+    r")(?:\s+\w+){0,2}[\s\?\!\.,]*$",
+    re.IGNORECASE,
+)
+
+
+def _is_trivial_input(task: str) -> bool:
+    """True if `task` is a greeting / chit-chat that doesn't need a plan.
+
+    Guardrails against false positives:
+      - must be short (< 120 chars)
+      - must not contain a path separator, URL, code fence, or file ext hint
+      - must not contain an imperative verb in a longer sentence
+    """
+    t = (task or "").strip()
+    if not t or len(t) > 120:
+        return False
+    # Anything that looks like real work bails out
+    if any(marker in t for marker in ("/", "\\", "```", "http://", "https://", ".py", ".js", ".md", ".json")):
+        return False
+    if _CHAT_PATTERNS.match(t):
+        return True
+    # Short bare questions that aren't imperatives ("you alive?", "is this working?")
+    if len(t) < 60 and t.endswith("?") and not re.match(
+        r"^\s*(how do i|how can i|write|build|create|fix|run|show|list|find|search|explain|summarize|analyze)",
+        t, re.IGNORECASE,
+    ):
+        return True
+    return False
+
+
+def _trivial_plan(task: str) -> tuple[str, list[PlanStep]]:
+    """One-step plan for chit-chat — no tools, just a direct response."""
+    raw = (
+        "PLAN_START\n"
+        "STEP 1: Respond conversationally\n"
+        f"Brief, direct reply to: {task[:100]}\n"
+        "TOOLS: (none)\n"
+        "SUCCESS: User receives a friendly reply, no tools invoked.\n"
+        "PLAN_END"
+    )
+    steps = [PlanStep(
+        step_number=1,
+        title="Respond conversationally",
+        description=f"Reply briefly and directly to: {task[:200]}",
+        tools_needed=[],  # no tools — executor answers from context
+    )]
+    return raw, steps
+
 PLANNER_SYSTEM = """You are The Forge Planner — a 16-agent research council that analyzes tasks and creates execution plans.
 
 Your job:
@@ -132,6 +193,19 @@ def plan(
     Returns (raw_plan_text, parsed_steps).
     """
     count = max(4, min(16, agent_count))
+
+    # ── Short-circuit: skip the council for chit-chat ────────────────────
+    # A 16-agent reasoning council on "how goes it, bruh?" burns 30K tokens
+    # before the cap trips. For conversational input, emit a single-step
+    # "just reply" plan without touching the API.
+    if _is_trivial_input(task):
+        log.info("Planner short-circuit: trivial input (%d chars), skipping council", len(task))
+        yield {"type": "status", "phase": "planning",
+               "content": "Trivial input detected — skipping planner, direct reply."}
+        raw, steps = _trivial_plan(task)
+        yield {"type": "plan_content", "content": raw}
+        yield {"type": "status", "phase": "planning", "content": f"Plan ready: {len(steps)} steps"}
+        return raw, steps
 
     for attempt in range(MAX_RETRIES):
         try:
