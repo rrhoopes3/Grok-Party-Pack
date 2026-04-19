@@ -1323,6 +1323,9 @@ const chessState = {
     match: null,
     autoPlaying: false,
     stepInFlight: false,
+    // Highest capture.move_n seen so far — anything higher gets the
+    // .just-taken pop animation on next render. Reset on new match.
+    lastCaptureN: 0,
 };
 
 // Unicode figurines, keyed by python-chess's single-letter piece symbols.
@@ -1534,6 +1537,10 @@ function renderChess() {
 
     // Move log
     renderChessMoves(m.moves);
+
+    // Captured-pieces side-board + token counter
+    renderChessCaptures(m.captures || []);
+    renderChessTokens(m.tokens || null);
 }
 
 function findKingSquare(grid, kingChar) {
@@ -1560,7 +1567,10 @@ function renderChessMoves(moves) {
         row.className = "chess-move-row " + (mv.side === "white" ? "white-move" : "black-move") + (mv.forced ? " forced" : "");
         const moveNum = Math.floor((mv.n - 1) / 2) + 1;
         const dots = mv.side === "white" ? "." : "…";
-        const meta = `${mv.ms}ms${mv.attempts > 1 ? ` · ${mv.attempts}×` : ""}${mv.forced ? " · forced" : ""}`;
+        const tokBit = (mv.input_tokens || mv.output_tokens)
+            ? ` · ${(mv.input_tokens || 0) + (mv.output_tokens || 0)}tok`
+            : "";
+        const meta = `${mv.ms}ms${mv.attempts > 1 ? ` · ${mv.attempts}×` : ""}${mv.forced ? " · forced" : ""}${tokBit}`;
         row.innerHTML = `
             <span class="move-n">${moveNum}${dots}</span>
             <span class="move-san" title="${escapeHtml(mv.uci)}">${escapeHtml(mv.san)}</span>
@@ -1571,6 +1581,93 @@ function renderChessMoves(moves) {
     });
     // Scroll to bottom
     el.scrollTop = el.scrollHeight;
+}
+
+// ── Captured-pieces side-board ─────────────────────────────────────────
+// Standard chess material values — used to compute the net advantage
+// shown next to each captured row. Kings don't get a value (uncapturable).
+const CHESS_PIECE_VALUES = { p: 1, n: 3, b: 3, r: 5, q: 9 };
+const CHESS_PIECE_GLYPH = {
+    "K": "\u2654", "Q": "\u2655", "R": "\u2656",
+    "B": "\u2657", "N": "\u2658", "P": "\u2659",
+    "k": "\u265A", "q": "\u265B", "r": "\u265C",
+    "b": "\u265D", "n": "\u265E", "p": "\u265F",
+};
+
+function renderChessCaptures(captures) {
+    const whitePiecesEl = document.getElementById("chess-capture-white-pieces");
+    const blackPiecesEl = document.getElementById("chess-capture-black-pieces");
+    const whiteMatEl = document.getElementById("chess-capture-white-material");
+    const blackMatEl = document.getElementById("chess-capture-black-material");
+    if (!whitePiecesEl || !blackPiecesEl) return;
+
+    // Group by captor side. White captures black pieces (lowercase symbols);
+    // Black captures white pieces (uppercase symbols).
+    const byWhite = captures.filter(c => c.by === "white");
+    const byBlack = captures.filter(c => c.by === "black");
+
+    const lastSeenN = chessState.lastCaptureN || 0;
+    const newestN = captures.length ? captures[captures.length - 1].move_n : 0;
+
+    const renderRow = (el, records) => {
+        el.innerHTML = "";
+        // Order captures by piece value (heaviest first) for visual parity
+        // with Chess.com / Lichess side-boards.
+        const sorted = [...records].sort((a, b) => {
+            const va = CHESS_PIECE_VALUES[a.piece_symbol.toLowerCase()] || 0;
+            const vb = CHESS_PIECE_VALUES[b.piece_symbol.toLowerCase()] || 0;
+            return vb - va;
+        });
+        sorted.forEach(cap => {
+            const span = document.createElement("span");
+            const isWhitePiece = cap.piece_symbol === cap.piece_symbol.toUpperCase();
+            span.className = isWhitePiece ? "piece-w" : "piece-b";
+            if (cap.move_n > lastSeenN) span.classList.add("just-taken");
+            span.textContent = CHESS_PIECE_GLYPH[cap.piece_symbol] || cap.piece_symbol;
+            span.title = `${cap.move_san} (move ${cap.move_n})`;
+            el.appendChild(span);
+        });
+    };
+    renderRow(whitePiecesEl, byWhite);
+    renderRow(blackPiecesEl, byBlack);
+
+    // Material balance: positive number means "this side is up X points".
+    const sumMat = (records) => records.reduce((acc, c) =>
+        acc + (CHESS_PIECE_VALUES[c.piece_symbol.toLowerCase()] || 0), 0);
+    const whiteCaptured = sumMat(byWhite);  // points white took from black
+    const blackCaptured = sumMat(byBlack);  // points black took from white
+    const whiteAdv = whiteCaptured - blackCaptured;
+    const blackAdv = blackCaptured - whiteCaptured;
+    whiteMatEl.textContent = whiteAdv > 0 ? `+${whiteAdv}` : "";
+    blackMatEl.textContent = blackAdv > 0 ? `+${blackAdv}` : "";
+    whiteMatEl.classList.toggle("neg", whiteAdv < 0);
+    blackMatEl.classList.toggle("neg", blackAdv < 0);
+
+    chessState.lastCaptureN = newestN;
+}
+
+// ── Token counter ──────────────────────────────────────────────────────
+function renderChessTokens(tokens) {
+    if (!tokens) tokens = {
+        white: {in: 0, out: 0, cost_usd: 0},
+        black: {in: 0, out: 0, cost_usd: 0},
+        judge: {in: 0, out: 0, cost_usd: 0},
+        total_in: 0, total_out: 0, total_cost_usd: 0,
+    };
+    const fmt = (n) => n >= 1000 ? (n/1000).toFixed(1) + "k" : String(n);
+    const row = (id, t) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.textContent = `${fmt(t.in || 0)} / ${fmt(t.out || 0)} · $${(t.cost_usd || 0).toFixed(4)}`;
+    };
+    row("chess-tokens-white", tokens.white);
+    row("chess-tokens-black", tokens.black);
+    row("chess-tokens-judge", tokens.judge);
+    const total = document.getElementById("chess-tokens-total");
+    if (total) {
+        const totalTok = (tokens.total_in || 0) + (tokens.total_out || 0);
+        total.textContent = `${fmt(totalTok)} tokens · $${(tokens.total_cost_usd || 0).toFixed(4)}`;
+    }
 }
 
 async function chessNewMatch() {
@@ -1600,6 +1697,7 @@ async function chessNewMatch() {
         if (resp.error) { chessSetStatus(resp.error, "err"); return; }
         chessState.match = resp;
         chessState.autoPlaying = false;
+        chessState.lastCaptureN = 0;
         // Fresh commentary state — clear the body + history from previous matches
         chessResetCommentary();
         renderChess();

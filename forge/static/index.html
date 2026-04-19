@@ -1215,6 +1215,21 @@
                             <span class="chess-vs">vs</span>
                             <span class="chess-side-badge" id="chess-black-badge">— Black</span>
                         </div>
+
+                        <!-- Captured-pieces rows (side-board). Shows black
+                             pieces that white has taken, and vice versa. -->
+                        <div class="chess-captures">
+                            <div class="chess-capture-row" id="chess-capture-white">
+                                <span class="chess-capture-label">White captured</span>
+                                <span class="chess-capture-pieces" id="chess-capture-white-pieces"></span>
+                                <span class="chess-capture-material" id="chess-capture-white-material"></span>
+                            </div>
+                            <div class="chess-capture-row" id="chess-capture-black">
+                                <span class="chess-capture-label">Black captured</span>
+                                <span class="chess-capture-pieces" id="chess-capture-black-pieces"></span>
+                                <span class="chess-capture-material" id="chess-capture-black-material"></span>
+                            </div>
+                        </div>
                     </div>
 
                     <aside class="chess-side-panel">
@@ -1230,6 +1245,28 @@
                             <div class="chess-turn-label">
                                 <span>Move #</span>
                                 <strong id="chess-movenum">0</strong>
+                            </div>
+                        </div>
+
+                        <!-- Token accounting — per-side + judge + total. -->
+                        <div class="chess-tokens-block">
+                            <div class="chess-tokens-header">
+                                <span>Token usage</span>
+                                <span class="chess-tokens-total" id="chess-tokens-total">0 tokens · $0.0000</span>
+                            </div>
+                            <div class="chess-tokens-grid">
+                                <div class="chess-tokens-row" data-role="white">
+                                    <span class="chess-tokens-role">♔ White</span>
+                                    <span class="chess-tokens-val" id="chess-tokens-white">0 / 0 · $0.0000</span>
+                                </div>
+                                <div class="chess-tokens-row" data-role="black">
+                                    <span class="chess-tokens-role">♚ Black</span>
+                                    <span class="chess-tokens-val" id="chess-tokens-black">0 / 0 · $0.0000</span>
+                                </div>
+                                <div class="chess-tokens-row" data-role="judge">
+                                    <span class="chess-tokens-role">🎙 Judge</span>
+                                    <span class="chess-tokens-val" id="chess-tokens-judge">0 / 0 · $0.0000</span>
+                                </div>
                             </div>
                         </div>
 

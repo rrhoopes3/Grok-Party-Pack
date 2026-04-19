@@ -1930,6 +1930,127 @@ body.lcars .chess-commentary-body.error {
   font-size: 0.82rem;
   line-height: 1.4;
 }
+
+/* ── Captured pieces side-board ─────────────────────────────────────── */
+body.lcars .chess-captures {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+  padding: 6px 8px;
+  background: #03050a;
+  border: 1px solid rgba(153, 102, 204, 0.3);
+  border-radius: 8px;
+}
+body.lcars .chess-capture-row {
+  display: grid;
+  grid-template-columns: 120px 1fr auto;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  min-height: 28px;
+  border-radius: 4px;
+}
+body.lcars #chess-capture-white { border-left: 3px solid var(--lcars-canary); }
+body.lcars #chess-capture-black { border-left: 3px solid var(--lcars-teal); }
+body.lcars .chess-capture-label {
+  font-family: "Antonio", "Oswald", sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 0.68rem;
+  color: var(--lcars-muted);
+}
+body.lcars .chess-capture-pieces {
+  font-size: 1.4rem;
+  line-height: 1;
+  letter-spacing: 0.08em;
+  overflow-x: auto;
+  white-space: nowrap;
+  min-height: 1.4em;
+  padding: 2px 0;
+}
+body.lcars .chess-capture-pieces .piece-w {
+  color: #f5f5f5;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.7);
+}
+body.lcars .chess-capture-pieces .piece-b {
+  color: #9aa3b2;
+  text-shadow: 0 0 3px rgba(255,255,255,0.2);
+}
+body.lcars .chess-capture-pieces .just-taken {
+  animation: chess-capture-pop 900ms ease-out;
+}
+@keyframes chess-capture-pop {
+  0%   { transform: scale(0.2) translateY(-6px); opacity: 0; }
+  55%  { transform: scale(1.4); opacity: 1; }
+  100% { transform: scale(1);   opacity: 1; }
+}
+body.lcars .chess-capture-material {
+  font-family: "JetBrains Mono", "Consolas", monospace;
+  font-size: 0.76rem;
+  color: var(--lcars-canary);
+  min-width: 2.5em;
+  text-align: right;
+}
+body.lcars .chess-capture-material.neg { color: var(--lcars-red); }
+
+/* ── Token usage block ──────────────────────────────────────────────── */
+body.lcars .chess-tokens-block {
+  background: #0a0d12;
+  border: 1px solid rgba(255, 204, 0, 0.3);
+  border-radius: 10px;
+  padding: 8px 12px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+body.lcars .chess-tokens-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  font-family: "Antonio", "Oswald", sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  font-size: 0.72rem;
+  color: var(--lcars-canary);
+  border-bottom: 1px solid rgba(255, 204, 0, 0.28);
+  padding-bottom: 4px;
+}
+body.lcars .chess-tokens-total {
+  color: var(--lcars-amber);
+  font-family: "JetBrains Mono", "Consolas", monospace;
+  font-size: 0.74rem;
+  letter-spacing: 0.04em;
+}
+body.lcars .chess-tokens-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+body.lcars .chess-tokens-row {
+  display: grid;
+  grid-template-columns: 70px 1fr;
+  gap: 8px;
+  align-items: baseline;
+  padding: 2px 0;
+  font-family: "JetBrains Mono", "Consolas", monospace;
+  font-size: 0.76rem;
+}
+body.lcars .chess-tokens-role {
+  font-family: "Antonio", "Oswald", sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 0.72rem;
+  color: var(--lcars-muted);
+}
+body.lcars .chess-tokens-row[data-role="white"] .chess-tokens-role { color: var(--lcars-canary); }
+body.lcars .chess-tokens-row[data-role="black"] .chess-tokens-role { color: var(--lcars-teal); }
+body.lcars .chess-tokens-row[data-role="judge"] .chess-tokens-role { color: var(--lcars-amber); }
+body.lcars .chess-tokens-val {
+  color: var(--lcars-text);
+  text-align: right;
+  letter-spacing: 0.02em;
+}
 body.lcars .chess-commentary-history {
   display: flex;
   flex-direction: column;
