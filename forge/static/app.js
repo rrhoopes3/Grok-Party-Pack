@@ -561,7 +561,7 @@ function pickArenaDefaultModel() {
     const preferred = [
         "grok-4.20-0309-reasoning", "grok-code-fast-1",
         "gpt-5.4-mini", "gpt-4o-mini",
-        "claude-haiku-4-5", "claude-haiku-4-20250414",
+        "claude-haiku-4-5-20251001",
     ];
     for (const modelId of preferred) {
         if (hasOption(els.redModel, modelId)) return modelId;
@@ -1399,10 +1399,10 @@ function chessPopulateModelSelects() {
     // Judge default — prefer Grok 4.20 reasoning if present (matches what the
     // user asked for: "Grok 4.20 judge"). Falls back through the newer
     // Claude/OpenAI flagships before giving up on the first option.
+    // Note: Grok multi-agent is filtered out by isJudgeCompatible.
     const preferredJudges = [
         "grok-4.20-0309-reasoning",
-        "grok-4.20-multi-agent-0309",
-        "claude-opus-4-7", "claude-sonnet-4-7", "claude-sonnet-4-6",
+        "claude-opus-4-7", "claude-opus-4-6", "claude-sonnet-4-6",
         "gpt-5.4", "gpt-4o",
     ];
     for (const preferred of preferredJudges) {
@@ -2051,10 +2051,10 @@ function nesPopulateCoachModels() {
     sel.innerHTML = "";
     // Default preference order: newest vision Claude → Grok reasoning → others
     const preferred = [
-        "claude-sonnet-4-7", "claude-opus-4-7", "claude-sonnet-4-6",
+        "claude-opus-4-7", "claude-opus-4-6", "claude-sonnet-4-6",
         "grok-4.20-0309-reasoning",
         "gpt-5.4", "gpt-4o",
-        "claude-haiku-4-5",
+        "claude-haiku-4-5-20251001",
     ];
     let defaultIdx = -1;
     let flatIdx = 0;

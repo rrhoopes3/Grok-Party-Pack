@@ -63,16 +63,19 @@ def _provider_for(model: str) -> str:
     return "xai"
 
 
-# Models that reject the `temperature` parameter outright (Claude 4.5+
-# and the o3/o4/gpt-5 reasoning tiers on OpenAI). Anthropic returns
-# 400 `invalid_request_error` "temperature is deprecated for this model"
-# on Opus 4.7 etc. Safest to just drop the knob when we see them.
+# Models that reject the `temperature` parameter outright. Anthropic
+# deprecated it on the 4.5+ reasoning tier (claude-*-4-5-* and newer).
+# OpenAI deprecated it on the o-series + GPT-5 family. Prefix-match so
+# both the unversioned aliases and the dated pins are caught.
 def _model_rejects_temperature(model: str) -> bool:
     m = model.lower()
-    if m.startswith(("claude-opus-4-7", "claude-sonnet-4-7", "claude-haiku-4-5",
-                     "claude-opus-4-5", "claude-sonnet-4-5")):
+    if m.startswith((
+        # Claude 4.5+ all deprecate temperature
+        "claude-opus-4-7",
+        "claude-opus-4-6", "claude-sonnet-4-6",
+        "claude-opus-4-5", "claude-sonnet-4-5", "claude-haiku-4-5",
+    )):
         return True
-    # OpenAI reasoning models — o-series + GPT-5 family
     if m.startswith(("o1-", "o3-", "o4-", "gpt-5")):
         return True
     return False

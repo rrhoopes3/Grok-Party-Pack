@@ -113,8 +113,11 @@ def _llm_call(
 # prefix and drop the knob.
 def _model_rejects_temperature(model: str) -> bool:
     m = (model or "").lower()
-    if m.startswith(("claude-opus-4-7", "claude-sonnet-4-7", "claude-haiku-4-5",
-                     "claude-opus-4-5", "claude-sonnet-4-5")):
+    if m.startswith((
+        "claude-opus-4-7",
+        "claude-opus-4-6", "claude-sonnet-4-6",
+        "claude-opus-4-5", "claude-sonnet-4-5", "claude-haiku-4-5",
+    )):
         return True
     if m.startswith(("o1-", "o3-", "o4-", "gpt-5")):
         return True
