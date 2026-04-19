@@ -90,6 +90,21 @@ def _model_uses_max_completion_tokens(model: str) -> bool:
     return m.startswith(("o1-", "o3-", "o4-", "gpt-5"))
 
 
+# Qwen3+ supports disabling its hybrid-thinking mode via extra_body —
+# without this a Qwen 3/3.5 model burns most of max_tokens on internal
+# reasoning_content and emits empty `content`. Saves 5-10× on latency
+# and unblocks the "model reasons forever, never outputs move" case we
+# saw live with qwen/qwen3.5-9b.
+def _qwen3_no_think_kwargs(model: str) -> dict[str, Any]:
+    m = model.lower()
+    if m.startswith(("qwen3", "qwen/qwen3", "lmstudio:qwen/qwen3",
+                     "lmstudio:qwen3", "qwen/qwen3.5", "qwen3.5")):
+        return {"extra_body": {
+            "chat_template_kwargs": {"enable_thinking": False}
+        }}
+    return {}
+
+
 def _compute_cost(model: str, input_tokens: int, output_tokens: int) -> float:
     """Dollars spent for a single call, using the per-million pricing in
     forge.config.EXECUTOR_MODELS. Unknown models default to zero cost
@@ -104,16 +119,24 @@ def _compute_cost(model: str, input_tokens: int, output_tokens: int) -> float:
 
 
 def _llm_oneshot(prompt: str, system: str, model: str,
-                 temperature: float = 0.3, max_tokens: int = 600
+                 temperature: float = 0.3, max_tokens: int = 2000
                  ) -> tuple[str, dict[str, Any]]:
     """
     Call an LLM and return (text, usage) where usage is:
       { input_tokens, output_tokens, cost_usd, model }
-    Token counts fall back to 0 if the provider doesn't include usage on
-    the response (rare but possible for local endpoints).
+
+    Default max_tokens raised from 600 → 2000 to survive reasoning-tier
+    output: Qwen3/Ministral/gpt-5 happily burn 1000+ reasoning tokens
+    before emitting an actual move. If the model finishes quickly on
+    plain output, the unused budget costs nothing (OpenAI-style APIs
+    only bill what's actually generated).
+
+    Token counts fall back to 0 if the provider doesn't include usage
+    on the response (rare but possible for local endpoints).
     """
     provider = _provider_for(model)
     skip_temp = _model_rejects_temperature(model)
+    qwen_kwargs = _qwen3_no_think_kwargs(model)
     usage: dict[str, Any] = {
         "input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0, "model": model,
     }
@@ -173,8 +196,24 @@ def _llm_oneshot(prompt: str, system: str, model: str,
         call_kwargs["max_tokens"] = max_tokens
     if not skip_temp:
         call_kwargs["temperature"] = temperature
+    # Qwen3 + some other hybrid-thinking models accept this knob to
+    # force direct output. Unknown-kwarg servers (vanilla Grok / OpenAI)
+    # ignore extra_body, so passing it is always safe.
+    if qwen_kwargs:
+        call_kwargs.update(qwen_kwargs)
     resp = client.chat.completions.create(**call_kwargs)
-    text = resp.choices[0].message.content or ""
+    # Primary text path. If content is empty (reasoning model hit its
+    # token budget before emitting), salvage the move from
+    # reasoning_content — players often think "I will play e2e4" out
+    # loud and the extractor finds that inside the reasoning.
+    msg = resp.choices[0].message
+    text = msg.content or ""
+    if not text:
+        reasoning = getattr(msg, "reasoning_content", "") or ""
+        if reasoning:
+            text = reasoning
+            log.info("chess: content empty, parsed from reasoning_content (%s, %d chars)",
+                     model, len(reasoning))
     u = getattr(resp, "usage", None)
     if u is not None:
         usage["input_tokens"] = int(getattr(u, "prompt_tokens", 0) or 0)
