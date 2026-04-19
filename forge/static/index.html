@@ -1187,12 +1187,17 @@
                 </div>
                 <div class="chess-setup-row2">
                     <label class="field chess-interval-field">
-                        <span>Commentary every</span>
+                        <span>Commentary</span>
+                        <!-- value format: "interval:window_plies"
+                             window_plies = 0 → full-history running commentary
+                             window_plies > 0 → recap only the last N plies -->
                         <select id="chess-commentary-interval" class="chess-model-select">
-                            <option value="1">every round</option>
-                            <option value="2" selected>every 2 rounds</option>
-                            <option value="3">every 3 rounds</option>
-                            <option value="4">every 4 rounds</option>
+                            <option value="1:0">every round · full history</option>
+                            <option value="2:0" selected>every 2 rounds · full history</option>
+                            <option value="3:0">every 3 rounds · full history</option>
+                            <option value="4:0">every 4 rounds · full history</option>
+                            <option value="5:10">every 5 rounds · recap last 5 rounds</option>
+                            <option value="10:20">every 10 rounds · recap last 10 rounds</option>
                         </select>
                     </label>
                     <label class="toggle-field chess-tts-toggle">
