@@ -1344,21 +1344,34 @@
                     </div>
                 </div>
 
-                <!-- Controller row — local VLM (LM Studio) as the tight-loop
-                     button-pusher. Coach sets strategy; controller translates
-                     the current frame + plan into button presses every N ms.
-                     Lives behind the Mode selector: only fires when Mode ≠ human. -->
+                <!-- Controller row — tight-loop button-pusher. Coach sets
+                     strategy; controller translates current frame + plan
+                     into button presses. Three providers available:
+                       • Grok (cloud): uses the executor model via Forge
+                         backend; fastest for API-billing users (~500ms/tick)
+                       • LM Studio (local): direct VLM on localhost; slow
+                         with reasoning models (1-8s/tick) but private
+                       • Off: no auto-pilot, keyboard only
+                     Only fires when Mode ≠ human. -->
                 <div class="nes-setup-row2 nes-controller-row">
                     <label class="field">
-                        <span>Controller (LM Studio)</span>
+                        <span>Controller via</span>
+                        <select id="nes-controller-provider" class="nes-select">
+                            <option value="grok" selected>Grok (cloud · fast)</option>
+                            <option value="lmstudio">LM Studio (local)</option>
+                            <option value="off">Off (human only)</option>
+                        </select>
+                    </label>
+                    <label class="field">
+                        <span>Model</span>
                         <input type="text" id="nes-controller-model" class="nes-select"
-                               value="google/gemma-4-e4b"
-                               placeholder="google/gemma-4-e4b">
+                               value="grok-4-1-fast-non-reasoning"
+                               placeholder="grok-4-1-fast-non-reasoning">
                     </label>
                     <label class="field nes-interval">
                         <span>Button every</span>
-                        <input type="range" id="nes-controller-interval" min="100" max="1000" step="50" value="250">
-                        <span class="nes-interval-label" id="nes-controller-interval-label">250 ms</span>
+                        <input type="range" id="nes-controller-interval" min="100" max="3000" step="50" value="1000">
+                        <span class="nes-interval-label" id="nes-controller-interval-label">1000 ms</span>
                     </label>
                     <label class="field">
                         <span>LM Studio URL</span>
