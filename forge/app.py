@@ -907,6 +907,344 @@ def reset_cost():
     return jsonify({"status": "reset", "session_cost": 0.0, "session_toll": 0.0})
 
 
+# ── API keys vault ──────────────────────────────────────────────────────
+# Per-provider secret management. Values are persisted to forge/.env and
+# hot-patched into the running process. The raw key value is never returned
+# over HTTP — only `{set, last4, length, masked}` via forge.secrets_vault.
+
+from forge import secrets_vault as _vault
+
+
+@app.route("/api/keys")
+def keys_list():
+    """Return the full provider list with masked status."""
+    return jsonify({"providers": _vault.list_keys()})
+
+
+@app.route("/api/keys/<provider_id>", methods=["POST"])
+def keys_set(provider_id: str):
+    """Set a provider's key. Body: {value: "..."}. Empty value clears it."""
+    if _vault.get_provider(provider_id) is None:
+        return jsonify({"error": f"Unknown provider: {provider_id!r}"}), 404
+    body = request.get_json(silent=True) or {}
+    value = body.get("value", "")
+    if not isinstance(value, str):
+        return jsonify({"error": "value must be a string"}), 400
+    try:
+        record = _vault.set_key(provider_id, value)
+    except Exception as e:
+        log.exception("keys_set failed for %s", provider_id)
+        return jsonify({"error": f"{type(e).__name__}: {e}"}), 500
+    return jsonify(record)
+
+
+@app.route("/api/keys/<provider_id>", methods=["DELETE"])
+def keys_clear(provider_id: str):
+    """Clear a provider's key."""
+    if _vault.get_provider(provider_id) is None:
+        return jsonify({"error": f"Unknown provider: {provider_id!r}"}), 404
+    try:
+        record = _vault.clear_key(provider_id)
+    except Exception as e:
+        log.exception("keys_clear failed for %s", provider_id)
+        return jsonify({"error": f"{type(e).__name__}: {e}"}), 500
+    return jsonify(record)
+
+
+# ── Chess Arena ─────────────────────────────────────────────────────────
+# Two-model chess matches. State lives in memory — matches survive tab
+# refresh but not server restart. Move legality is enforced server-side by
+# python-chess; the LLM only proposes.
+
+from forge import chess_arena as _chess
+
+
+@app.route("/api/chess", methods=["GET"])
+def chess_list():
+    """List known matches (active + finished, newest first, capped)."""
+    return jsonify({"matches": _chess.list_matches()})
+
+
+@app.route("/api/chess", methods=["POST"])
+def chess_new():
+    """Create a match. Body: {white_model, black_model, starting_fen?,
+    judge_model?, commentary_interval?}."""
+    body = request.get_json(silent=True) or {}
+    white = (body.get("white_model") or "").strip()
+    black = (body.get("black_model") or "").strip()
+    if not white or not black:
+        return jsonify({"error": "white_model and black_model are required"}), 400
+    try:
+        match = _chess.new_match(
+            white_model=white,
+            black_model=black,
+            starting_fen=body.get("starting_fen", "") or "",
+            judge_model=(body.get("judge_model") or "grok-4.20-0309-reasoning").strip(),
+            commentary_interval=int(body.get("commentary_interval") or 2),
+        )
+    except Exception as e:
+        log.exception("chess_new failed")
+        return jsonify({"error": f"{type(e).__name__}: {e}"}), 400
+    return jsonify(_chess.serialize_match(match))
+
+
+@app.route("/api/chess/<match_id>", methods=["GET"])
+def chess_get(match_id: str):
+    m = _chess.get_match(match_id)
+    if m is None:
+        return jsonify({"error": f"Unknown match: {match_id!r}"}), 404
+    return jsonify(_chess.serialize_match(m))
+
+
+@app.route("/api/chess/<match_id>/step", methods=["POST"])
+def chess_step(match_id: str):
+    """Ask the current side's LLM for a move and apply it. If this step
+    lands on a commentary beat (every Nth full-move pair, or game-over),
+    the judge model is also called and its output included as
+    `new_commentary` in the response so the UI can render + TTS it."""
+    m = _chess.get_match(match_id)
+    if m is None:
+        return jsonify({"error": f"Unknown match: {match_id!r}"}), 404
+    try:
+        m = _chess.make_move(match_id)
+    except RuntimeError as e:
+        # Missing API key / upstream failure — surface as 502 so UI can show it
+        return jsonify({"error": str(e), **_chess.serialize_match(_chess.get_match(match_id))}), 502
+    except Exception as e:
+        log.exception("chess_step failed for %s", match_id)
+        return jsonify({"error": f"{type(e).__name__}: {e}"}), 500
+
+    # Fire the judge if this beat calls for it. Best-effort — a judge
+    # failure (missing key, timeout) never blocks the move response.
+    new_commentary = None
+    try:
+        rec = _chess.maybe_generate_commentary(match_id)
+        if rec is not None:
+            new_commentary = {
+                "after_move_n": rec.after_move_n,
+                "round_num": rec.round_num,
+                "text": rec.text,
+                "model": rec.model,
+                "ms": rec.ms,
+                "emitted_at": rec.emitted_at,
+            }
+    except Exception:
+        log.exception("chess commentary failed for %s (non-fatal)", match_id)
+
+    payload = _chess.serialize_match(m)
+    if new_commentary:
+        payload["new_commentary"] = new_commentary
+    return jsonify(payload)
+
+
+@app.route("/api/chess/<match_id>/commentary", methods=["POST"])
+def chess_commentary(match_id: str):
+    """Manually fire a commentary beat (ignoring the interval). Useful
+    for the UI "Ask judge now" button."""
+    if _chess.get_match(match_id) is None:
+        return jsonify({"error": f"Unknown match: {match_id!r}"}), 404
+    rec = _chess.generate_commentary(match_id)
+    if rec is None:
+        return jsonify({"error": "Judge call failed (see server logs)."}), 502
+    return jsonify({
+        "after_move_n": rec.after_move_n,
+        "round_num": rec.round_num,
+        "text": rec.text,
+        "model": rec.model,
+        "ms": rec.ms,
+        "emitted_at": rec.emitted_at,
+    })
+
+
+@app.route("/api/chess/<match_id>/resign", methods=["POST"])
+def chess_resign(match_id: str):
+    """Resign for a side. Body: {side: 'white'|'black'}."""
+    body = request.get_json(silent=True) or {}
+    side = body.get("side", "")
+    try:
+        m = _chess.resign(match_id, side)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    if m is None:
+        return jsonify({"error": f"Unknown match: {match_id!r}"}), 404
+    return jsonify(_chess.serialize_match(m))
+
+
+@app.route("/api/chess/<match_id>", methods=["DELETE"])
+def chess_delete(match_id: str):
+    """Delete a match from the in-memory registry."""
+    if not _chess.delete_match(match_id):
+        return jsonify({"error": f"Unknown match: {match_id!r}"}), 404
+    return jsonify({"deleted": match_id})
+
+
+# ── NES Arena ───────────────────────────────────────────────────────────
+# Browser runs jsnes (the emulator); Python handles ROM indexing, coach
+# model calls, and vault deposits. Sessions are metadata-only shadows of
+# the in-browser state.
+
+from forge import nes_arena as _nes
+from forge.config import (
+    NES_COACH_MODEL, NES_CONTROLLER_MODEL, NES_COACH_INTERVAL_MS,
+)
+import base64 as _b64
+
+
+@app.route("/api/nes/roms", methods=["GET"])
+def nes_roms():
+    return jsonify({"roms": _nes.list_roms()})
+
+
+@app.route("/api/nes/rom/<slug>", methods=["GET"])
+def nes_rom_bytes(slug: str):
+    """Return ROM bytes as base64 JSON so the browser can hand them to jsnes."""
+    data = _nes.get_rom_bytes(slug)
+    if data is None:
+        return jsonify({"error": f"Unknown ROM: {slug!r}"}), 404
+    rom = _nes.rom_by_slug(slug)
+    return jsonify({
+        "slug": slug,
+        "title": rom["title"] if rom else slug,
+        "filename": rom["filename"] if rom else f"{slug}.nes",
+        "size_bytes": len(data),
+        "data_b64": _b64.b64encode(data).decode("ascii"),
+    })
+
+
+@app.route("/api/nes/sessions", methods=["GET"])
+def nes_sessions_list():
+    return jsonify({"sessions": _nes.list_sessions()})
+
+
+@app.route("/api/nes/sessions", methods=["POST"])
+def nes_sessions_new():
+    """Body: { rom_slug, mode, coach_model?, controller_model?, coach_interval_ms? }"""
+    body = request.get_json(silent=True) or {}
+    slug = (body.get("rom_slug") or "").strip()
+    mode = (body.get("mode") or "hybrid-coach").strip()
+    if not slug:
+        return jsonify({"error": "rom_slug is required"}), 400
+    rom = _nes.rom_by_slug(slug)
+    if rom is None:
+        return jsonify({"error": f"Unknown ROM: {slug!r}"}), 404
+    s = _nes.create_session(
+        rom_slug=slug,
+        rom_title=rom["title"],
+        mode=mode,
+        coach_model=body.get("coach_model") or NES_COACH_MODEL,
+        controller_model=body.get("controller_model") or NES_CONTROLLER_MODEL,
+        coach_interval_ms=int(body.get("coach_interval_ms") or NES_COACH_INTERVAL_MS),
+    )
+    return jsonify(s.summary())
+
+
+@app.route("/api/nes/sessions/<session_id>", methods=["GET"])
+def nes_sessions_get(session_id: str):
+    s = _nes.get_session(session_id)
+    if s is None:
+        return jsonify({"error": f"Unknown session: {session_id!r}"}), 404
+    return jsonify(s.summary())
+
+
+@app.route("/api/nes/sessions/<session_id>", methods=["DELETE"])
+def nes_sessions_delete(session_id: str):
+    if not _nes.delete_session(session_id):
+        return jsonify({"error": f"Unknown session: {session_id!r}"}), 404
+    return jsonify({"deleted": session_id})
+
+
+@app.route("/api/nes/sessions/<session_id>/tick", methods=["POST"])
+def nes_sessions_tick(session_id: str):
+    """Browser heartbeat: frame screenshot + observed game state."""
+    s = _nes.get_session(session_id)
+    if s is None:
+        return jsonify({"error": f"Unknown session: {session_id!r}"}), 404
+    body = request.get_json(silent=True) or {}
+    s.ingest_tick(
+        frame_b64=body.get("frame_b64", ""),
+        frame_n=int(body.get("frame_n", 0) or 0),
+        state=body.get("state", {}) or {},
+    )
+    return jsonify({"ok": True, "frame_n": s.last_frame_n})
+
+
+@app.route("/api/nes/sessions/<session_id>/coach", methods=["POST"])
+def nes_sessions_coach(session_id: str):
+    """Ask the coach model for a plan. Reuses the session's last frame unless
+    the body overrides it."""
+    s = _nes.get_session(session_id)
+    if s is None:
+        return jsonify({"error": f"Unknown session: {session_id!r}"}), 404
+    body = request.get_json(silent=True) or {}
+    frame_b64 = body.get("frame_b64") or s.last_frame_b64
+    plan_history_texts = [p.text for p in s.plan_history]
+
+    try:
+        result = _nes.coach_advise(
+            model=body.get("model") or s.coach_model,
+            rom_title=s.rom_title,
+            mode=s.mode,
+            frame_b64=frame_b64,
+            plan_history=plan_history_texts,
+            score=s.last_score,
+            lives=s.last_lives,
+            level=s.last_level,
+            extra_context=body.get("extra_context", ""),
+        )
+    except RuntimeError as e:
+        return jsonify({"error": str(e)}), 502
+    except Exception as e:
+        log.exception("nes coach failed for %s", session_id)
+        return jsonify({"error": f"{type(e).__name__}: {e}"}), 500
+
+    from forge.nes_arena.session import CoachPlan
+    plan = CoachPlan(
+        text=result["plan"],
+        emitted_at=__import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(),
+        model=result["model"],
+        ms=result["ms"],
+        frame_n=s.last_frame_n,
+        raw_response=result["raw"],
+    )
+    s.set_plan(plan)
+    return jsonify({
+        "plan": plan.text,
+        "model": plan.model,
+        "ms": plan.ms,
+        "used_vision": result.get("used_vision", False),
+        "frame_n": plan.frame_n,
+    })
+
+
+@app.route("/api/nes/sessions/<session_id>/event", methods=["POST"])
+def nes_sessions_event(session_id: str):
+    """Record an in-game event (death, level, powerup) + vault deposit."""
+    s = _nes.get_session(session_id)
+    if s is None:
+        return jsonify({"error": f"Unknown session: {session_id!r}"}), 404
+    body = request.get_json(silent=True) or {}
+    kind = (body.get("kind") or "note").strip()
+    summary = (body.get("summary") or "").strip()
+    frame_n = int(body.get("frame_n", s.last_frame_n) or 0)
+    extra = body.get("extra", {}) or {}
+    if not summary:
+        return jsonify({"error": "summary is required"}), 400
+
+    from forge.nes_arena.session import NESEvent
+    s.add_event(NESEvent(kind=kind, frame_n=frame_n, summary=summary, extra=extra))
+
+    vault_status = _nes.log_event(
+        session_id=session_id,
+        rom_slug=s.rom_slug,
+        rom_title=s.rom_title,
+        kind=kind,
+        summary=summary,
+        frame_n=frame_n,
+        extra=extra,
+    )
+    return jsonify({"ok": True, **vault_status})
+
+
 def track_cost(msg: dict, task_id: str = ""):
     """Update session and per-task cost from token usage messages."""
     global session_cost_usd

@@ -44,6 +44,9 @@
   --lcars-lilac:      #cc88ff;
   --lcars-violet:     #ff3399;
   --lcars-red:        #ff3344;
+  --lcars-rust:       #cc6666;   /* classic LCARS "red 2" — used for Keys tab */
+  --lcars-plum:       #9966cc;   /* LCARS "violet 2" — used for Chess tab */
+  --lcars-scarlet:    #ff5544;   /* NES Arena — arcade/CRT power-LED red */
   --lcars-green:      #66ff99;
   --lcars-text:       #ffe4c4;
   --lcars-muted:      #778899;
@@ -238,7 +241,10 @@ body.lcars .tab-btn:nth-child(4) { background: var(--lcars-canary); }
 body.lcars .tab-btn:nth-child(5) { background: var(--lcars-blue); }
 body.lcars .tab-btn:nth-child(6) { background: var(--lcars-orange); }
 body.lcars .tab-btn:nth-child(7) { background: var(--lcars-green); }
-body.lcars .tab-btn:nth-child(8) { background: var(--lcars-violet); }
+body.lcars .tab-btn:nth-child(8)  { background: var(--lcars-violet); }
+body.lcars .tab-btn:nth-child(9)  { background: var(--lcars-plum);    color: #ffe4c4; }
+body.lcars .tab-btn:nth-child(10) { background: var(--lcars-scarlet); color: #ffe4c4; }
+body.lcars .tab-btn:nth-child(11) { background: var(--lcars-rust);    color: #ffe4c4; }
 
 body.lcars .tab-btn.active {
   background: var(--lcars-amber) !important;
@@ -1198,4 +1204,1132 @@ body.lcars .intro-footnote {
     aspect-ratio: 16 / 9;
     min-height: 160px;
   }
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   KEYS TAB — API secret vault
+   ══════════════════════════════════════════════════════════════════════
+   Rust-colored (LCARS "red 2") to signal "sensitive / restricted access".
+   Raw values never render in the DOM — only the masked form from the
+   server. Each row exposes: Update (inline password field + Save), Clear.
+   ════════════════════════════════════════════════════════════════════ */
+
+body.lcars .keys-layout {
+  padding: 20px 24px 40px;
+  max-width: 960px;
+  margin: 0 auto;
+}
+
+body.lcars .keys-panel {
+  border: 1px solid var(--lcars-rust);
+  border-radius: 14px;
+  background: #05070a;
+  overflow: hidden;
+  box-shadow: 0 0 22px rgba(204, 102, 102, 0.18);
+}
+
+body.lcars .keys-panel-header {
+  background: linear-gradient(90deg, var(--lcars-rust) 0%, #8a4848 100%);
+  color: var(--lcars-ink);
+  padding: 10px 18px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+body.lcars .keys-panel-header h3 {
+  margin: 0;
+  font-family: "Antonio", "Oswald", sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.22em;
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+body.lcars .keys-subtitle {
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  opacity: 0.85;
+}
+body.lcars .keys-subtitle code {
+  background: rgba(0, 0, 0, 0.28);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 0.72rem;
+}
+
+/* Category filter pills */
+body.lcars .keys-category-bar {
+  display: flex;
+  gap: 6px;
+  padding: 12px 18px 4px;
+  flex-wrap: wrap;
+}
+body.lcars .keys-filter-btn {
+  font-family: "Antonio", "Oswald", sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 4px 14px;
+  border: 1px solid var(--lcars-rust);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--lcars-rust);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+body.lcars .keys-filter-btn:hover {
+  background: rgba(204, 102, 102, 0.15);
+}
+body.lcars .keys-filter-btn.active {
+  background: var(--lcars-rust);
+  color: var(--lcars-ink);
+}
+
+/* Row layout — one per provider */
+body.lcars .keys-list {
+  padding: 10px 18px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+body.lcars .keys-loading,
+body.lcars .keys-empty {
+  color: var(--lcars-muted);
+  font-size: 0.82rem;
+  padding: 20px 0;
+  text-align: center;
+  letter-spacing: 0.08em;
+}
+
+body.lcars .key-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.4fr) minmax(200px, 2fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 14px;
+  background: #0a0d12;
+  border: 1px solid rgba(204, 102, 102, 0.22);
+  border-radius: 10px;
+  transition: border-color 140ms ease;
+}
+body.lcars .key-row:hover { border-color: rgba(204, 102, 102, 0.55); }
+body.lcars .key-row[data-set="true"] { border-left: 3px solid var(--lcars-green); }
+body.lcars .key-row[data-set="false"] { border-left: 3px solid var(--lcars-muted); }
+
+body.lcars .key-meta { min-width: 0; }
+body.lcars .key-label {
+  font-family: "Antonio", "Oswald", sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--lcars-text);
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+body.lcars .key-envvar {
+  font-family: "JetBrains Mono", "Consolas", monospace;
+  font-size: 0.68rem;
+  color: var(--lcars-muted);
+  letter-spacing: 0.04em;
+  display: block;
+  margin-top: 2px;
+}
+body.lcars .key-envvar a {
+  color: var(--lcars-teal);
+  text-decoration: none;
+  margin-left: 8px;
+}
+body.lcars .key-envvar a:hover { text-decoration: underline; }
+
+body.lcars .key-value {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+body.lcars .key-masked {
+  font-family: "JetBrains Mono", "Consolas", monospace;
+  font-size: 0.86rem;
+  letter-spacing: 0.08em;
+  color: var(--lcars-canary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+body.lcars .key-masked.empty {
+  color: var(--lcars-muted);
+  letter-spacing: 0.14em;
+  font-style: italic;
+}
+body.lcars .key-badge {
+  font-family: "Antonio", "Oswald", sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 0.62rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+body.lcars .key-badge.set    { background: var(--lcars-green); color: var(--lcars-ink); }
+body.lcars .key-badge.empty  { background: #222833; color: var(--lcars-muted); }
+
+body.lcars .key-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+body.lcars .key-btn {
+  font-family: "Antonio", "Oswald", sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 0.66rem;
+  font-weight: 700;
+  padding: 5px 12px;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: filter 120ms ease, transform 120ms ease;
+  color: var(--lcars-ink);
+}
+body.lcars .key-btn:hover { filter: brightness(1.15); transform: translateY(-1px); }
+body.lcars .key-btn.update { background: var(--lcars-canary); }
+body.lcars .key-btn.clear  { background: var(--lcars-rust); color: var(--lcars-text); }
+body.lcars .key-btn.save   { background: var(--lcars-green); }
+body.lcars .key-btn.cancel { background: #333a44; color: var(--lcars-text); }
+body.lcars .key-btn:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
+
+/* Inline edit form (expands below row) */
+body.lcars .key-edit {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding-top: 10px;
+  margin-top: 4px;
+  border-top: 1px dashed rgba(204, 102, 102, 0.25);
+}
+body.lcars .key-edit input[type="password"],
+body.lcars .key-edit input[type="text"] {
+  flex: 1;
+  min-width: 0;
+  font-family: "JetBrains Mono", "Consolas", monospace;
+  font-size: 0.86rem;
+  padding: 6px 10px;
+  background: #000;
+  border: 1px solid var(--lcars-rust);
+  border-radius: 6px;
+  color: var(--lcars-text);
+  letter-spacing: 0.04em;
+}
+body.lcars .key-edit input:focus {
+  outline: none;
+  border-color: var(--lcars-canary);
+  box-shadow: 0 0 0 2px rgba(255, 204, 0, 0.18);
+}
+body.lcars .key-edit .key-reveal {
+  font-size: 0.68rem;
+  color: var(--lcars-muted);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  user-select: none;
+}
+
+body.lcars .keys-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 18px 16px;
+  border-top: 1px solid rgba(204, 102, 102, 0.2);
+}
+body.lcars .keys-footer .btn-secondary {
+  font-family: "Antonio", "Oswald", sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  font-size: 0.72rem;
+  padding: 5px 16px;
+  background: var(--lcars-teal);
+  color: var(--lcars-ink);
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+  font-weight: 700;
+}
+body.lcars .keys-footer .btn-secondary:hover { filter: brightness(1.15); }
+body.lcars .keys-status {
+  font-size: 0.74rem;
+  color: var(--lcars-muted);
+  letter-spacing: 0.06em;
+  min-height: 1.2em;
+}
+body.lcars .keys-status.ok  { color: var(--lcars-green); }
+body.lcars .keys-status.err { color: var(--lcars-red); }
+
+/* Narrow viewports: stack the row */
+@media (max-width: 720px) {
+  body.lcars .key-row {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+  body.lcars .key-actions { justify-content: flex-start; }
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   CHESS TAB — LLM vs LLM match arena
+   ══════════════════════════════════════════════════════════════════════
+   Plum-bordered panels. The board itself uses classic alternating tiles
+   (teal / deep-indigo) instead of the cliché cream/brown, since the rest
+   of the shell is already QD-OLED cold. Pieces are Unicode figures, sized
+   by the square grid so they stay crisp at any zoom.
+   ════════════════════════════════════════════════════════════════════ */
+
+body.lcars .chess-layout {
+  padding: 18px 24px 40px;
+  max-width: 1280px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+body.lcars .chess-setup-panel,
+body.lcars .chess-main-panel {
+  border: 1px solid var(--lcars-plum);
+  border-radius: 14px;
+  background: #05070a;
+  overflow: hidden;
+  box-shadow: 0 0 22px rgba(153, 102, 204, 0.16);
+}
+
+body.lcars .chess-panel-header {
+  background: linear-gradient(90deg, var(--lcars-plum) 0%, #5a3880 100%);
+  color: #ffe4c4;
+  padding: 10px 18px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+body.lcars .chess-panel-header h3 {
+  margin: 0;
+  font-family: "Antonio", "Oswald", sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.22em;
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+body.lcars .chess-subtitle {
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  opacity: 0.85;
+}
+
+body.lcars .chess-setup-row {
+  display: grid;
+  grid-template-columns: minmax(200px, 1fr) minmax(200px, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+  padding: 14px 18px 16px;
+}
+body.lcars .chess-setup-row .field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+body.lcars .chess-setup-row .field > span {
+  font-family: "Antonio", "Oswald", sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 0.74rem;
+  color: var(--lcars-muted);
+}
+body.lcars .chess-model-select {
+  background: #000;
+  color: var(--lcars-text);
+  border: 1px solid var(--lcars-plum);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-family: "JetBrains Mono", "Consolas", monospace;
+  font-size: 0.82rem;
+}
+body.lcars .chess-model-select:focus {
+  outline: none;
+  border-color: var(--lcars-canary);
+  box-shadow: 0 0 0 2px rgba(255, 204, 0, 0.18);
+}
+
+body.lcars .chess-btn {
+  font-family: "Antonio", "Oswald", sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 7px 16px;
+  border: none;
+  border-radius: 10px;
+  background: var(--lcars-plum);
+  color: #ffe4c4;
+  cursor: pointer;
+  transition: filter 120ms ease, transform 120ms ease;
+}
+body.lcars .chess-btn:hover:not(:disabled) {
+  filter: brightness(1.15);
+  transform: translateY(-1px);
+}
+body.lcars .chess-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none;
+}
+body.lcars .chess-new-btn    { background: var(--lcars-canary); color: var(--lcars-ink); }
+body.lcars .chess-auto-btn   { background: var(--lcars-green);  color: var(--lcars-ink); }
+body.lcars .chess-auto-btn.is-running { background: var(--lcars-red); color: var(--lcars-text); }
+body.lcars .chess-resign-btn { background: #444a56; color: var(--lcars-text); }
+
+/* Main grid — board left, side panel right */
+body.lcars .chess-main-grid {
+  display: grid;
+  grid-template-columns: minmax(320px, 560px) minmax(280px, 1fr);
+  gap: 16px;
+  padding: 16px 18px 18px;
+  align-items: start;
+}
+
+body.lcars .chess-board-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+body.lcars .chess-board {
+  aspect-ratio: 1 / 1;
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  grid-template-rows: repeat(8, 1fr);
+  border: 2px solid var(--lcars-plum);
+  border-radius: 8px;
+  overflow: hidden;
+  user-select: none;
+  box-shadow: 0 0 28px rgba(153, 102, 204, 0.25);
+}
+body.lcars .chess-board .chess-empty {
+  grid-column: 1 / -1;
+  grid-row: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 30px;
+  text-align: center;
+  color: var(--lcars-muted);
+  font-family: "Antonio", "Oswald", sans-serif;
+  letter-spacing: 0.12em;
+  background: #05070a;
+}
+body.lcars .chess-square {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: clamp(1.6rem, 5vw, 2.6rem);
+  line-height: 1;
+  font-weight: 400;
+  position: relative;
+}
+body.lcars .chess-square.light { background: #233042; }
+body.lcars .chess-square.dark  { background: #0f1a2a; }
+body.lcars .chess-square.last-from { box-shadow: inset 0 0 0 3px rgba(255, 204, 0, 0.55); }
+body.lcars .chess-square.last-to   { box-shadow: inset 0 0 0 3px var(--lcars-canary); }
+body.lcars .chess-square.in-check  { box-shadow: inset 0 0 0 3px var(--lcars-red); }
+
+body.lcars .chess-piece.white { color: #f5f5f5; text-shadow: 0 1px 2px rgba(0,0,0,0.7); }
+body.lcars .chess-piece.black { color: #101018; text-shadow: 0 0 3px rgba(255,255,255,0.35); }
+
+/* Rank/file labels in corners */
+body.lcars .chess-square .coord {
+  position: absolute;
+  font-family: "JetBrains Mono", "Consolas", monospace;
+  font-size: 0.58rem;
+  letter-spacing: 0.04em;
+  opacity: 0.55;
+  pointer-events: none;
+}
+body.lcars .chess-square .coord.file { bottom: 2px; right: 4px; }
+body.lcars .chess-square .coord.rank { top: 2px; left: 4px; }
+body.lcars .chess-square.light .coord { color: #0a0d12; }
+body.lcars .chess-square.dark  .coord { color: #ffe4c4; }
+
+body.lcars .chess-board-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 4px 2px;
+}
+body.lcars .chess-side-badge {
+  font-family: "Antonio", "Oswald", sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 0.78rem;
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: #0a0d12;
+  border: 1px solid var(--lcars-plum);
+  color: var(--lcars-text);
+}
+body.lcars .chess-side-badge.active {
+  background: var(--lcars-canary);
+  color: var(--lcars-ink);
+  border-color: var(--lcars-canary);
+  box-shadow: 0 0 14px rgba(255, 204, 0, 0.35);
+}
+body.lcars .chess-vs {
+  font-family: "Antonio", "Oswald", sans-serif;
+  color: var(--lcars-muted);
+  letter-spacing: 0.2em;
+  font-size: 0.72rem;
+}
+
+/* Side panel — status + controls + move log */
+body.lcars .chess-side-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+body.lcars .chess-status-block {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+body.lcars .chess-turn-label {
+  background: #0a0d12;
+  border: 1px solid rgba(153, 102, 204, 0.35);
+  border-radius: 8px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+body.lcars .chess-turn-label span {
+  font-family: "Antonio", "Oswald", sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 0.62rem;
+  color: var(--lcars-muted);
+}
+body.lcars .chess-turn-label strong {
+  font-family: "Antonio", "Oswald", sans-serif;
+  font-size: 0.9rem;
+  letter-spacing: 0.1em;
+  color: var(--lcars-text);
+}
+body.lcars .chess-turn-label strong.white-turn { color: var(--lcars-canary); }
+body.lcars .chess-turn-label strong.black-turn { color: var(--lcars-teal); }
+body.lcars .chess-turn-label strong.ended      { color: var(--lcars-green); }
+
+body.lcars .chess-controls {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+body.lcars .chess-status-msg {
+  font-size: 0.78rem;
+  letter-spacing: 0.05em;
+  color: var(--lcars-muted);
+  min-height: 1.2em;
+  padding: 2px 4px;
+}
+body.lcars .chess-status-msg.ok  { color: var(--lcars-green); }
+body.lcars .chess-status-msg.err { color: var(--lcars-red); }
+body.lcars .chess-status-msg.working {
+  color: var(--lcars-canary);
+  animation: chess-thinking-pulse 1.4s ease-in-out infinite;
+}
+body.lcars .chess-status-msg.working::before {
+  content: "▸ ";
+  letter-spacing: 0;
+}
+@keyframes chess-thinking-pulse {
+  0%, 100% { opacity: 0.55; }
+  50%      { opacity: 1; }
+}
+
+body.lcars .chess-moves-block {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 280px;
+}
+body.lcars .chess-moves-header {
+  font-family: "Antonio", "Oswald", sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  font-size: 0.72rem;
+  color: var(--lcars-plum);
+  padding: 4px 0;
+  border-bottom: 1px solid rgba(153, 102, 204, 0.3);
+  margin-bottom: 6px;
+}
+body.lcars .chess-moves {
+  flex: 1;
+  overflow: auto;
+  background: #03050a;
+  border: 1px solid rgba(153, 102, 204, 0.25);
+  border-radius: 8px;
+  padding: 6px 4px;
+  max-height: 420px;
+  min-height: 200px;
+}
+body.lcars .chess-moves-empty {
+  color: var(--lcars-muted);
+  font-style: italic;
+  padding: 20px 10px;
+  text-align: center;
+  font-size: 0.82rem;
+}
+body.lcars .chess-move-row {
+  display: grid;
+  grid-template-columns: 26px 70px 1fr;
+  align-items: baseline;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-family: "JetBrains Mono", "Consolas", monospace;
+  font-size: 0.8rem;
+}
+body.lcars .chess-move-row:hover { background: rgba(153, 102, 204, 0.08); }
+body.lcars .chess-move-row.white-move { border-left: 2px solid var(--lcars-canary); }
+body.lcars .chess-move-row.black-move { border-left: 2px solid var(--lcars-teal); }
+body.lcars .chess-move-row .move-n    { color: var(--lcars-muted); }
+body.lcars .chess-move-row .move-san  { color: var(--lcars-text); font-weight: 600; }
+body.lcars .chess-move-row .move-meta {
+  color: var(--lcars-muted);
+  font-size: 0.72rem;
+  letter-spacing: 0.02em;
+}
+body.lcars .chess-move-row.forced .move-san::after {
+  content: " ⚠";
+  color: var(--lcars-red);
+}
+
+/* ── Chess setup: second row + commentary block ─────────────────────── */
+body.lcars .chess-setup-row2 {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 0 18px 14px;
+  flex-wrap: wrap;
+}
+body.lcars .chess-interval-field {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center;
+  gap: 8px;
+}
+body.lcars .chess-interval-field > span {
+  font-family: "Antonio", "Oswald", sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 0.72rem;
+  color: var(--lcars-muted);
+}
+body.lcars .chess-interval-field .chess-model-select {
+  padding: 4px 10px;
+  font-size: 0.76rem;
+}
+body.lcars .chess-tts-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+body.lcars .chess-tts-toggle > span:first-child {
+  font-family: "Antonio", "Oswald", sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 0.72rem;
+  color: var(--lcars-muted);
+}
+
+body.lcars .chess-mini-btn {
+  padding: 3px 10px;
+  font-size: 0.64rem;
+  background: var(--lcars-plum);
+  color: #ffe4c4;
+}
+
+/* Judge commentary block — amber-bordered, prose card with a pulsing
+   "thinking…" state and a rolling history list underneath. */
+body.lcars .chess-commentary-block {
+  background: #0a0d12;
+  border: 1px solid var(--lcars-amber);
+  border-radius: 10px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  box-shadow: 0 0 14px rgba(255, 153, 0, 0.12);
+}
+body.lcars .chess-commentary-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  justify-content: space-between;
+  font-family: "Antonio", "Oswald", sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  font-size: 0.74rem;
+  color: var(--lcars-amber);
+  border-bottom: 1px solid rgba(255, 153, 0, 0.35);
+  padding-bottom: 4px;
+}
+body.lcars .chess-commentary-meta {
+  color: var(--lcars-muted);
+  font-size: 0.66rem;
+  letter-spacing: 0.06em;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+body.lcars .chess-commentary-header .chess-mini-btn {
+  margin-left: 8px;
+  flex-shrink: 0;
+}
+body.lcars .chess-commentary-body {
+  font-family: "Georgia", "Times New Roman", serif;
+  font-size: 0.95rem;
+  line-height: 1.45;
+  color: var(--lcars-text);
+  min-height: 72px;
+  padding: 4px 2px;
+  font-style: italic;
+}
+body.lcars .chess-commentary-body.thinking {
+  color: var(--lcars-canary);
+  animation: chess-thinking-pulse 1.4s ease-in-out infinite;
+  font-style: normal;
+}
+body.lcars .chess-commentary-body.speaking {
+  color: var(--lcars-amber);
+  text-shadow: 0 0 6px rgba(255, 153, 0, 0.28);
+}
+body.lcars .chess-commentary-history {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 140px;
+  overflow-y: auto;
+  font-size: 0.74rem;
+  color: var(--lcars-muted);
+  padding: 2px 4px;
+  border-top: 1px dashed rgba(255, 153, 0, 0.22);
+  padding-top: 6px;
+  margin-top: 2px;
+}
+body.lcars .chess-commentary-history:empty { display: none; }
+body.lcars .chess-history-row {
+  display: grid;
+  grid-template-columns: 60px 1fr;
+  gap: 8px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  line-height: 1.35;
+}
+body.lcars .chess-history-row:hover { background: rgba(255, 153, 0, 0.06); }
+body.lcars .chess-history-row .history-round {
+  color: var(--lcars-amber);
+  font-family: "JetBrains Mono", "Consolas", monospace;
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+}
+body.lcars .chess-history-row .history-text {
+  color: var(--lcars-text);
+  font-family: "Georgia", "Times New Roman", serif;
+  font-style: italic;
+  font-size: 0.76rem;
+}
+
+/* Narrow viewports: stack board + panel */
+@media (max-width: 860px) {
+  body.lcars .chess-main-grid {
+    grid-template-columns: 1fr;
+  }
+  body.lcars .chess-setup-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   NES ARENA — in-browser jsnes emulator + coach panel
+   ══════════════════════════════════════════════════════════════════════
+   Scarlet border, 3× pixel-perfect canvas scaling, CRT scanline overlay.
+   Right-side panel holds the coach plan + event log + vault deposits.
+   Red Alert overlay pulses when Grok reports DANGER: in the plan.
+   ════════════════════════════════════════════════════════════════════ */
+
+body.lcars .nes-layout {
+  padding: 18px 24px 40px;
+  max-width: 1320px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+body.lcars .nes-setup-panel,
+body.lcars .nes-main-panel {
+  border: 1px solid var(--lcars-scarlet);
+  border-radius: 14px;
+  background: #05070a;
+  overflow: hidden;
+  box-shadow: 0 0 24px rgba(255, 85, 68, 0.18);
+}
+body.lcars .nes-panel-header {
+  background: linear-gradient(90deg, var(--lcars-scarlet) 0%, #8a2a22 100%);
+  color: var(--lcars-text);
+  padding: 10px 18px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+body.lcars .nes-panel-header h3 {
+  margin: 0;
+  font-family: "Antonio", "Oswald", sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.22em;
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+body.lcars .nes-subtitle {
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  opacity: 0.9;
+}
+
+body.lcars .nes-setup-row {
+  display: grid;
+  grid-template-columns: minmax(220px, 2fr) minmax(160px, 1fr) minmax(180px, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+  padding: 14px 18px 8px;
+}
+body.lcars .nes-setup-row2 {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 0 18px 14px;
+  flex-wrap: wrap;
+}
+body.lcars .nes-setup-row .field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+body.lcars .nes-setup-row .field > span {
+  font-family: "Antonio", "Oswald", sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 0.74rem;
+  color: var(--lcars-muted);
+}
+body.lcars .nes-select {
+  background: #000;
+  color: var(--lcars-text);
+  border: 1px solid var(--lcars-scarlet);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-family: "JetBrains Mono", "Consolas", monospace;
+  font-size: 0.8rem;
+}
+body.lcars .nes-select:focus {
+  outline: none;
+  border-color: var(--lcars-canary);
+  box-shadow: 0 0 0 2px rgba(255, 204, 0, 0.18);
+}
+
+body.lcars .nes-interval {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 8px;
+}
+body.lcars .nes-interval input[type="range"] {
+  width: 160px;
+  accent-color: var(--lcars-scarlet);
+}
+body.lcars .nes-interval-label {
+  color: var(--lcars-canary) !important;
+  font-family: "JetBrains Mono", "Consolas", monospace;
+  min-width: 3em;
+  text-align: right;
+}
+
+body.lcars .nes-keybind-hint {
+  font-size: 0.72rem;
+  color: var(--lcars-muted);
+  letter-spacing: 0.04em;
+  margin-left: auto;
+}
+body.lcars .nes-keybind-hint kbd {
+  background: #0a0d12;
+  border: 1px solid rgba(255, 85, 68, 0.4);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-family: "JetBrains Mono", "Consolas", monospace;
+  font-size: 0.72rem;
+  color: var(--lcars-text);
+  margin: 0 2px;
+}
+
+/* Buttons */
+body.lcars .nes-btn {
+  font-family: "Antonio", "Oswald", sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 7px 16px;
+  border: none;
+  border-radius: 10px;
+  background: var(--lcars-scarlet);
+  color: var(--lcars-text);
+  cursor: pointer;
+  transition: filter 120ms ease, transform 120ms ease;
+}
+body.lcars .nes-btn:hover:not(:disabled) {
+  filter: brightness(1.15);
+  transform: translateY(-1px);
+}
+body.lcars .nes-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none;
+}
+body.lcars .nes-start-btn { background: var(--lcars-canary); color: var(--lcars-ink); }
+body.lcars .nes-mini-btn {
+  padding: 3px 10px;
+  font-size: 0.66rem;
+}
+body.lcars .nes-mini-danger { background: var(--lcars-red); }
+
+/* Main grid — canvas left, side panel right */
+body.lcars .nes-main-grid {
+  display: grid;
+  grid-template-columns: minmax(512px, 768px) minmax(300px, 1fr);
+  gap: 16px;
+  padding: 16px 18px 18px;
+  align-items: start;
+}
+
+/* Screen with 3× integer scaling so pixels stay crisp */
+body.lcars .nes-screen-wrap {
+  position: relative;
+  width: 100%;
+  max-width: 768px;
+  aspect-ratio: 256 / 240;
+  background: #000;
+  border: 2px solid var(--lcars-scarlet);
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 0 32px rgba(255, 85, 68, 0.28);
+  display: flex;
+  flex-direction: column;
+}
+body.lcars .nes-canvas {
+  width: 100%;
+  height: 100%;
+  image-rendering: pixelated;
+  image-rendering: -moz-crisp-edges;
+  background: #000;
+  display: block;
+}
+/* Subtle scanline overlay — pure cosmetic CRT flavor, no JS needed */
+body.lcars .nes-screen-wrap::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+      0deg, rgba(0,0,0,0.18) 0px, rgba(0,0,0,0.18) 1px,
+      transparent 1px, transparent 3px);
+  pointer-events: none;
+  mix-blend-mode: multiply;
+  opacity: 0.55;
+}
+
+body.lcars .nes-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0,0,0,0.82);
+  color: var(--lcars-text);
+  font-family: "Antonio", "Oswald", sans-serif;
+  letter-spacing: 0.12em;
+  text-align: center;
+  padding: 24px;
+  z-index: 3;
+}
+body.lcars .nes-overlay.hidden { display: none; }
+body.lcars .nes-overlay-msg strong {
+  color: var(--lcars-canary);
+}
+
+/* Red Alert — pulsing vignette during DANGER plans */
+body.lcars .nes-red-alert {
+  position: absolute;
+  inset: 0;
+  box-shadow: inset 0 0 60px rgba(255, 68, 68, 0.7);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 300ms ease;
+  z-index: 2;
+}
+body.lcars .nes-red-alert.active {
+  opacity: 1;
+  animation: nes-red-alert-pulse 0.8s ease-in-out infinite;
+}
+@keyframes nes-red-alert-pulse {
+  0%,100% { opacity: 0.55; }
+  50%     { opacity: 1; }
+}
+
+/* HUD bar below canvas (inside the wrap) */
+body.lcars .nes-hud {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  background: linear-gradient(0deg, rgba(0,0,0,0.82) 0%, rgba(0,0,0,0) 100%);
+  z-index: 4;
+  flex-wrap: wrap;
+}
+body.lcars .nes-hud-item {
+  font-family: "Antonio", "Oswald", sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 0.68rem;
+  color: var(--lcars-muted);
+}
+body.lcars .nes-hud-item strong {
+  color: var(--lcars-canary);
+  font-family: "JetBrains Mono", "Consolas", monospace;
+  margin-left: 4px;
+}
+body.lcars .nes-hud .nes-btn { margin-left: auto; }
+body.lcars .nes-hud .nes-btn + .nes-btn { margin-left: 0; }
+
+/* Side panel — coach + events */
+body.lcars .nes-side-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+body.lcars .nes-coach-block,
+body.lcars .nes-events-block {
+  background: #0a0d12;
+  border: 1px solid rgba(255, 85, 68, 0.32);
+  border-radius: 10px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+body.lcars .nes-coach-header,
+body.lcars .nes-events-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  font-family: "Antonio", "Oswald", sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  font-size: 0.72rem;
+  color: var(--lcars-scarlet);
+  border-bottom: 1px solid rgba(255, 85, 68, 0.25);
+  padding-bottom: 4px;
+}
+body.lcars .nes-coach-meta {
+  color: var(--lcars-muted);
+  font-size: 0.66rem;
+  letter-spacing: 0.08em;
+}
+body.lcars .nes-coach-body {
+  font-size: 0.88rem;
+  line-height: 1.45;
+  color: var(--lcars-text);
+  min-height: 80px;
+  padding: 4px 2px;
+}
+body.lcars .nes-coach-body.danger {
+  color: var(--lcars-red);
+  text-shadow: 0 0 6px rgba(255, 51, 68, 0.4);
+}
+body.lcars .nes-coach-body.thinking {
+  color: var(--lcars-canary);
+  animation: nes-thinking-pulse 1.4s ease-in-out infinite;
+}
+@keyframes nes-thinking-pulse {
+  0%, 100% { opacity: 0.55; }
+  50%      { opacity: 1; }
+}
+
+body.lcars .nes-events {
+  max-height: 280px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px 2px;
+}
+body.lcars .nes-events-empty {
+  color: var(--lcars-muted);
+  font-style: italic;
+  padding: 12px 4px;
+  text-align: center;
+  font-size: 0.78rem;
+}
+body.lcars .nes-event-row {
+  display: grid;
+  grid-template-columns: 50px 1fr auto;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-family: "JetBrains Mono", "Consolas", monospace;
+  font-size: 0.76rem;
+  background: rgba(0, 0, 0, 0.3);
+}
+body.lcars .nes-event-row.death  { border-left: 3px solid var(--lcars-red); }
+body.lcars .nes-event-row.score  { border-left: 3px solid var(--lcars-canary); }
+body.lcars .nes-event-row.level  { border-left: 3px solid var(--lcars-green); }
+body.lcars .nes-event-row.powerup { border-left: 3px solid var(--lcars-teal); }
+body.lcars .nes-event-row.note    { border-left: 3px solid var(--lcars-muted); }
+body.lcars .nes-event-row .ev-kind {
+  text-transform: uppercase;
+  font-size: 0.68rem;
+  color: var(--lcars-muted);
+  letter-spacing: 0.08em;
+}
+body.lcars .nes-event-row .ev-summary { color: var(--lcars-text); }
+body.lcars .nes-event-row .ev-frame {
+  color: var(--lcars-muted);
+  font-size: 0.7rem;
+}
+
+@media (max-width: 900px) {
+  body.lcars .nes-main-grid     { grid-template-columns: 1fr; }
+  body.lcars .nes-setup-row     { grid-template-columns: 1fr; }
 }

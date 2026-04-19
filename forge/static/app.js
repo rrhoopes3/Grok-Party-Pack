@@ -182,6 +182,9 @@ function bindEvents() {
         if (tab === "trading") initTrading();
         if (tab === "prophecy") loadProphecyList();
         if (tab === "surgeon") loadSurgeonOps();
+        if (tab === "keys") loadKeys();
+        if (tab === "chess") { chessPopulateModelSelects(); renderChess(); }
+        if (tab === "nes")   { nesLoadRomList(); nesPopulateCoachModels(); nesRefreshEvents(); }
     });
 
     // Prophecy events
@@ -216,6 +219,15 @@ function bindEvents() {
     if (surgeonOperateBtn) surgeonOperateBtn.addEventListener("click", surgeonOperate);
     if (surgeonMethodsBtn) surgeonMethodsBtn.addEventListener("click", surgeonLoadMethods);
     if (surgeonOpsRefreshBtn) surgeonOpsRefreshBtn.addEventListener("click", loadSurgeonOps);
+
+    // Keys vault events (refresh button + category filter pills)
+    bindKeysUi();
+
+    // Chess arena events (new / step / auto / resign)
+    bindChessUi();
+
+    // NES Arena events (rom select / boot / pause / reset / coach / note)
+    bindNesUi();
 }
 
 async function init() {
@@ -546,7 +558,11 @@ function restoreSettings() {
 }
 
 function pickArenaDefaultModel() {
-    const preferred = ["grok-4.20-0309-reasoning", "grok-code-fast-1", "gpt-4o-mini", "claude-haiku-4-20250414"];
+    const preferred = [
+        "grok-4.20-0309-reasoning", "grok-code-fast-1",
+        "gpt-5.4-mini", "gpt-4o-mini",
+        "claude-haiku-4-5", "claude-haiku-4-20250414",
+    ];
     for (const modelId of preferred) {
         if (hasOption(els.redModel, modelId)) return modelId;
     }
@@ -1076,6 +1092,1221 @@ async function clearMemory() {
     } catch (error) {
         addMessage("error", `Failed to clear memory: ${error.message}`);
     }
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// API Keys tab — read/write provider secrets via /api/keys
+// ══════════════════════════════════════════════════════════════════════
+// The server returns only {set, last4, length, masked} — raw values never
+// touch the client on load. When the user types a new value we POST it
+// back; the server persists to forge/.env and hot-patches the running
+// process.
+
+const keysState = {
+    providers: [],
+    category: "all",
+    editing: null, // provider id currently being edited
+};
+
+function keysSetStatus(msg, kind = "") {
+    const el = document.getElementById("keys-status");
+    if (!el) return;
+    el.textContent = msg || "";
+    el.className = "keys-status" + (kind ? " " + kind : "");
+    if (msg && kind === "ok") {
+        setTimeout(() => { if (el.textContent === msg) keysSetStatus(""); }, 3000);
+    }
+}
+
+async function loadKeys() {
+    const listEl = document.getElementById("keys-list");
+    if (!listEl) return;
+    listEl.innerHTML = `<div class="keys-loading">Loading providers…</div>`;
+    try {
+        const resp = await fetchJson("/api/keys");
+        keysState.providers = Array.isArray(resp?.providers) ? resp.providers : [];
+        renderKeys();
+    } catch (err) {
+        listEl.innerHTML = `<div class="keys-empty">Failed to load keys: ${escapeHtml(err.message)}</div>`;
+    }
+}
+
+function renderKeys() {
+    const listEl = document.getElementById("keys-list");
+    if (!listEl) return;
+
+    const cat = keysState.category;
+    const rows = keysState.providers.filter(p => cat === "all" || p.category === cat);
+
+    if (!rows.length) {
+        listEl.innerHTML = `<div class="keys-empty">No providers in this category.</div>`;
+        return;
+    }
+
+    listEl.innerHTML = "";
+    rows.forEach(p => listEl.appendChild(buildKeyRow(p)));
+}
+
+function buildKeyRow(p) {
+    const row = document.createElement("div");
+    row.className = "key-row";
+    row.dataset.provider = p.id;
+    row.dataset.set = p.set ? "true" : "false";
+
+    const docs = p.docs_url
+        ? ` <a href="${escapeHtml(p.docs_url)}" target="_blank" rel="noopener">docs</a>`
+        : "";
+
+    const maskedDisplay = p.set
+        ? `<span class="key-masked">${escapeHtml(p.masked)}</span>
+           <span class="key-badge set">SET</span>`
+        : `<span class="key-masked empty">not configured</span>
+           <span class="key-badge empty">EMPTY</span>`;
+
+    row.innerHTML = `
+        <div class="key-meta">
+            <span class="key-label">${escapeHtml(p.label)}</span>
+            <span class="key-envvar">${escapeHtml(p.env_var)}${docs}</span>
+        </div>
+        <div class="key-value">${maskedDisplay}</div>
+        <div class="key-actions">
+            <button class="key-btn update" data-action="update">${p.set ? "Replace" : "Add"}</button>
+            <button class="key-btn clear"  data-action="clear"${p.set ? "" : " disabled"}>Clear</button>
+        </div>
+    `;
+
+    row.addEventListener("click", onKeyRowClick);
+
+    // If this row was being edited, re-expand the editor.
+    if (keysState.editing === p.id) {
+        expandKeyEditor(row, p);
+    }
+
+    return row;
+}
+
+function onKeyRowClick(e) {
+    const btn = e.target.closest("[data-action]");
+    if (!btn) return;
+    const row = e.currentTarget;
+    const providerId = row.dataset.provider;
+    const provider = keysState.providers.find(p => p.id === providerId);
+    if (!provider) return;
+
+    const action = btn.dataset.action;
+    if (action === "update")  toggleKeyEditor(row, provider);
+    if (action === "clear")   confirmClearKey(provider);
+    if (action === "save")    submitKeySave(row, provider);
+    if (action === "cancel")  collapseKeyEditor(row, provider);
+}
+
+function toggleKeyEditor(row, provider) {
+    const existing = row.querySelector(".key-edit");
+    if (existing) {
+        collapseKeyEditor(row, provider);
+        return;
+    }
+    expandKeyEditor(row, provider);
+}
+
+function expandKeyEditor(row, provider) {
+    keysState.editing = provider.id;
+    if (row.querySelector(".key-edit")) return;
+
+    const form = document.createElement("div");
+    form.className = "key-edit";
+    form.innerHTML = `
+        <input type="password"
+               class="key-input"
+               placeholder="${escapeHtml(provider.hint || 'Paste key…')}"
+               autocomplete="off"
+               spellcheck="false">
+        <label class="key-reveal">
+            <input type="checkbox" class="key-reveal-toggle"> show
+        </label>
+        <button class="key-btn save"   data-action="save">Save</button>
+        <button class="key-btn cancel" data-action="cancel">Cancel</button>
+    `;
+    row.appendChild(form);
+
+    const input = form.querySelector(".key-input");
+    const reveal = form.querySelector(".key-reveal-toggle");
+    reveal.addEventListener("change", () => {
+        input.type = reveal.checked ? "text" : "password";
+    });
+    input.focus();
+    input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") { e.preventDefault(); submitKeySave(row, provider); }
+        if (e.key === "Escape") { e.preventDefault(); collapseKeyEditor(row, provider); }
+    });
+}
+
+function collapseKeyEditor(row, provider) {
+    const form = row.querySelector(".key-edit");
+    if (form) form.remove();
+    if (keysState.editing === provider.id) keysState.editing = null;
+}
+
+async function submitKeySave(row, provider) {
+    const input = row.querySelector(".key-input");
+    if (!input) return;
+    const value = input.value;
+    if (!value) {
+        keysSetStatus("Enter a value or use Clear.", "err");
+        return;
+    }
+    keysSetStatus(`Saving ${provider.env_var}…`);
+    try {
+        const record = await fetchJson(`/api/keys/${encodeURIComponent(provider.id)}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ value }),
+        });
+        if (record.error) {
+            keysSetStatus(record.error, "err");
+            return;
+        }
+        // Merge updated record into state
+        const idx = keysState.providers.findIndex(p => p.id === provider.id);
+        if (idx >= 0) keysState.providers[idx] = record;
+        keysState.editing = null;
+        renderKeys();
+        keysSetStatus(`${provider.label} updated. Last 4: ${record.last4 || "—"}`, "ok");
+    } catch (err) {
+        keysSetStatus(`Save failed: ${err.message}`, "err");
+    }
+}
+
+async function confirmClearKey(provider) {
+    if (!confirm(`Clear ${provider.label}? This removes ${provider.env_var} from forge/.env and the running process.`)) return;
+    keysSetStatus(`Clearing ${provider.env_var}…`);
+    try {
+        const record = await fetchJson(`/api/keys/${encodeURIComponent(provider.id)}`, {
+            method: "DELETE",
+        });
+        if (record.error) {
+            keysSetStatus(record.error, "err");
+            return;
+        }
+        const idx = keysState.providers.findIndex(p => p.id === provider.id);
+        if (idx >= 0) keysState.providers[idx] = record;
+        keysState.editing = null;
+        renderKeys();
+        keysSetStatus(`${provider.label} cleared.`, "ok");
+    } catch (err) {
+        keysSetStatus(`Clear failed: ${err.message}`, "err");
+    }
+}
+
+function bindKeysUi() {
+    const refreshBtn = document.getElementById("keys-refresh-btn");
+    if (refreshBtn) refreshBtn.addEventListener("click", loadKeys);
+
+    document.querySelectorAll(".keys-filter-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+            document.querySelectorAll(".keys-filter-btn").forEach(b => b.classList.remove("active"));
+            btn.classList.add("active");
+            keysState.category = btn.dataset.cat || "all";
+            renderKeys();
+        });
+    });
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// Chess Arena tab — LLM vs LLM match
+// ══════════════════════════════════════════════════════════════════════
+// The server is the source of truth for board state and legality. The UI
+// holds just the latest snapshot + a small autoplay loop that calls
+// /step repeatedly until the match ends or the user stops it.
+
+const chessState = {
+    match: null,
+    autoPlaying: false,
+    stepInFlight: false,
+};
+
+// Unicode figurines, keyed by python-chess's single-letter piece symbols.
+const CHESS_GLYPHS = {
+    "K": "\u2654", "Q": "\u2655", "R": "\u2656",
+    "B": "\u2657", "N": "\u2658", "P": "\u2659",
+    "k": "\u265A", "q": "\u265B", "r": "\u265C",
+    "b": "\u265D", "n": "\u265E", "p": "\u265F",
+};
+
+function chessSetStatus(msg, kind = "") {
+    const el = document.getElementById("chess-status-msg");
+    if (!el) return;
+    el.textContent = msg || "";
+    el.className = "chess-status-msg" + (kind ? " " + kind : "");
+}
+
+function chessPopulateModelSelects() {
+    // Reuse state.models from loadModels() (already fetched during init).
+    const whiteSel = document.getElementById("chess-white-model");
+    const blackSel = document.getElementById("chess-black-model");
+    const judgeSel = document.getElementById("chess-judge-model");
+    if (!whiteSel || !blackSel || !judgeSel) return;
+    const models = (state.models || []).filter(m => m.id !== "auto");
+    if (models.length === 0) return;
+    if (whiteSel.options.length > 0) return;  // already populated
+
+    // Group by provider the same way populateModelSelect does
+    const grouped = {};
+    for (const m of models) {
+        const provider = m.provider || "Other";
+        (grouped[provider] ||= []).push(m);
+    }
+
+    const fillSelect = (sel, pickIdx) => {
+        sel.innerHTML = "";
+        for (const [provider, list] of Object.entries(grouped)) {
+            const group = document.createElement("optgroup");
+            group.label = provider;
+            list.forEach(m => {
+                const opt = document.createElement("option");
+                opt.value = m.id;
+                opt.textContent = m.label || m.id;
+                group.appendChild(opt);
+            });
+            sel.appendChild(group);
+        }
+        if (sel.options.length > 0) {
+            sel.selectedIndex = Math.min(pickIdx, sel.options.length - 1);
+        }
+    };
+
+    fillSelect(whiteSel, 0);
+    fillSelect(blackSel, 1);
+    fillSelect(judgeSel, 0);
+
+    // Judge default — prefer Grok 4.20 reasoning if present (matches what the
+    // user asked for: "Grok 4.20 judge"). Falls back through the newer
+    // Claude/OpenAI flagships before giving up on the first option.
+    const preferredJudges = [
+        "grok-4.20-0309-reasoning",
+        "grok-4.20-multi-agent-0309",
+        "claude-opus-4-7", "claude-sonnet-4-7", "claude-sonnet-4-6",
+        "gpt-5.4", "gpt-4o",
+    ];
+    for (const preferred of preferredJudges) {
+        for (let i = 0; i < judgeSel.options.length; i++) {
+            if (judgeSel.options[i].value === preferred) {
+                judgeSel.selectedIndex = i;
+                return;
+            }
+        }
+    }
+}
+
+// FEN → 8x8 array of piece chars. First rank in FEN is rank 8 (top).
+function fenToGrid(fen) {
+    const placement = (fen || "").split(" ")[0] || "";
+    const ranks = placement.split("/");
+    const grid = [];
+    ranks.forEach(rank => {
+        const row = [];
+        for (const ch of rank) {
+            if (/[1-8]/.test(ch)) {
+                const n = parseInt(ch, 10);
+                for (let i = 0; i < n; i++) row.push(null);
+            } else {
+                row.push(ch);
+            }
+        }
+        while (row.length < 8) row.push(null);
+        grid.push(row);
+    });
+    while (grid.length < 8) grid.push(Array(8).fill(null));
+    return grid;
+}
+
+// Converts a UCI token (e.g. "e2e4") to [fromSquare, toSquare] algebraic.
+function uciSquares(uci) {
+    if (!uci || uci.length < 4) return [null, null];
+    return [uci.slice(0, 2), uci.slice(2, 4)];
+}
+
+function renderChess() {
+    const board = document.getElementById("chess-board");
+    if (!board) return;
+
+    const m = chessState.match;
+    if (!m) {
+        board.innerHTML = `<div class="chess-empty">No active match. Configure players above and press "Start match".</div>`;
+        document.getElementById("chess-turn").textContent = "—";
+        document.getElementById("chess-status").textContent = "—";
+        document.getElementById("chess-movenum").textContent = "0";
+        document.getElementById("chess-white-badge").textContent = "— White";
+        document.getElementById("chess-black-badge").textContent = "— Black";
+        document.getElementById("chess-moves").innerHTML =
+            `<div class="chess-moves-empty">No moves yet.</div>`;
+        ["chess-step-btn","chess-auto-btn","chess-resign-white-btn","chess-resign-black-btn"]
+            .forEach(id => { const b = document.getElementById(id); if (b) b.disabled = true; });
+        return;
+    }
+
+    // Board
+    const grid = fenToGrid(m.fen);
+    const lastMove = m.moves && m.moves.length ? m.moves[m.moves.length - 1] : null;
+    const [lastFrom, lastTo] = lastMove ? uciSquares(lastMove.uci) : [null, null];
+    const checkSquare = m.in_check ? findKingSquare(grid, m.turn === "white" ? "K" : "k") : null;
+
+    const cells = [];
+    for (let r = 0; r < 8; r++) {       // r=0 → rank 8 (top)
+        for (let f = 0; f < 8; f++) {   // f=0 → file a (left)
+            const rankChar = (8 - r).toString();
+            const fileChar = "abcdefgh"[f];
+            const square = fileChar + rankChar;
+            const piece = grid[r][f];
+            const isLight = ((r + f) % 2 === 0);
+            const classes = ["chess-square", isLight ? "light" : "dark"];
+            if (square === lastFrom) classes.push("last-from");
+            if (square === lastTo)   classes.push("last-to");
+            if (square === checkSquare) classes.push("in-check");
+
+            const coordFile = (r === 7) ? `<span class="coord file">${fileChar}</span>` : "";
+            const coordRank = (f === 0) ? `<span class="coord rank">${rankChar}</span>` : "";
+            const pieceHtml = piece
+                ? `<span class="chess-piece ${piece === piece.toUpperCase() ? "white" : "black"}">${CHESS_GLYPHS[piece] || piece}</span>`
+                : "";
+            cells.push(`<div class="${classes.join(" ")}" data-sq="${square}">${coordFile}${coordRank}${pieceHtml}</div>`);
+        }
+    }
+    board.innerHTML = cells.join("");
+
+    // Status block
+    const turnEl = document.getElementById("chess-turn");
+    const statusEl = document.getElementById("chess-status");
+    const moveNumEl = document.getElementById("chess-movenum");
+    if (m.status === "active") {
+        turnEl.textContent = m.turn.toUpperCase();
+        turnEl.className = m.turn === "white" ? "white-turn" : "black-turn";
+        statusEl.textContent = m.in_check ? "CHECK" : "IN PLAY";
+        statusEl.className = m.in_check ? "black-turn" : "";
+    } else {
+        turnEl.textContent = "—";
+        turnEl.className = "ended";
+        const label = {
+            white_wins: "WHITE WINS",
+            black_wins: "BLACK WINS",
+            draw: "DRAW",
+        }[m.status] || m.status.toUpperCase();
+        statusEl.textContent = m.reason ? `${label} (${m.reason})` : label;
+        statusEl.className = "ended";
+    }
+    moveNumEl.textContent = Math.ceil(m.halfmove_count / 2).toString();
+
+    // Player badges
+    const whiteBadge = document.getElementById("chess-white-badge");
+    const blackBadge = document.getElementById("chess-black-badge");
+    whiteBadge.textContent = `${m.white_model} · White`;
+    blackBadge.textContent = `${m.black_model} · Black`;
+    whiteBadge.classList.toggle("active", m.status === "active" && m.turn === "white");
+    blackBadge.classList.toggle("active", m.status === "active" && m.turn === "black");
+
+    // Controls
+    const active = m.status === "active";
+    const busy = chessState.stepInFlight || chessState.autoPlaying;
+    document.getElementById("chess-step-btn").disabled = !active || busy;
+    document.getElementById("chess-auto-btn").disabled = !active || chessState.stepInFlight;
+    document.getElementById("chess-resign-white-btn").disabled = !active || busy;
+    document.getElementById("chess-resign-black-btn").disabled = !active || busy;
+    const callBtn = document.getElementById("chess-commentary-now-btn");
+    if (callBtn) callBtn.disabled = !active || busy;
+
+    const autoBtn = document.getElementById("chess-auto-btn");
+    autoBtn.textContent = chessState.autoPlaying ? "Stop auto-play" : "Auto-play";
+    autoBtn.classList.toggle("is-running", chessState.autoPlaying);
+
+    // Move log
+    renderChessMoves(m.moves);
+}
+
+function findKingSquare(grid, kingChar) {
+    for (let r = 0; r < 8; r++) {
+        for (let f = 0; f < 8; f++) {
+            if (grid[r][f] === kingChar) {
+                return "abcdefgh"[f] + (8 - r).toString();
+            }
+        }
+    }
+    return null;
+}
+
+function renderChessMoves(moves) {
+    const el = document.getElementById("chess-moves");
+    if (!el) return;
+    if (!moves || !moves.length) {
+        el.innerHTML = `<div class="chess-moves-empty">No moves yet.</div>`;
+        return;
+    }
+    el.innerHTML = "";
+    moves.forEach(mv => {
+        const row = document.createElement("div");
+        row.className = "chess-move-row " + (mv.side === "white" ? "white-move" : "black-move") + (mv.forced ? " forced" : "");
+        const moveNum = Math.floor((mv.n - 1) / 2) + 1;
+        const dots = mv.side === "white" ? "." : "…";
+        const meta = `${mv.ms}ms${mv.attempts > 1 ? ` · ${mv.attempts}×` : ""}${mv.forced ? " · forced" : ""}`;
+        row.innerHTML = `
+            <span class="move-n">${moveNum}${dots}</span>
+            <span class="move-san" title="${escapeHtml(mv.uci)}">${escapeHtml(mv.san)}</span>
+            <span class="move-meta">${escapeHtml(meta)}</span>
+        `;
+        if (mv.thinking) row.title = mv.thinking;
+        el.appendChild(row);
+    });
+    // Scroll to bottom
+    el.scrollTop = el.scrollHeight;
+}
+
+async function chessNewMatch() {
+    const white = document.getElementById("chess-white-model").value;
+    const black = document.getElementById("chess-black-model").value;
+    const judge = document.getElementById("chess-judge-model")?.value
+               || "grok-4.20-0309-reasoning";
+    const interval = parseInt(
+        document.getElementById("chess-commentary-interval")?.value || "2", 10
+    ) || 2;
+    if (!white || !black) {
+        chessSetStatus("Select both models first.", "err");
+        return;
+    }
+    chessSetStatus("Starting match…", "working");
+    try {
+        const resp = await fetchJson("/api/chess", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                white_model: white,
+                black_model: black,
+                judge_model: judge,
+                commentary_interval: interval,
+            }),
+        });
+        if (resp.error) { chessSetStatus(resp.error, "err"); return; }
+        chessState.match = resp;
+        chessState.autoPlaying = false;
+        // Fresh commentary state — clear the body + history from previous matches
+        chessResetCommentary();
+        renderChess();
+        chessSetStatus(`Match started — ${white} vs ${black} · Judge ${judge} every ${interval} round${interval>1?"s":""}. Auto-playing…`, "ok");
+        // Kick off auto-play automatically. Users expected "start match" to
+        // mean "begin the game" — making them hunt for a separate Step /
+        // Auto-play button was a UX footgun. They can still pause anytime.
+        chessToggleAuto();
+    } catch (err) {
+        chessSetStatus(`Start failed: ${err.message}`, "err");
+    }
+}
+
+async function chessStep() {
+    if (!chessState.match || chessState.stepInFlight) return;
+    if (chessState.match.status !== "active") return;
+    const mid = chessState.match.id;
+    const turn = chessState.match.turn;
+    const model = chessState.match.current_model;
+    chessState.stepInFlight = true;
+    chessSetStatus(`${turn.toUpperCase()} (${model}) is thinking…`, "working");
+    renderChess();
+    try {
+        const resp = await fetchJson(`/api/chess/${encodeURIComponent(mid)}/step`, {
+            method: "POST",
+        });
+        if (resp.id) chessState.match = resp;
+        if (resp.error) {
+            chessSetStatus(resp.error, "err");
+            chessState.autoPlaying = false;
+        } else if (chessState.match) {
+            const last = chessState.match.moves[chessState.match.moves.length - 1];
+            if (last) {
+                const flag = last.forced ? " ⚠ forced random" : "";
+                chessSetStatus(`${last.side} played ${last.san}${flag}`, last.forced ? "err" : "ok");
+            }
+            // Judge commentary lands here when it's the right beat.
+            if (resp.new_commentary) {
+                chessApplyCommentary(resp.new_commentary);
+            }
+        }
+    } catch (err) {
+        chessSetStatus(`Step failed: ${err.message}`, "err");
+        chessState.autoPlaying = false;
+    } finally {
+        chessState.stepInFlight = false;
+        renderChess();
+    }
+}
+
+// ── Chess commentary (TTS judge) ────────────────────────────────────────
+// The judge fires server-side every N full moves; the /step response
+// includes `new_commentary` when it's a commentary beat. We also let the
+// user hit "Call it" to trigger an out-of-band narration via POST
+// /api/chess/<id>/commentary.
+
+function chessResetCommentary() {
+    const body = document.getElementById("chess-commentary-body");
+    const meta = document.getElementById("chess-commentary-meta");
+    const hist = document.getElementById("chess-commentary-history");
+    if (body) {
+        body.textContent = "Commentary will appear here after the first full round.";
+        body.className = "chess-commentary-body";
+    }
+    if (meta) meta.textContent = "—";
+    if (hist) hist.innerHTML = "";
+}
+
+function chessApplyCommentary(rec) {
+    if (!rec || !rec.text) return;
+    const body = document.getElementById("chess-commentary-body");
+    const meta = document.getElementById("chess-commentary-meta");
+    const hist = document.getElementById("chess-commentary-history");
+    if (!body) return;
+
+    // Slide the previous live line into the history before writing the new one.
+    const prevText = body.textContent || "";
+    const prevMeta = meta?.dataset?.prevHeader;
+    if (prevText
+        && !body.classList.contains("placeholder")
+        && prevMeta
+        && hist) {
+        chessAddCommentaryHistoryRow(prevMeta, prevText);
+    }
+
+    body.textContent = rec.text;
+    body.className = "chess-commentary-body speaking";
+    const header = `Round ${rec.round_num} · ${rec.model} · ${rec.ms}ms`;
+    if (meta) {
+        meta.textContent = header;
+        meta.dataset.prevHeader = header;
+    }
+    // Re-enable the "Call it" button after any in-flight judge call.
+    const callBtn = document.getElementById("chess-commentary-now-btn");
+    if (callBtn) callBtn.disabled = false;
+
+    // TTS it if enabled
+    const ttsOn = document.getElementById("chess-tts-toggle")?.checked;
+    if (ttsOn) {
+        flushSpeechBuffer();
+        speakText(rec.text);
+    }
+    // Drop the "speaking" glow after a beat so it doesn't stay lit all match
+    setTimeout(() => {
+        if (body.textContent === rec.text) body.classList.remove("speaking");
+    }, 4500);
+}
+
+function chessAddCommentaryHistoryRow(header, text) {
+    const hist = document.getElementById("chess-commentary-history");
+    if (!hist) return;
+    const row = document.createElement("div");
+    row.className = "chess-history-row";
+    const roundMatch = header.match(/Round (\d+)/);
+    const roundLabel = roundMatch ? `R${roundMatch[1]}` : "—";
+    row.innerHTML = `
+        <span class="history-round">${escapeHtml(roundLabel)}</span>
+        <span class="history-text">${escapeHtml(text)}</span>
+    `;
+    // Newest on top
+    hist.insertBefore(row, hist.firstChild);
+    // Cap the history — anything beyond 12 rows is just noise.
+    while (hist.children.length > 12) hist.removeChild(hist.lastChild);
+}
+
+async function chessCommentaryNow() {
+    if (!chessState.match || chessState.match.status !== "active") return;
+    const btn = document.getElementById("chess-commentary-now-btn");
+    const body = document.getElementById("chess-commentary-body");
+    if (btn) btn.disabled = true;
+    if (body) {
+        body.textContent = "Judge is thinking…";
+        body.className = "chess-commentary-body thinking";
+    }
+    try {
+        const resp = await fetchJson(
+            `/api/chess/${encodeURIComponent(chessState.match.id)}/commentary`,
+            { method: "POST" }
+        );
+        if (resp.error) {
+            if (body) {
+                body.textContent = resp.error;
+                body.className = "chess-commentary-body";
+            }
+            return;
+        }
+        chessApplyCommentary(resp);
+    } catch (err) {
+        if (body) {
+            body.textContent = `Judge call failed: ${err.message}`;
+            body.className = "chess-commentary-body";
+        }
+    } finally {
+        if (btn) btn.disabled = false;
+    }
+}
+
+async function chessToggleAuto() {
+    if (!chessState.match) return;
+    if (chessState.autoPlaying) {
+        chessState.autoPlaying = false;
+        chessSetStatus("Auto-play stopped.", "");
+        renderChess();
+        return;
+    }
+    chessState.autoPlaying = true;
+    renderChess();
+    // Sequential loop — one /step at a time, stop on non-active or user toggle.
+    while (chessState.autoPlaying
+           && chessState.match
+           && chessState.match.status === "active") {
+        await chessStep();
+        // Safety: tiny yield so UI can update and the abort button is responsive.
+        await new Promise(r => setTimeout(r, 150));
+    }
+    chessState.autoPlaying = false;
+    renderChess();
+}
+
+async function chessResign(side) {
+    if (!chessState.match) return;
+    if (!confirm(`Resign for ${side.toUpperCase()}?`)) return;
+    try {
+        const resp = await fetchJson(`/api/chess/${encodeURIComponent(chessState.match.id)}/resign`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ side }),
+        });
+        if (resp.error) { chessSetStatus(resp.error, "err"); return; }
+        chessState.match = resp;
+        chessState.autoPlaying = false;
+        renderChess();
+        chessSetStatus(`${side} resigned. ${resp.status === "white_wins" ? "White wins" : "Black wins"}.`, "ok");
+    } catch (err) {
+        chessSetStatus(`Resign failed: ${err.message}`, "err");
+    }
+}
+
+function bindChessUi() {
+    const newBtn    = document.getElementById("chess-new-btn");
+    const stepBtn   = document.getElementById("chess-step-btn");
+    const autoBtn   = document.getElementById("chess-auto-btn");
+    const resignW   = document.getElementById("chess-resign-white-btn");
+    const resignB   = document.getElementById("chess-resign-black-btn");
+    const callBtn   = document.getElementById("chess-commentary-now-btn");
+    const ttsBtn    = document.getElementById("chess-tts-toggle");
+    if (newBtn)  newBtn .addEventListener("click", chessNewMatch);
+    if (stepBtn) stepBtn.addEventListener("click", chessStep);
+    if (autoBtn) autoBtn.addEventListener("click", chessToggleAuto);
+    if (resignW) resignW.addEventListener("click", () => chessResign("white"));
+    if (resignB) resignB.addEventListener("click", () => chessResign("black"));
+    if (callBtn) callBtn.addEventListener("click", chessCommentaryNow);
+    // Chess TTS piggy-backs the arena TTS engine — flipping this toggle
+    // also flips the shared state.ttsEnabled flag so speakText() actually
+    // synthesizes. Persist the preference so tab reloads respect it.
+    if (ttsBtn) {
+        const savedTts = localStorage.getItem("forge_chess_tts");
+        if (savedTts !== null) ttsBtn.checked = savedTts === "true";
+        state.ttsEnabled = ttsBtn.checked || state.ttsEnabled;
+        ttsBtn.addEventListener("change", () => {
+            state.ttsEnabled = ttsBtn.checked;
+            localStorage.setItem("forge_chess_tts", String(ttsBtn.checked));
+            if (!ttsBtn.checked) stopTTS();
+        });
+    }
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// NES Arena — jsnes in browser + Grok coach loop
+// ══════════════════════════════════════════════════════════════════════
+// jsnes emulates the NES on the main thread. We drive it at ~60 fps via
+// requestAnimationFrame, drawing the 256×240 framebuffer into a canvas.
+// Every N seconds we POST a downscaled PNG of the canvas to /api/nes/.../coach
+// and render the returned plan. Human input is captured through keyboard
+// events; the controller in grok-mode maps the current plan → buttons.
+//
+// jsnes exposes:
+//   new jsnes.NES({ onFrame(buf), onAudioSample(l,r) })
+//   nes.loadROM(binaryString)
+//   nes.frame()
+//   nes.buttonDown(player, button)   player ∈ {1,2}, button ∈ Controller.BUTTON_*
+//   nes.buttonUp(player, button)
+
+const nesState = {
+    nes: null,                  // jsnes.NES instance
+    romSlug: "",
+    romTitle: "",
+    session: null,              // server session summary
+    mode: "hybrid-coach",
+    rafHandle: 0,
+    running: false,
+    paused: false,
+    lastTickSentAt: 0,
+    lastCoachAt: 0,
+    coachInFlight: false,
+    coachInterval: 2500,
+    imageData: null,            // ImageData backing the canvas
+    frameBuf: null,             // Uint32Array wrapping imageData.data
+    frameN: 0,
+    fpsEma: 0,
+    fpsLastTs: 0,
+    redAlertUntil: 0,
+    roms: [],
+};
+
+function nesSetOverlay(msg, visible = true) {
+    const el = document.getElementById("nes-overlay");
+    const msgEl = document.getElementById("nes-overlay-msg");
+    if (!el || !msgEl) return;
+    if (msg) msgEl.innerHTML = msg;
+    el.classList.toggle("hidden", !visible);
+}
+
+function nesSetCoachText(text, kind = "") {
+    const body = document.getElementById("nes-coach-body");
+    if (!body) return;
+    body.textContent = text || "—";
+    body.className = "nes-coach-body" + (kind ? " " + kind : "");
+}
+
+function nesSetCoachMeta(text) {
+    const el = document.getElementById("nes-coach-meta");
+    if (el) el.textContent = text || "—";
+}
+
+async function nesLoadRomList() {
+    const sel = document.getElementById("nes-rom-select");
+    if (!sel) return;
+    try {
+        const resp = await fetchJson("/api/nes/roms");
+        nesState.roms = resp.roms || [];
+        sel.innerHTML = "";
+        if (!nesState.roms.length) {
+            const opt = document.createElement("option");
+            opt.value = "";
+            opt.textContent = "No ROMs found in FORGE_NES_ROMS_DIR";
+            sel.appendChild(opt);
+            sel.disabled = true;
+            return;
+        }
+        // Pick a handful of famous titles to the top if present
+        const priorityTitles = /super mario|zelda|metroid|castlevania|contra|mega man|punch-?out|tetris/i;
+        const prio = nesState.roms.filter(r => priorityTitles.test(r.title));
+        const rest = nesState.roms.filter(r => !priorityTitles.test(r.title));
+        if (prio.length) {
+            const gHot = document.createElement("optgroup");
+            gHot.label = "★ Classics";
+            prio.slice(0, 40).forEach(r => gHot.appendChild(nesRomOption(r)));
+            sel.appendChild(gHot);
+        }
+        const gAll = document.createElement("optgroup");
+        gAll.label = `All ROMs (${rest.length})`;
+        // Cap the list — 1700+ ROMs blows the <select> to uselessness.
+        rest.slice(0, 400).forEach(r => gAll.appendChild(nesRomOption(r)));
+        sel.appendChild(gAll);
+        sel.disabled = false;
+    } catch (e) {
+        sel.innerHTML = `<option value="">Failed to load ROM library: ${escapeHtml(e.message)}</option>`;
+        sel.disabled = true;
+    }
+}
+
+function nesRomOption(r) {
+    const opt = document.createElement("option");
+    opt.value = r.slug;
+    opt.textContent = `${r.title}  (${(r.size_bytes / 1024).toFixed(0)}KB)`;
+    return opt;
+}
+
+function nesPopulateCoachModels() {
+    const sel = document.getElementById("nes-coach-model");
+    if (!sel || sel.options.length) return;
+    const models = state.models || [];
+    const grouped = {};
+    for (const m of models) {
+        if (m.id === "auto") continue;
+        (grouped[m.provider || "Other"] ||= []).push(m);
+    }
+    sel.innerHTML = "";
+    // Default preference order: newest vision Claude → Grok reasoning → others
+    const preferred = [
+        "claude-sonnet-4-7", "claude-opus-4-7", "claude-sonnet-4-6",
+        "grok-4.20-0309-reasoning",
+        "gpt-5.4", "gpt-4o",
+        "claude-haiku-4-5",
+    ];
+    let defaultIdx = -1;
+    let flatIdx = 0;
+    for (const [provider, list] of Object.entries(grouped)) {
+        const g = document.createElement("optgroup");
+        g.label = provider;
+        list.forEach(m => {
+            const opt = document.createElement("option");
+            opt.value = m.id;
+            opt.textContent = m.label || m.id;
+            g.appendChild(opt);
+            if (defaultIdx < 0 && preferred.includes(m.id)) defaultIdx = flatIdx;
+            flatIdx++;
+        });
+        sel.appendChild(g);
+    }
+    if (defaultIdx >= 0) sel.selectedIndex = defaultIdx;
+}
+
+// jsnes rendering: onFrame receives a 256*240 Uint32 buffer in ABGR8888.
+// Canvas ImageData is RGBA8888 little-endian. jsnes already writes the
+// right layout into the buffer it hands us, so we just copy.
+function nesOnFrame(framebuffer) {
+    if (!nesState.imageData || !nesState.frameBuf) return;
+    const fb = nesState.frameBuf;
+    for (let i = 0; i < fb.length; i++) {
+        fb[i] = framebuffer[i];
+    }
+    const canvas = document.getElementById("nes-canvas");
+    if (canvas) {
+        canvas.getContext("2d").putImageData(nesState.imageData, 0, 0);
+    }
+    nesState.frameN++;
+
+    // FPS EMA
+    const now = performance.now();
+    if (nesState.fpsLastTs) {
+        const dt = now - nesState.fpsLastTs;
+        if (dt > 0) {
+            const instant = 1000 / dt;
+            nesState.fpsEma = nesState.fpsEma ? nesState.fpsEma * 0.9 + instant * 0.1 : instant;
+        }
+    }
+    nesState.fpsLastTs = now;
+}
+
+function nesFpsTick() {
+    const el = document.getElementById("nes-fps");
+    if (el) el.textContent = nesState.fpsEma.toFixed(0);
+    const fn = document.getElementById("nes-frame-n");
+    if (fn) fn.textContent = nesState.frameN.toString();
+}
+
+async function nesBoot() {
+    if (nesState.nes) { nesStop(); }
+    const slug = document.getElementById("nes-rom-select").value;
+    if (!slug) { nesSetOverlay("Pick a ROM first.", true); return; }
+    const mode = document.getElementById("nes-mode-select").value;
+    const coachModel = document.getElementById("nes-coach-model").value;
+    const interval = parseInt(document.getElementById("nes-coach-interval").value, 10) || 2500;
+
+    nesSetOverlay("Loading ROM…", true);
+
+    // 1. Fetch ROM bytes
+    let romData;
+    try {
+        const resp = await fetchJson(`/api/nes/rom/${encodeURIComponent(slug)}`);
+        if (resp.error) throw new Error(resp.error);
+        // jsnes.loadROM wants a binary string (legacy JS idiom).
+        const bytes = atob(resp.data_b64);
+        romData = bytes;
+        nesState.romSlug = resp.slug;
+        nesState.romTitle = resp.title;
+    } catch (e) {
+        nesSetOverlay(`ROM fetch failed: ${escapeHtml(e.message)}`, true);
+        return;
+    }
+
+    // 2. Create server-side session
+    try {
+        const sess = await fetchJson("/api/nes/sessions", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({
+                rom_slug: slug, mode,
+                coach_model: coachModel || undefined,
+                coach_interval_ms: interval,
+            }),
+        });
+        if (sess.error) throw new Error(sess.error);
+        nesState.session = sess;
+        nesState.mode = mode;
+        nesState.coachInterval = interval;
+    } catch (e) {
+        nesSetOverlay(`Session create failed: ${escapeHtml(e.message)}`, true);
+        return;
+    }
+
+    // 3. Set up canvas + jsnes
+    if (typeof jsnes === "undefined") {
+        nesSetOverlay("jsnes library didn't load — check /static/vendor/jsnes.min.js", true);
+        return;
+    }
+    const canvas = document.getElementById("nes-canvas");
+    const ctx = canvas.getContext("2d");
+    const img = ctx.createImageData(256, 240);
+    nesState.imageData = img;
+    nesState.frameBuf = new Uint32Array(img.data.buffer);
+
+    nesState.nes = new jsnes.NES({
+        onFrame: nesOnFrame,
+        onAudioSample: (l, r) => { /* audio intentionally off for v1 */ },
+    });
+    try {
+        nesState.nes.loadROM(romData);
+    } catch (e) {
+        nesSetOverlay(`jsnes loadROM failed: ${escapeHtml(e.message)}`, true);
+        nesState.nes = null;
+        return;
+    }
+
+    nesState.running = true;
+    nesState.paused = false;
+    nesState.frameN = 0;
+    nesState.fpsEma = 0;
+    nesState.fpsLastTs = 0;
+    nesState.lastTickSentAt = 0;
+    nesState.lastCoachAt = 0;
+
+    nesSetOverlay("", false);
+    nesSetCoachText(`Ready. Coach fires every ${(interval/1000).toFixed(1)}s on ${mode}.`, "");
+    nesSetCoachMeta(`${coachModel || "default coach"} · 0ms`);
+
+    // Enable controls
+    ["nes-pause-btn","nes-reset-btn","nes-stop-btn","nes-coach-now-btn","nes-note-btn"]
+        .forEach(id => { const b = document.getElementById(id); if (b) b.disabled = false; });
+    // Start RAF
+    nesRafLoop();
+    // Kick the first coach call immediately so we don't stare at a blank panel.
+    if (mode !== "human") {
+        setTimeout(() => nesAskCoach(true), 800);
+    }
+}
+
+function nesRafLoop() {
+    if (!nesState.running) return;
+    if (!nesState.paused && nesState.nes) {
+        try { nesState.nes.frame(); } catch (e) { console.warn("[nes] frame error", e); }
+    }
+    nesFpsTick();
+
+    const now = performance.now();
+    // Heartbeat tick to server: 2 Hz with the latest frame as thumbnail
+    if (now - nesState.lastTickSentAt > 500) {
+        nesState.lastTickSentAt = now;
+        nesSendTick().catch(() => {});
+    }
+    // Coach at the chosen interval (human-only mode skips)
+    if (nesState.mode !== "human"
+        && !nesState.coachInFlight
+        && now - nesState.lastCoachAt > nesState.coachInterval) {
+        nesState.lastCoachAt = now;
+        nesAskCoach(false).catch(() => {});
+    }
+    // Clear Red Alert when its window elapses
+    const ra = document.getElementById("nes-red-alert");
+    if (ra && now > nesState.redAlertUntil) ra.classList.remove("active");
+
+    nesState.rafHandle = requestAnimationFrame(nesRafLoop);
+}
+
+async function nesSendTick() {
+    const s = nesState.session;
+    if (!s) return;
+    const canvas = document.getElementById("nes-canvas");
+    if (!canvas) return;
+    // Downscale the preview to keep POST body small — the coach later
+    // asks for a fresh frame so this is just a session heartbeat.
+    let frameB64 = "";
+    try {
+        // Throttle PNG generation to every ~5 ticks (≈2.5s)
+        if (nesState.frameN % 150 === 0) {
+            frameB64 = canvas.toDataURL("image/png");
+        }
+    } catch (_) {}
+    try {
+        await fetchJson(`/api/nes/sessions/${s.id}/tick`, {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({
+                frame_b64: frameB64,
+                frame_n: nesState.frameN,
+                state: nesReadGameState(),
+            }),
+        });
+    } catch (_) {}
+}
+
+// Very generic hook — later we can plug per-ROM RAM inspectors here
+// (e.g. SMB: lives at $075A). For now just return the frame number.
+function nesReadGameState() {
+    return { frame: nesState.frameN };
+}
+
+async function nesAskCoach(first = false) {
+    const s = nesState.session;
+    if (!s || nesState.coachInFlight) return;
+    nesState.coachInFlight = true;
+
+    const canvas = document.getElementById("nes-canvas");
+    let frameB64 = "";
+    try { frameB64 = canvas.toDataURL("image/png"); } catch (_) {}
+
+    nesSetCoachText(first ? "Coach booting…" : "Thinking…", "thinking");
+
+    try {
+        const resp = await fetchJson(`/api/nes/sessions/${s.id}/coach`, {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({ frame_b64: frameB64 }),
+        });
+        if (resp.error) {
+            nesSetCoachText(resp.error, "danger");
+            return;
+        }
+        const danger = /^danger\b/i.test(resp.plan || "");
+        nesSetCoachText(resp.plan || "(no plan)", danger ? "danger" : "");
+        nesSetCoachMeta(`${resp.model} · ${resp.ms}ms${resp.used_vision ? " · vision" : " · text"}`);
+        if (danger) {
+            const ra = document.getElementById("nes-red-alert");
+            if (ra) ra.classList.add("active");
+            nesState.redAlertUntil = performance.now() + 6000;
+        }
+    } catch (e) {
+        nesSetCoachText(`Coach call failed: ${e.message}`, "danger");
+    } finally {
+        nesState.coachInFlight = false;
+    }
+}
+
+function nesPauseToggle() {
+    if (!nesState.running) return;
+    nesState.paused = !nesState.paused;
+    const btn = document.getElementById("nes-pause-btn");
+    if (btn) btn.textContent = nesState.paused ? "▶ Resume" : "⏸ Pause";
+}
+
+function nesReset() {
+    if (!nesState.nes) return;
+    try {
+        // jsnes exposes .reset on the CPU
+        nesState.nes.reset();
+        nesState.frameN = 0;
+    } catch (e) {
+        console.warn("[nes] reset failed", e);
+    }
+}
+
+function nesStop() {
+    nesState.running = false;
+    nesState.paused = false;
+    if (nesState.rafHandle) cancelAnimationFrame(nesState.rafHandle);
+    nesState.rafHandle = 0;
+    if (nesState.session) {
+        fetchJson(`/api/nes/sessions/${nesState.session.id}`, {method:"DELETE"}).catch(()=>{});
+    }
+    nesState.nes = null;
+    nesState.session = null;
+    nesSetOverlay("Stopped. Pick a ROM to boot again.", true);
+    nesSetCoachText("", "");
+    nesSetCoachMeta("—");
+    document.getElementById("nes-score").textContent = "-";
+    document.getElementById("nes-lives").textContent = "-";
+    ["nes-pause-btn","nes-reset-btn","nes-stop-btn","nes-coach-now-btn","nes-note-btn"]
+        .forEach(id => { const b = document.getElementById(id); if (b) b.disabled = true; });
+}
+
+async function nesAddNote() {
+    const s = nesState.session;
+    if (!s) return;
+    const text = prompt("Note to deposit to forge:vault (nes:" + s.rom_slug + "):");
+    if (!text) return;
+    try {
+        const resp = await fetchJson(`/api/nes/sessions/${s.id}/event`, {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({ kind: "note", summary: text, frame_n: nesState.frameN }),
+        });
+        nesRefreshEvents();
+        if (!resp.vault_ok) {
+            console.info("[nes] vault deposit skipped:", resp.vault_msg);
+        }
+    } catch (_) {}
+}
+
+async function nesRefreshEvents() {
+    const s = nesState.session;
+    const el = document.getElementById("nes-events");
+    if (!s || !el) return;
+    try {
+        const summary = await fetchJson(`/api/nes/sessions/${s.id}`);
+        const events = summary.events || [];
+        if (!events.length) {
+            el.innerHTML = `<div class="nes-events-empty">No events yet.</div>`;
+            return;
+        }
+        el.innerHTML = "";
+        events.slice().reverse().forEach(ev => {
+            const row = document.createElement("div");
+            row.className = "nes-event-row " + (ev.kind || "note");
+            row.innerHTML = `
+                <span class="ev-kind">${escapeHtml(ev.kind || "note")}</span>
+                <span class="ev-summary">${escapeHtml(ev.summary)}</span>
+                <span class="ev-frame">#${ev.frame_n}</span>
+            `;
+            el.appendChild(row);
+        });
+    } catch (_) {}
+}
+
+// Keyboard → jsnes controller (Player 1)
+const NES_KEYMAP = {
+    "ArrowUp":    ["jsnes.Controller.BUTTON_UP", 4],
+    "ArrowDown":  ["jsnes.Controller.BUTTON_DOWN", 5],
+    "ArrowLeft":  ["jsnes.Controller.BUTTON_LEFT", 6],
+    "ArrowRight": ["jsnes.Controller.BUTTON_RIGHT", 7],
+    "KeyZ":       ["jsnes.Controller.BUTTON_B", 1],
+    "KeyX":       ["jsnes.Controller.BUTTON_A", 0],
+    "Enter":      ["jsnes.Controller.BUTTON_START", 3],
+    "ShiftLeft":  ["jsnes.Controller.BUTTON_SELECT", 2],
+    "ShiftRight": ["jsnes.Controller.BUTTON_SELECT", 2],
+};
+
+function nesKeyHandler(evt, down) {
+    if (!nesState.nes) return;
+    const entry = NES_KEYMAP[evt.code];
+    if (!entry) return;
+    // Only capture when the NES tab is active — avoid hijacking arrows
+    // on other tabs.
+    const nesTab = document.getElementById("tab-nes");
+    if (!nesTab || !nesTab.classList.contains("active")) return;
+    evt.preventDefault();
+    const button = entry[1];
+    if (down) nesState.nes.buttonDown(1, button);
+    else      nesState.nes.buttonUp(1, button);
+}
+
+function bindNesUi() {
+    const romSel = document.getElementById("nes-rom-select");
+    const modeSel = document.getElementById("nes-mode-select");
+    const coachSel = document.getElementById("nes-coach-model");
+    const intervalSlider = document.getElementById("nes-coach-interval");
+    const intervalLabel = document.getElementById("nes-coach-interval-label");
+    const startBtn = document.getElementById("nes-start-btn");
+    const pauseBtn = document.getElementById("nes-pause-btn");
+    const resetBtn = document.getElementById("nes-reset-btn");
+    const stopBtn = document.getElementById("nes-stop-btn");
+    const coachNowBtn = document.getElementById("nes-coach-now-btn");
+    const noteBtn = document.getElementById("nes-note-btn");
+
+    if (startBtn) startBtn.addEventListener("click", nesBoot);
+    if (pauseBtn) pauseBtn.addEventListener("click", nesPauseToggle);
+    if (resetBtn) resetBtn.addEventListener("click", nesReset);
+    if (stopBtn)  stopBtn .addEventListener("click", nesStop);
+    if (coachNowBtn) coachNowBtn.addEventListener("click", () => nesAskCoach(false));
+    if (noteBtn)  noteBtn .addEventListener("click", nesAddNote);
+    if (intervalSlider) {
+        intervalSlider.addEventListener("input", () => {
+            const v = parseInt(intervalSlider.value, 10);
+            nesState.coachInterval = v;
+            if (intervalLabel) intervalLabel.textContent = (v / 1000).toFixed(1) + " s";
+        });
+    }
+
+    window.addEventListener("keydown", e => nesKeyHandler(e, true));
+    window.addEventListener("keyup",   e => nesKeyHandler(e, false));
 }
 
 function resetRunState(mode = modeFromControls()) {

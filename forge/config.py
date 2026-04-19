@@ -75,23 +75,63 @@ EXECUTOR_MODELS = {
         "cost_in": 0.20, "cost_out": 1.50,
         "supports_tools": True,
     },
-    # Anthropic
+    # Anthropic — current lineup (4.7 flagship family + 4.5 fast tier).
+    # The 4-6 / 4-20250514 dated IDs are retained below for backcompat with
+    # packs/code that still targets them.
+    "claude-opus-4-7": {
+        "label": "Claude Opus 4.7", "provider": "Anthropic",
+        "cost_in": 15.00, "cost_out": 75.00,
+        "supports_tools": True,
+    },
+    "claude-sonnet-4-7": {
+        "label": "Claude Sonnet 4.7", "provider": "Anthropic",
+        "cost_in": 3.00, "cost_out": 15.00,
+        "supports_tools": True,
+    },
+    "claude-haiku-4-5": {
+        "label": "Claude Haiku 4.5", "provider": "Anthropic",
+        "cost_in": 1.00, "cost_out": 5.00,
+        "supports_tools": True,
+    },
+    "claude-sonnet-4-6": {
+        "label": "Claude Sonnet 4.6 (vision)", "provider": "Anthropic",
+        "cost_in": 3.00, "cost_out": 15.00,
+        "supports_tools": True,
+    },
+    # Legacy Claude 4 pinned IDs — kept so old capability packs / stored
+    # state that still reference these exact strings don't 404 at dispatch.
     "claude-sonnet-4-20250514": {
-        "label": "Claude Sonnet 4", "provider": "Anthropic",
+        "label": "Claude Sonnet 4 (legacy pin)", "provider": "Anthropic",
         "cost_in": 3.00, "cost_out": 15.00,
         "supports_tools": True,
     },
     "claude-opus-4-20250514": {
-        "label": "Claude Opus 4", "provider": "Anthropic",
+        "label": "Claude Opus 4 (legacy pin)", "provider": "Anthropic",
         "cost_in": 15.00, "cost_out": 75.00,
         "supports_tools": True,
     },
     "claude-haiku-4-20250414": {
-        "label": "Claude Haiku 4", "provider": "Anthropic",
+        "label": "Claude Haiku 4 (legacy pin)", "provider": "Anthropic",
         "cost_in": 0.80, "cost_out": 4.00,
         "supports_tools": True,
     },
-    # OpenAI
+    # OpenAI — GPT-5.4 family is the current flagship; 4o tier retained for
+    # low-cost jobs; o3-mini kept for reasoning tasks that still prefer it.
+    "gpt-5.4": {
+        "label": "GPT-5.4", "provider": "OpenAI",
+        "cost_in": 2.50, "cost_out": 15.00,
+        "supports_tools": True,
+    },
+    "gpt-5.4-mini": {
+        "label": "GPT-5.4 Mini", "provider": "OpenAI",
+        "cost_in": 0.75, "cost_out": 4.50,
+        "supports_tools": True,
+    },
+    "gpt-5.4-nano": {
+        "label": "GPT-5.4 Nano", "provider": "OpenAI",
+        "cost_in": 0.20, "cost_out": 1.25,
+        "supports_tools": True,
+    },
     "gpt-4o": {
         "label": "GPT-4o", "provider": "OpenAI",
         "cost_in": 2.50, "cost_out": 10.00,
@@ -364,6 +404,23 @@ MCP_SERVERS: dict[str, dict] = {
 ACESTEP_BASE_URL = os.getenv("FORGE_ACESTEP_URL", "http://127.0.0.1:7865")
 # Checkpoint path passed through to ACE-Step pipeline. Empty = auto-download.
 ACESTEP_CHECKPOINT = os.getenv("FORGE_ACESTEP_CHECKPOINT", "")
+
+# ── NES Arena ─────────────────────────────────────────────────────────────
+# Hybrid-intelligence NES emulator. jsnes runs in the browser; the coach
+# (and, optionally, a fast controller) call back to this Forge for strategy.
+NES_PACK_ENABLED = os.getenv("FORGE_NES_PACK_ENABLED", "true").lower() == "true"
+# Root directory to scan for .nes ROMs (recursive). User's existing dump
+# lives at B:/Grok/forge/nes which contains Castlevania 2, Metroid, Zelda,
+# Punch-Out, Rygar, etc. plus the FCEUX binary and save states.
+NES_ROMS_DIR = Path(os.getenv("FORGE_NES_ROMS_DIR",
+    str(Path(__file__).resolve().parent / "nes")))
+# Coach: slow, strategic. Fires every NES_COACH_INTERVAL_MS. Vision-capable
+# models get the frame; others get a text summary only.
+NES_COACH_MODEL = os.getenv("FORGE_NES_COACH_MODEL", "grok-4.20-0309-reasoning")
+# Controller: fast, reflex. Called between coach ticks to translate plan
+# into buttons. v1 uses the same provider path; swap to a local VLM later.
+NES_CONTROLLER_MODEL = os.getenv("FORGE_NES_CONTROLLER_MODEL", "grok-4-1-fast-non-reasoning")
+NES_COACH_INTERVAL_MS = int(os.getenv("FORGE_NES_COACH_INTERVAL_MS", "2500"))
 
 # ── Scheduler ─────────────────────────────────────────────────────────────
 SCHEDULER_ENABLED = os.getenv("FORGE_SCHEDULER_ENABLED", "true").lower() == "true"
