@@ -1351,7 +1351,7 @@ function chessSetStatus(msg, kind = "") {
     el.className = "chess-status-msg" + (kind ? " " + kind : "");
 }
 
-async function chessPopulateModelSelects() {
+async function chessPopulateModelSelects(force = false) {
     // Reuse state.models from loadModels() (already fetched during init).
     const whiteSel = document.getElementById("chess-white-model");
     const blackSel = document.getElementById("chess-black-model");
@@ -1359,7 +1359,10 @@ async function chessPopulateModelSelects() {
     if (!whiteSel || !blackSel || !judgeSel) return;
     const baseModels = (state.models || []).filter(m => m.id !== "auto");
     if (baseModels.length === 0) return;
-    if (whiteSel.options.length > 0) return;  // already populated
+    // On explicit refresh (force=true), re-fetch /api/lmstudio/models
+    // even if the selects were already populated. Otherwise skip to
+    // avoid clobbering the user's current selection on tab switches.
+    if (!force && whiteSel.options.length > 0) return;
 
     // Ask LM Studio what's actually loaded right now — replaces the
     // static "lmstudio:default" entry (which 400s on modern LM Studio)
@@ -1406,6 +1409,12 @@ async function chessPopulateModelSelects() {
     };
 
     const fillSelect = (sel, pickIdx, filter = null) => {
+        // Remember the current selection so a refresh (force=true)
+        // doesn't silently reset it to the default. If the prior value
+        // isn't in the new option list (e.g. model was un-loaded) we
+        // fall back to the pickIdx default so the user isn't stuck on
+        // a phantom selection.
+        const prior = sel.value;
         sel.innerHTML = "";
         for (const [provider, list] of Object.entries(grouped)) {
             const filtered = filter ? list.filter(filter) : list;
@@ -1421,7 +1430,11 @@ async function chessPopulateModelSelects() {
             sel.appendChild(group);
         }
         if (sel.options.length > 0) {
-            sel.selectedIndex = Math.min(pickIdx, sel.options.length - 1);
+            const priorStillExists = prior
+                && Array.from(sel.options).some(o => o.value === prior);
+            sel.value = priorStillExists
+                ? prior
+                : sel.options[Math.min(pickIdx, sel.options.length - 1)].value;
         }
     };
 
@@ -1965,6 +1978,30 @@ function bindChessUi() {
     if (resignW) resignW.addEventListener("click", () => chessResign("white"));
     if (resignB) resignB.addEventListener("click", () => chessResign("black"));
     if (callBtn) callBtn.addEventListener("click", chessCommentaryNow);
+
+    // Click-to-refresh on the three chess model dropdowns. Re-probes
+    // /api/lmstudio/models and rebuilds the Local (LM Studio) optgroup
+    // with whatever's actually loaded right now. Covers the case where
+    // a model got un-loaded / deleted between page load and match
+    // start and the dropdown still shows the phantom id.
+    //
+    // Debounced to at most one refresh per 30s so rapid clicks don't
+    // hammer the endpoint. Preserves the user's selection across
+    // rebuilds via fillSelect's prior-value lookup.
+    let lastSelectRefreshAt = 0;
+    const refreshSelects = () => {
+        const chessTab = document.getElementById("tab-chess");
+        if (!chessTab?.classList.contains("active")) return;
+        const now = Date.now();
+        if (now - lastSelectRefreshAt < 30000) return;
+        lastSelectRefreshAt = now;
+        chessPopulateModelSelects(true).catch(() => {});
+    };
+    ["chess-white-model", "chess-black-model", "chess-judge-model"].forEach(id => {
+        const sel = document.getElementById(id);
+        if (sel) sel.addEventListener("mousedown", refreshSelects);
+    });
+
     // Chess TTS piggy-backs the arena TTS engine — flipping this toggle
     // also flips the shared state.ttsEnabled flag so speakText() actually
     // synthesizes. Persist the preference so tab reloads respect it.

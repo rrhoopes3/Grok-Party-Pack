@@ -116,24 +116,39 @@ def _resolve_lmstudio_default(base_url: str) -> str:
     """Return the first non-embedding loaded model id in LM Studio, or
     '' if none. Cached for 30s so rapid-fire chess calls don't hammer
     the /v1/models endpoint."""
+    ids = _lmstudio_available_models(base_url)
+    return ids[0] if ids else ""
+
+
+_LMSTUDIO_AVAIL_CACHE: dict[str, Any] = {"ids": [], "fetched_at": 0.0}
+
+
+def _lmstudio_available_models(base_url: str) -> list[str]:
+    """Return the list of chat-capable model ids LM Studio reports.
+    Cached 30s so rapid chess steps don't hammer /v1/models. Empty
+    list if LM Studio is unreachable — callers should treat empty as
+    "skip validation, just try the call."""
     import json as _json, urllib.request
     now = time.monotonic()
-    if (_LMSTUDIO_DEFAULT_CACHE["id"]
-            and now - _LMSTUDIO_DEFAULT_CACHE["fetched_at"] < 30):
-        return _LMSTUDIO_DEFAULT_CACHE["id"]
+    if _LMSTUDIO_AVAIL_CACHE["ids"] and now - _LMSTUDIO_AVAIL_CACHE["fetched_at"] < 30:
+        return _LMSTUDIO_AVAIL_CACHE["ids"]
     try:
         with urllib.request.urlopen(base_url.rstrip("/") + "/models", timeout=3) as resp:
             data = _json.loads(resp.read().decode("utf-8"))
+        ids: list[str] = []
         for m in data.get("data") or []:
             mid = m.get("id") or ""
             if mid and "embed" not in mid.lower():
-                _LMSTUDIO_DEFAULT_CACHE["id"] = mid
-                _LMSTUDIO_DEFAULT_CACHE["fetched_at"] = now
-                log.info("chess lmstudio default → %s", mid)
-                return mid
+                ids.append(mid)
+        _LMSTUDIO_AVAIL_CACHE["ids"] = ids
+        _LMSTUDIO_AVAIL_CACHE["fetched_at"] = now
+        if ids:
+            log.info("chess lmstudio available (%d): %s",
+                     len(ids), ", ".join(ids[:6]))
+        return ids
     except Exception as e:
         log.warning("chess lmstudio /v1/models probe failed: %s", e)
-    return ""
+        return []
 
 
 def _compute_cost(model: str, input_tokens: int, output_tokens: int) -> float:
@@ -210,6 +225,19 @@ def _llm_oneshot(prompt: str, system: str, model: str,
             resolved = _resolve_lmstudio_default(base_url)
             if resolved:
                 model = resolved
+        # Pre-flight validation: LM Studio returns a useless 500
+        # "Failed to resolve model metadata" when the requested model
+        # doesn't exist in its catalog. Probe /v1/models first and, if
+        # the requested id isn't in the list, raise a clear error with
+        # the available ids before we even make the chat call.
+        available = _lmstudio_available_models(base_url)
+        if available and model not in available:
+            raise RuntimeError(
+                f"LM Studio doesn't have '{model}' loaded. "
+                f"Available right now: {', '.join(available[:8])}"
+                + (f" (+{len(available)-8} more)" if len(available) > 8 else "")
+                + ". Load the model in LM Studio or pick one of these."
+            )
     elif provider == "ollama":
         base_url = OLLAMA_BASE_URL
         api_key = "ollama"
