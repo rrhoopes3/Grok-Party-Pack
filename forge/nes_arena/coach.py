@@ -30,10 +30,15 @@ log = logging.getLogger("forge.nes_arena.coach")
 # send text only so we don't error out on a bad request.
 _VISION_MODELS = (
     "claude-3-5-sonnet", "claude-3-opus",
-    "claude-sonnet-4", "claude-opus-4", "claude-haiku-4",
-    "claude-sonnet-4-6", "claude-sonnet-4-7", "claude-opus-4-7", "claude-haiku-4-5",
+    # Claude 4 family — all vision-capable at every size
+    "claude-sonnet-4", "claude-opus-4",
+    "claude-sonnet-4-6", "claude-opus-4-6", "claude-opus-4-7",
+    "claude-sonnet-4-5", "claude-opus-4-5", "claude-haiku-4-5",
+    "claude-opus-4-1",
+    # OpenAI
     "gpt-4o", "gpt-4-vision", "gpt-4-turbo-vision", "o4",
     "gpt-5.4", "gpt-5-4",  # both hyphen and dot spellings so partial-match works
+    # Grok vision tiers
     "grok-vision", "grok-2-vision", "grok-4-vision",
 )
 
@@ -111,8 +116,11 @@ def _strip_data_url_prefix(data_url: str) -> tuple[str, str]:
 # the `temperature` kwarg and 400 if sent. Detect by name prefix and drop it.
 def _model_rejects_temperature(model: str) -> bool:
     m = model.lower()
-    if m.startswith(("claude-opus-4-7", "claude-sonnet-4-7", "claude-haiku-4-5",
-                     "claude-opus-4-5", "claude-sonnet-4-5")):
+    if m.startswith((
+        "claude-opus-4-7",
+        "claude-opus-4-6", "claude-sonnet-4-6",
+        "claude-opus-4-5", "claude-sonnet-4-5", "claude-haiku-4-5",
+    )):
         return True
     if m.startswith(("o1-", "o3-", "o4-", "gpt-5")):
         return True

@@ -75,44 +75,56 @@ EXECUTOR_MODELS = {
         "cost_in": 0.20, "cost_out": 1.50,
         "supports_tools": True,
     },
-    # Anthropic — current lineup (4.7 flagship family + 4.5 fast tier).
-    # The 4-6 / 4-20250514 dated IDs are retained below for backcompat with
-    # packs/code that still targets them.
+    # Anthropic — verified against live /v1/models (2026-04-19). IDs that
+    # look natural ("claude-sonnet-4-7", "claude-haiku-4-5") don't all
+    # exist — Anthropic only publishes the unversioned alias for the top
+    # flagship and sometimes one size below. Everything else needs the
+    # dated suffix. Previous config invented a couple of IDs that 404'd
+    # on first call.
     "claude-opus-4-7": {
         "label": "Claude Opus 4.7", "provider": "Anthropic",
         "cost_in": 15.00, "cost_out": 75.00,
         "supports_tools": True,
     },
-    "claude-sonnet-4-7": {
-        "label": "Claude Sonnet 4.7", "provider": "Anthropic",
+    "claude-sonnet-4-6": {
+        "label": "Claude Sonnet 4.6", "provider": "Anthropic",
         "cost_in": 3.00, "cost_out": 15.00,
         "supports_tools": True,
     },
-    "claude-haiku-4-5": {
+    "claude-opus-4-6": {
+        "label": "Claude Opus 4.6", "provider": "Anthropic",
+        "cost_in": 15.00, "cost_out": 75.00,
+        "supports_tools": True,
+    },
+    "claude-opus-4-5-20251101": {
+        "label": "Claude Opus 4.5", "provider": "Anthropic",
+        "cost_in": 15.00, "cost_out": 75.00,
+        "supports_tools": True,
+    },
+    "claude-sonnet-4-5-20250929": {
+        "label": "Claude Sonnet 4.5", "provider": "Anthropic",
+        "cost_in": 3.00, "cost_out": 15.00,
+        "supports_tools": True,
+    },
+    "claude-haiku-4-5-20251001": {
         "label": "Claude Haiku 4.5", "provider": "Anthropic",
         "cost_in": 1.00, "cost_out": 5.00,
         "supports_tools": True,
     },
-    "claude-sonnet-4-6": {
-        "label": "Claude Sonnet 4.6 (vision)", "provider": "Anthropic",
-        "cost_in": 3.00, "cost_out": 15.00,
+    "claude-opus-4-1-20250805": {
+        "label": "Claude Opus 4.1", "provider": "Anthropic",
+        "cost_in": 15.00, "cost_out": 75.00,
         "supports_tools": True,
     },
-    # Legacy Claude 4 pinned IDs — kept so old capability packs / stored
-    # state that still reference these exact strings don't 404 at dispatch.
-    "claude-sonnet-4-20250514": {
-        "label": "Claude Sonnet 4 (legacy pin)", "provider": "Anthropic",
-        "cost_in": 3.00, "cost_out": 15.00,
-        "supports_tools": True,
-    },
+    # Legacy Claude 4 pinned IDs — still live on Anthropic's API.
     "claude-opus-4-20250514": {
         "label": "Claude Opus 4 (legacy pin)", "provider": "Anthropic",
         "cost_in": 15.00, "cost_out": 75.00,
         "supports_tools": True,
     },
-    "claude-haiku-4-20250414": {
-        "label": "Claude Haiku 4 (legacy pin)", "provider": "Anthropic",
-        "cost_in": 0.80, "cost_out": 4.00,
+    "claude-sonnet-4-20250514": {
+        "label": "Claude Sonnet 4 (legacy pin)", "provider": "Anthropic",
+        "cost_in": 3.00, "cost_out": 15.00,
         "supports_tools": True,
     },
     # OpenAI — GPT-5.4 family is the current flagship; 4o tier retained for
