@@ -1981,6 +1981,20 @@ const nesState = {
     fpsLastTs: 0,
     redAlertUntil: 0,
     roms: [],
+
+    // ── Fast controller loop (Mode B) ──────────────────────────────
+    // Separate cadence from coach — this is the tight-loop button
+    // pusher. Calls LM Studio directly (bypasses Forge backend) for
+    // lowest latency. `lastAction` is kept to de-duplicate identical
+    // plans in the controller prompt so the model varies its moves.
+    controllerInFlight: false,
+    lastControllerAt: 0,
+    controllerInterval: 250,
+    controllerUrl: "http://localhost:1234/v1",
+    controllerModel: "google/gemma-4-e4b",
+    controllerLatencyMs: 0,
+    lastActions: [],            // ring of last N {buttons, hold_ms} for prompt
+    activeHolds: new Map(),     // button name → scheduled release timestamp
 };
 
 function nesSetOverlay(msg, visible = true) {
@@ -2116,6 +2130,11 @@ function nesFpsTick() {
     if (el) el.textContent = nesState.fpsEma.toFixed(0);
     const fn = document.getElementById("nes-frame-n");
     if (fn) fn.textContent = nesState.frameN.toString();
+    const ct = document.getElementById("nes-ctrl-ms");
+    if (ct) {
+        ct.textContent = nesState.controllerLatencyMs > 0
+            ? `${nesState.controllerLatencyMs}ms` : "—";
+    }
 }
 
 async function nesBoot() {
@@ -2125,6 +2144,15 @@ async function nesBoot() {
     const mode = document.getElementById("nes-mode-select").value;
     const coachModel = document.getElementById("nes-coach-model").value;
     const interval = parseInt(document.getElementById("nes-coach-interval").value, 10) || 2500;
+    // Controller (LM Studio VLM) config — read once at boot so the user
+    // doesn't have to re-boot to change it (actually, the loop reads the
+    // fields live on every tick, but keep boot values as fallback).
+    nesState.controllerUrl = (document.getElementById("nes-controller-url")?.value
+                              || "http://localhost:1234/v1").replace(/\/+$/, "");
+    nesState.controllerModel = (document.getElementById("nes-controller-model")?.value
+                                || "google/gemma-4-e4b").trim();
+    nesState.controllerInterval = parseInt(
+        document.getElementById("nes-controller-interval")?.value || "250", 10) || 250;
 
     nesSetOverlay("Loading ROM…", true);
 
@@ -2198,6 +2226,12 @@ async function nesBoot() {
     // session.
     nesState.emulationAccumulatorMs = 0;
     nesState.lastEmulationTs = 0;
+    // Controller state reset
+    nesState.controllerInFlight = false;
+    nesState.lastControllerAt = 0;
+    nesState.controllerLatencyMs = 0;
+    nesState.lastActions = [];
+    nesState.activeHolds.clear();
 
     nesSetOverlay("", false);
     nesSetCoachText(`Ready. Coach fires every ${(interval/1000).toFixed(1)}s on ${mode}.`, "");
@@ -2257,6 +2291,18 @@ function nesRafLoop() {
         nesState.lastCoachAt = now;
         nesAskCoach(false).catch(() => {});
     }
+    // Fast controller loop — fires only when Grok is actually driving
+    // ("grok" mode). Skipped in human / hybrid-coach since those keep
+    // the user on the keyboard.
+    if (nesState.mode === "grok"
+        && nesState.nes
+        && !nesState.controllerInFlight
+        && now - nesState.lastControllerAt > nesState.controllerInterval) {
+        nesState.lastControllerAt = now;
+        nesRunControllerTick().catch(() => {});
+    }
+    // Release any button holds whose duration has elapsed.
+    nesReleaseExpiredHolds(now);
     // Clear Red Alert when its window elapses
     const ra = document.getElementById("nes-red-alert");
     if (ra && now > nesState.redAlertUntil) ra.classList.remove("active");
@@ -2333,6 +2379,193 @@ async function nesAskCoach(first = false) {
     }
 }
 
+// ══════════════════════════════════════════════════════════════════════
+// Fast controller loop — LM Studio VLM translates frame + coach plan
+// into button presses. Fires at nesState.controllerInterval (default
+// 250ms ≈ 4Hz). Direct browser → LM Studio POST; no backend roundtrip.
+// ══════════════════════════════════════════════════════════════════════
+
+// jsnes button constants — buttonDown(player, button), player 1=1.
+const NES_BUTTON_CODES = {
+    A: 0, B: 1, SELECT: 2, START: 3, UP: 4, DOWN: 5, LEFT: 6, RIGHT: 7,
+};
+const NES_VALID_BUTTONS = new Set(Object.keys(NES_BUTTON_CODES));
+
+// Scale the 256×240 canvas down to a thumbnail the VLM can actually use.
+// 128×120 is 4× smaller (16× bytes) and keeps all the pixel-art detail.
+function nesDownscaleFrame(sourceCanvas, targetW = 128, targetH = 120) {
+    try {
+        const off = document.createElement("canvas");
+        off.width = targetW; off.height = targetH;
+        const ctx = off.getContext("2d");
+        ctx.imageSmoothingEnabled = false;  // keep crisp pixel art
+        ctx.drawImage(sourceCanvas, 0, 0, targetW, targetH);
+        return off.toDataURL("image/png");
+    } catch (e) {
+        return "";
+    }
+}
+
+// Very permissive JSON extraction — the model is small and sometimes
+// wraps the JSON in markdown, prose, or explanatory text. Grab the
+// first {...} we can parse; fall back to "nothing pressed" on failure.
+function nesParseControllerReply(text) {
+    if (!text) return { buttons: [], hold_ms: 120 };
+    // Strip markdown fences if present
+    const fence = text.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
+    const body = fence ? fence[1] : text;
+    // Try to find the first balanced JSON object
+    const objMatch = body.match(/\{[\s\S]*?\}/);
+    if (!objMatch) return { buttons: [], hold_ms: 120 };
+    try {
+        const parsed = JSON.parse(objMatch[0]);
+        const rawButtons = Array.isArray(parsed.buttons) ? parsed.buttons : [];
+        const buttons = rawButtons
+            .map(b => String(b).toUpperCase().trim())
+            .filter(b => NES_VALID_BUTTONS.has(b));
+        const hold_ms = Math.min(400, Math.max(40,
+            parseInt(parsed.hold_ms, 10) || 120));
+        return { buttons, hold_ms };
+    } catch (_) {
+        return { buttons: [], hold_ms: 120 };
+    }
+}
+
+function nesReleaseExpiredHolds(now) {
+    if (!nesState.nes || nesState.activeHolds.size === 0) return;
+    for (const [button, releaseAt] of nesState.activeHolds) {
+        if (now >= releaseAt) {
+            const code = NES_BUTTON_CODES[button];
+            if (code !== undefined) {
+                try { nesState.nes.buttonUp(1, code); } catch (_) {}
+            }
+            nesState.activeHolds.delete(button);
+        }
+    }
+}
+
+function nesApplyButtons(buttons, hold_ms) {
+    if (!nesState.nes) return;
+    // Release any holds first so each tick starts clean. This matches
+    // how a human plays — a new "press" fully replaces the prior one.
+    for (const [button, _] of nesState.activeHolds) {
+        const code = NES_BUTTON_CODES[button];
+        if (code !== undefined) {
+            try { nesState.nes.buttonUp(1, code); } catch (_) {}
+        }
+    }
+    nesState.activeHolds.clear();
+
+    const releaseAt = performance.now() + hold_ms;
+    for (const button of buttons) {
+        const code = NES_BUTTON_CODES[button];
+        if (code === undefined) continue;
+        try {
+            nesState.nes.buttonDown(1, code);
+            nesState.activeHolds.set(button, releaseAt);
+        } catch (_) {}
+    }
+}
+
+const NES_CONTROLLER_SYSTEM = (
+    "You are the fast controller for an NES player character. On every " +
+    "call you see one screenshot of the current frame plus a brief " +
+    "coach plan. Output ONE JSON object, no prose, no markdown:\n" +
+    '  {"buttons":["LEFT"|"RIGHT"|"UP"|"DOWN"|"A"|"B"|"START"|"SELECT"], ' +
+    '"hold_ms":INTEGER_40_TO_400}\n' +
+    "Guidelines: empty buttons array = do nothing this tick. Running right " +
+    "is B+RIGHT. Jump = A (hold ~150ms for big jump, ~80ms for short). " +
+    "Avoid enemies. If paused on a title screen, press START. React to " +
+    "what you SEE on the screen — don't just repeat the coach plan."
+);
+
+async function nesRunControllerTick() {
+    const canvas = document.getElementById("nes-canvas");
+    if (!canvas || !nesState.nes) return;
+    const url = (document.getElementById("nes-controller-url")?.value
+                 || nesState.controllerUrl).replace(/\/+$/, "");
+    const model = document.getElementById("nes-controller-model")?.value
+                  || nesState.controllerModel;
+    if (!url || !model) return;
+
+    nesState.controllerInFlight = true;
+    const frameB64 = nesDownscaleFrame(canvas);
+    if (!frameB64) { nesState.controllerInFlight = false; return; }
+
+    // Current coach plan lives in the DOM already — read it back so we
+    // don't have to pass it through state plumbing.
+    const coachPlanEl = document.getElementById("nes-coach-body");
+    const coachPlan = (coachPlanEl?.textContent || "").trim().slice(0, 300);
+    const recentActions = nesState.lastActions
+        .slice(-3)
+        .map(a => `[${a.buttons.join("+") || "NONE"}]@${a.hold_ms}ms`)
+        .join(" ");
+
+    const userText =
+        `Coach plan: ${coachPlan || "(none yet — act on screen cues)"}\n` +
+        `Your last actions: ${recentActions || "(none)"}\n` +
+        `Output JSON only.`;
+
+    const body = {
+        model: model,
+        messages: [
+            { role: "system", content: NES_CONTROLLER_SYSTEM },
+            {
+                role: "user",
+                content: [
+                    { type: "image_url", image_url: { url: frameB64 } },
+                    { type: "text", text: userText },
+                ],
+            },
+        ],
+        max_tokens: 80,
+        temperature: 0.4,
+        stream: false,
+    };
+
+    const started = performance.now();
+    try {
+        const resp = await fetch(`${url}/chat/completions`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+        });
+        const data = await resp.json().catch(() => ({}));
+        nesState.controllerLatencyMs = Math.round(performance.now() - started);
+
+        if (!resp.ok || data.error) {
+            const msg = data.error?.message || `HTTP ${resp.status}`;
+            console.warn("[nes controller]", msg);
+            // Surface first-time errors in the coach panel so the user
+            // knows the controller isn't wired up.
+            if (!nesState._controllerWarned) {
+                nesState._controllerWarned = true;
+                nesSetCoachText(`Controller error (${model}): ${msg}. ` +
+                    `Load the model in LM Studio first.`, "danger");
+            }
+            return;
+        }
+        nesState._controllerWarned = false;
+
+        const reply = data.choices?.[0]?.message?.content || "";
+        const action = nesParseControllerReply(reply);
+        if (action.buttons.length > 0) {
+            nesApplyButtons(action.buttons, action.hold_ms);
+        }
+        nesState.lastActions.push(action);
+        if (nesState.lastActions.length > 6) nesState.lastActions.shift();
+    } catch (e) {
+        console.warn("[nes controller]", e);
+        if (!nesState._controllerWarned) {
+            nesState._controllerWarned = true;
+            nesSetCoachText(`Controller network error: ${e.message}. ` +
+                `Is LM Studio running at ${url}?`, "danger");
+        }
+    } finally {
+        nesState.controllerInFlight = false;
+    }
+}
+
 function nesPauseToggle() {
     if (!nesState.running) return;
     nesState.paused = !nesState.paused;
@@ -2352,6 +2585,17 @@ function nesReset() {
 }
 
 function nesStop() {
+    // Release any controller-held buttons BEFORE nulling out nes so the
+    // buttonUp calls still land on the real instance.
+    if (nesState.nes && nesState.activeHolds.size > 0) {
+        for (const [button] of nesState.activeHolds) {
+            const code = NES_BUTTON_CODES[button];
+            if (code !== undefined) {
+                try { nesState.nes.buttonUp(1, code); } catch (_) {}
+            }
+        }
+    }
+    nesState.activeHolds.clear();
     nesState.running = false;
     nesState.paused = false;
     if (nesState.rafHandle) cancelAnimationFrame(nesState.rafHandle);
@@ -2366,6 +2610,9 @@ function nesStop() {
     nesSetCoachMeta("—");
     document.getElementById("nes-score").textContent = "-";
     document.getElementById("nes-lives").textContent = "-";
+    const ctrl = document.getElementById("nes-ctrl-ms");
+    if (ctrl) ctrl.textContent = "—";
+    nesState.controllerLatencyMs = 0;
     ["nes-pause-btn","nes-reset-btn","nes-stop-btn","nes-coach-now-btn","nes-note-btn"]
         .forEach(id => { const b = document.getElementById(id); if (b) b.disabled = true; });
 }
@@ -2464,6 +2711,18 @@ function bindNesUi() {
             const v = parseInt(intervalSlider.value, 10);
             nesState.coachInterval = v;
             if (intervalLabel) intervalLabel.textContent = (v / 1000).toFixed(1) + " s";
+        });
+    }
+
+    // Controller interval slider — lives separately from the coach slider
+    // so the user can tune them independently (coach 2.5s, controller 250ms).
+    const ctrlSlider = document.getElementById("nes-controller-interval");
+    const ctrlLabel  = document.getElementById("nes-controller-interval-label");
+    if (ctrlSlider) {
+        ctrlSlider.addEventListener("input", () => {
+            const v = parseInt(ctrlSlider.value, 10);
+            nesState.controllerInterval = v;
+            if (ctrlLabel) ctrlLabel.textContent = v + " ms";
         });
     }
 

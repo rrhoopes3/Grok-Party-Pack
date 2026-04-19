@@ -2235,6 +2235,25 @@ body.lcars .nes-keybind-hint {
   letter-spacing: 0.04em;
   margin-left: auto;
 }
+
+body.lcars .nes-controller-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.6fr) minmax(160px, 1fr) minmax(180px, 1.6fr);
+  gap: 12px;
+  align-items: end;
+  border-top: 1px dashed rgba(255, 85, 68, 0.22);
+  padding-top: 10px;
+  margin-top: 2px;
+}
+body.lcars .nes-controller-row input[type="text"] {
+  font-family: "JetBrains Mono", "Consolas", monospace;
+  font-size: 0.78rem;
+  padding: 6px 10px;
+}
+body.lcars .nes-controller-row .field > span::before {
+  content: "▸ ";
+  color: var(--lcars-scarlet);
+}
 body.lcars .nes-keybind-hint kbd {
   background: #0a0d12;
   border: 1px solid rgba(255, 85, 68, 0.4);
