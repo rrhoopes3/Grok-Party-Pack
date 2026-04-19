@@ -1261,6 +1261,61 @@ def nes_sessions_event(session_id: str):
     return jsonify({"ok": True, **vault_status})
 
 
+@app.route("/api/nes/controller", methods=["POST"])
+def nes_controller_proxy():
+    """Same-origin proxy for the NES controller loop's LM Studio calls.
+
+    Why this exists: the browser can't POST `application/json` to a
+    different-origin localhost service without a CORS preflight, and
+    LM Studio's OPTIONS handler is broken — it tries to treat OPTIONS
+    as a chat completion and 400s with "'messages' field is required".
+    Proxying through the Forge backend (same origin as the page) skips
+    preflight entirely.
+
+    Body:
+      {
+        "target_url": "http://localhost:1234/v1",
+        "body": { model, messages, max_tokens, ... }
+      }
+    Returns LM Studio's response verbatim (body + status) so the
+    browser can parse it as if it had called directly.
+    """
+    import json as _json
+    import urllib.request
+    import urllib.error
+
+    payload = request.get_json(silent=True) or {}
+    target = (payload.get("target_url") or "").strip().rstrip("/")
+    inner = payload.get("body") or {}
+    if not target:
+        return jsonify({"error": "target_url required"}), 400
+    if not isinstance(inner, dict) or not inner.get("messages"):
+        return jsonify({"error": "body.messages required"}), 400
+
+    url = target + "/chat/completions"
+    data = _json.dumps(inner).encode("utf-8")
+    req = urllib.request.Request(url, data=data, method="POST")
+    req.add_header("Content-Type", "application/json")
+    try:
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            body = resp.read()
+            return Response(body, status=resp.status, content_type="application/json")
+    except urllib.error.HTTPError as e:
+        try:
+            body = e.read()
+            return Response(body, status=e.code, content_type="application/json")
+        except Exception:
+            return jsonify({"error": f"HTTP {e.code} from {target}"}), 502
+    except urllib.error.URLError as e:
+        return jsonify({
+            "error": f"Could not reach LM Studio at {target}: {e.reason}",
+            "hint": "Is LM Studio running and is the model loaded?",
+        }), 502
+    except Exception as e:
+        log.exception("nes_controller_proxy failed")
+        return jsonify({"error": f"{type(e).__name__}: {e}"}), 500
+
+
 def track_cost(msg: dict, task_id: str = ""):
     """Update session and per-task cost from token usage messages."""
     global session_cost_usd
