@@ -1328,6 +1328,14 @@ const chessState = {
     lastCaptureN: 0,
 };
 
+// NES NTSC is 60.0988 frames per second. On monitors above 60Hz, a naive
+// `requestAnimationFrame(() => nes.frame())` loop emulates at the display
+// rate — so 144Hz panels run SMB at 2.4× speed. We decouple emulation
+// from render: accumulate wall-clock time and fire `nes.frame()` once
+// per NTSC-frame of elapsed time, skipping RAFs when we've already
+// advanced far enough.
+const NES_FRAME_MS = 1000 / 60.0988;
+
 // Unicode figurines, keyed by python-chess's single-letter piece symbols.
 const CHESS_GLYPHS = {
     "K": "\u2654", "Q": "\u2655", "R": "\u2656",
@@ -2185,6 +2193,11 @@ async function nesBoot() {
     nesState.fpsLastTs = 0;
     nesState.lastTickSentAt = 0;
     nesState.lastCoachAt = 0;
+    // Fixed-timestep accumulator state — reset at boot so the emulator
+    // doesn't try to "catch up" on stale wall-clock time from an earlier
+    // session.
+    nesState.emulationAccumulatorMs = 0;
+    nesState.lastEmulationTs = 0;
 
     nesSetOverlay("", false);
     nesSetCoachText(`Ready. Coach fires every ${(interval/1000).toFixed(1)}s on ${mode}.`, "");
@@ -2203,12 +2216,35 @@ async function nesBoot() {
 
 function nesRafLoop() {
     if (!nesState.running) return;
+    const now = performance.now();
+
+    // ── Fixed-timestep emulation tick ──────────────────────────────
+    // Advance exactly one NTSC frame per NES_FRAME_MS of real elapsed
+    // time. On a 60Hz display that's one tick per RAF; on 144Hz we tick
+    // every ~2.4 RAFs. A 100ms safety cap prevents "spiral of death"
+    // when the tab was backgrounded and accumulated 60s of unprocessed
+    // time — we cap catch-up to ~6 frames instead.
     if (!nesState.paused && nesState.nes) {
-        try { nesState.nes.frame(); } catch (e) { console.warn("[nes] frame error", e); }
+        if (nesState.lastEmulationTs) {
+            const dt = now - nesState.lastEmulationTs;
+            nesState.emulationAccumulatorMs += Math.min(dt, 100);
+        }
+        nesState.lastEmulationTs = now;
+        let framesRun = 0;
+        while (nesState.emulationAccumulatorMs >= NES_FRAME_MS && framesRun < 6) {
+            try { nesState.nes.frame(); }
+            catch (e) { console.warn("[nes] frame error", e); break; }
+            nesState.emulationAccumulatorMs -= NES_FRAME_MS;
+            framesRun++;
+        }
+    } else {
+        // Paused / not ready — reset the accumulator clock so resuming
+        // doesn't unleash a backlog.
+        nesState.lastEmulationTs = now;
     }
+
     nesFpsTick();
 
-    const now = performance.now();
     // Heartbeat tick to server: 2 Hz with the latest frame as thumbnail
     if (now - nesState.lastTickSentAt > 500) {
         nesState.lastTickSentAt = now;
