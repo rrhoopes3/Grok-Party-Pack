@@ -3074,6 +3074,55 @@ function bindNesUi() {
     const resumeBtn = document.getElementById("nes-ctrl-resume-btn");
     if (resumeBtn) resumeBtn.addEventListener("click", nesResumeController);
 
+    // On-screen player controller — mousedown = buttonDown, mouseup /
+    // mouseleave = buttonUp. Touch events for mobile / tablet parity.
+    // contextmenu suppressed so right-click-drag doesn't strand a
+    // phantom press. Everything no-ops when the emulator isn't running.
+    document.querySelectorAll(".nes-pc-btn").forEach(btn => {
+        const name = btn.dataset.btn;
+        const code = NES_BUTTON_CODES[name];
+        if (code === undefined) return;
+
+        const press = (e) => {
+            e.preventDefault();
+            if (!nesState.nes) return;
+            try { nesState.nes.buttonDown(1, code); } catch (_) {}
+            btn.classList.add("pressed");
+        };
+        const release = (e) => {
+            if (e) e.preventDefault?.();
+            if (!nesState.nes) {
+                btn.classList.remove("pressed");
+                return;
+            }
+            try { nesState.nes.buttonUp(1, code); } catch (_) {}
+            btn.classList.remove("pressed");
+        };
+
+        btn.addEventListener("mousedown", press);
+        btn.addEventListener("mouseup", release);
+        btn.addEventListener("mouseleave", release);
+        // Touch support — use passive: false so preventDefault stops
+        // the browser from firing synthetic mousedown + scrolling.
+        btn.addEventListener("touchstart", press, { passive: false });
+        btn.addEventListener("touchend", release, { passive: false });
+        btn.addEventListener("touchcancel", release);
+        btn.addEventListener("contextmenu", (e) => e.preventDefault());
+    });
+
+    // Also release every on-screen button if the user drags out of the
+    // panel entirely (e.g. alt-tabs while holding RIGHT) — otherwise
+    // Link keeps walking forever.
+    window.addEventListener("blur", () => {
+        document.querySelectorAll(".nes-pc-btn.pressed").forEach(b => {
+            const code = NES_BUTTON_CODES[b.dataset.btn];
+            if (code !== undefined && nesState.nes) {
+                try { nesState.nes.buttonUp(1, code); } catch (_) {}
+            }
+            b.classList.remove("pressed");
+        });
+    });
+
     // ROM dropdown self-heal — if the first fetch failed (server was
     // restarting, network blip, whatever), retry when the user clicks
     // or focuses the select. Avoids the "stuck in error state" case
