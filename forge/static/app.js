@@ -184,6 +184,7 @@ function bindEvents() {
         if (tab === "surgeon") loadSurgeonOps();
         if (tab === "keys") loadKeys();
         if (tab === "chess") { chessPopulateModelSelects(); renderChess(); }
+        if (tab === "nes")   { nesLoadRomList(); nesPopulateCoachModels(); nesRefreshEvents(); }
     });
 
     // Prophecy events
@@ -224,6 +225,9 @@ function bindEvents() {
 
     // Chess arena events (new / step / auto / resign)
     bindChessUi();
+
+    // NES Arena events (rom select / boot / pause / reset / coach / note)
+    bindNesUi();
 }
 
 async function init() {
@@ -1640,6 +1644,498 @@ function bindChessUi() {
     if (autoBtn) autoBtn.addEventListener("click", chessToggleAuto);
     if (resignW) resignW.addEventListener("click", () => chessResign("white"));
     if (resignB) resignB.addEventListener("click", () => chessResign("black"));
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// NES Arena — jsnes in browser + Grok coach loop
+// ══════════════════════════════════════════════════════════════════════
+// jsnes emulates the NES on the main thread. We drive it at ~60 fps via
+// requestAnimationFrame, drawing the 256×240 framebuffer into a canvas.
+// Every N seconds we POST a downscaled PNG of the canvas to /api/nes/.../coach
+// and render the returned plan. Human input is captured through keyboard
+// events; the controller in grok-mode maps the current plan → buttons.
+//
+// jsnes exposes:
+//   new jsnes.NES({ onFrame(buf), onAudioSample(l,r) })
+//   nes.loadROM(binaryString)
+//   nes.frame()
+//   nes.buttonDown(player, button)   player ∈ {1,2}, button ∈ Controller.BUTTON_*
+//   nes.buttonUp(player, button)
+
+const nesState = {
+    nes: null,                  // jsnes.NES instance
+    romSlug: "",
+    romTitle: "",
+    session: null,              // server session summary
+    mode: "hybrid-coach",
+    rafHandle: 0,
+    running: false,
+    paused: false,
+    lastTickSentAt: 0,
+    lastCoachAt: 0,
+    coachInFlight: false,
+    coachInterval: 2500,
+    imageData: null,            // ImageData backing the canvas
+    frameBuf: null,             // Uint32Array wrapping imageData.data
+    frameN: 0,
+    fpsEma: 0,
+    fpsLastTs: 0,
+    redAlertUntil: 0,
+    roms: [],
+};
+
+function nesSetOverlay(msg, visible = true) {
+    const el = document.getElementById("nes-overlay");
+    const msgEl = document.getElementById("nes-overlay-msg");
+    if (!el || !msgEl) return;
+    if (msg) msgEl.innerHTML = msg;
+    el.classList.toggle("hidden", !visible);
+}
+
+function nesSetCoachText(text, kind = "") {
+    const body = document.getElementById("nes-coach-body");
+    if (!body) return;
+    body.textContent = text || "—";
+    body.className = "nes-coach-body" + (kind ? " " + kind : "");
+}
+
+function nesSetCoachMeta(text) {
+    const el = document.getElementById("nes-coach-meta");
+    if (el) el.textContent = text || "—";
+}
+
+async function nesLoadRomList() {
+    const sel = document.getElementById("nes-rom-select");
+    if (!sel) return;
+    try {
+        const resp = await fetchJson("/api/nes/roms");
+        nesState.roms = resp.roms || [];
+        sel.innerHTML = "";
+        if (!nesState.roms.length) {
+            const opt = document.createElement("option");
+            opt.value = "";
+            opt.textContent = "No ROMs found in FORGE_NES_ROMS_DIR";
+            sel.appendChild(opt);
+            sel.disabled = true;
+            return;
+        }
+        // Pick a handful of famous titles to the top if present
+        const priorityTitles = /super mario|zelda|metroid|castlevania|contra|mega man|punch-?out|tetris/i;
+        const prio = nesState.roms.filter(r => priorityTitles.test(r.title));
+        const rest = nesState.roms.filter(r => !priorityTitles.test(r.title));
+        if (prio.length) {
+            const gHot = document.createElement("optgroup");
+            gHot.label = "★ Classics";
+            prio.slice(0, 40).forEach(r => gHot.appendChild(nesRomOption(r)));
+            sel.appendChild(gHot);
+        }
+        const gAll = document.createElement("optgroup");
+        gAll.label = `All ROMs (${rest.length})`;
+        // Cap the list — 1700+ ROMs blows the <select> to uselessness.
+        rest.slice(0, 400).forEach(r => gAll.appendChild(nesRomOption(r)));
+        sel.appendChild(gAll);
+        sel.disabled = false;
+    } catch (e) {
+        sel.innerHTML = `<option value="">Failed to load ROM library: ${escapeHtml(e.message)}</option>`;
+        sel.disabled = true;
+    }
+}
+
+function nesRomOption(r) {
+    const opt = document.createElement("option");
+    opt.value = r.slug;
+    opt.textContent = `${r.title}  (${(r.size_bytes / 1024).toFixed(0)}KB)`;
+    return opt;
+}
+
+function nesPopulateCoachModels() {
+    const sel = document.getElementById("nes-coach-model");
+    if (!sel || sel.options.length) return;
+    const models = state.models || [];
+    const grouped = {};
+    for (const m of models) {
+        if (m.id === "auto") continue;
+        (grouped[m.provider || "Other"] ||= []).push(m);
+    }
+    sel.innerHTML = "";
+    // Default preference order: vision Claude → Grok reasoning → others
+    const preferred = ["claude-sonnet-4-6", "claude-sonnet-4-20250514",
+                       "grok-4.20-0309-reasoning", "gpt-4o", "claude-haiku-4-20250414"];
+    let defaultIdx = -1;
+    let flatIdx = 0;
+    for (const [provider, list] of Object.entries(grouped)) {
+        const g = document.createElement("optgroup");
+        g.label = provider;
+        list.forEach(m => {
+            const opt = document.createElement("option");
+            opt.value = m.id;
+            opt.textContent = m.label || m.id;
+            g.appendChild(opt);
+            if (defaultIdx < 0 && preferred.includes(m.id)) defaultIdx = flatIdx;
+            flatIdx++;
+        });
+        sel.appendChild(g);
+    }
+    if (defaultIdx >= 0) sel.selectedIndex = defaultIdx;
+}
+
+// jsnes rendering: onFrame receives a 256*240 Uint32 buffer in ABGR8888.
+// Canvas ImageData is RGBA8888 little-endian. jsnes already writes the
+// right layout into the buffer it hands us, so we just copy.
+function nesOnFrame(framebuffer) {
+    if (!nesState.imageData || !nesState.frameBuf) return;
+    const fb = nesState.frameBuf;
+    for (let i = 0; i < fb.length; i++) {
+        fb[i] = framebuffer[i];
+    }
+    const canvas = document.getElementById("nes-canvas");
+    if (canvas) {
+        canvas.getContext("2d").putImageData(nesState.imageData, 0, 0);
+    }
+    nesState.frameN++;
+
+    // FPS EMA
+    const now = performance.now();
+    if (nesState.fpsLastTs) {
+        const dt = now - nesState.fpsLastTs;
+        if (dt > 0) {
+            const instant = 1000 / dt;
+            nesState.fpsEma = nesState.fpsEma ? nesState.fpsEma * 0.9 + instant * 0.1 : instant;
+        }
+    }
+    nesState.fpsLastTs = now;
+}
+
+function nesFpsTick() {
+    const el = document.getElementById("nes-fps");
+    if (el) el.textContent = nesState.fpsEma.toFixed(0);
+    const fn = document.getElementById("nes-frame-n");
+    if (fn) fn.textContent = nesState.frameN.toString();
+}
+
+async function nesBoot() {
+    if (nesState.nes) { nesStop(); }
+    const slug = document.getElementById("nes-rom-select").value;
+    if (!slug) { nesSetOverlay("Pick a ROM first.", true); return; }
+    const mode = document.getElementById("nes-mode-select").value;
+    const coachModel = document.getElementById("nes-coach-model").value;
+    const interval = parseInt(document.getElementById("nes-coach-interval").value, 10) || 2500;
+
+    nesSetOverlay("Loading ROM…", true);
+
+    // 1. Fetch ROM bytes
+    let romData;
+    try {
+        const resp = await fetchJson(`/api/nes/rom/${encodeURIComponent(slug)}`);
+        if (resp.error) throw new Error(resp.error);
+        // jsnes.loadROM wants a binary string (legacy JS idiom).
+        const bytes = atob(resp.data_b64);
+        romData = bytes;
+        nesState.romSlug = resp.slug;
+        nesState.romTitle = resp.title;
+    } catch (e) {
+        nesSetOverlay(`ROM fetch failed: ${escapeHtml(e.message)}`, true);
+        return;
+    }
+
+    // 2. Create server-side session
+    try {
+        const sess = await fetchJson("/api/nes/sessions", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({
+                rom_slug: slug, mode,
+                coach_model: coachModel || undefined,
+                coach_interval_ms: interval,
+            }),
+        });
+        if (sess.error) throw new Error(sess.error);
+        nesState.session = sess;
+        nesState.mode = mode;
+        nesState.coachInterval = interval;
+    } catch (e) {
+        nesSetOverlay(`Session create failed: ${escapeHtml(e.message)}`, true);
+        return;
+    }
+
+    // 3. Set up canvas + jsnes
+    if (typeof jsnes === "undefined") {
+        nesSetOverlay("jsnes library didn't load — check /static/vendor/jsnes.min.js", true);
+        return;
+    }
+    const canvas = document.getElementById("nes-canvas");
+    const ctx = canvas.getContext("2d");
+    const img = ctx.createImageData(256, 240);
+    nesState.imageData = img;
+    nesState.frameBuf = new Uint32Array(img.data.buffer);
+
+    nesState.nes = new jsnes.NES({
+        onFrame: nesOnFrame,
+        onAudioSample: (l, r) => { /* audio intentionally off for v1 */ },
+    });
+    try {
+        nesState.nes.loadROM(romData);
+    } catch (e) {
+        nesSetOverlay(`jsnes loadROM failed: ${escapeHtml(e.message)}`, true);
+        nesState.nes = null;
+        return;
+    }
+
+    nesState.running = true;
+    nesState.paused = false;
+    nesState.frameN = 0;
+    nesState.fpsEma = 0;
+    nesState.fpsLastTs = 0;
+    nesState.lastTickSentAt = 0;
+    nesState.lastCoachAt = 0;
+
+    nesSetOverlay("", false);
+    nesSetCoachText(`Ready. Coach fires every ${(interval/1000).toFixed(1)}s on ${mode}.`, "");
+    nesSetCoachMeta(`${coachModel || "default coach"} · 0ms`);
+
+    // Enable controls
+    ["nes-pause-btn","nes-reset-btn","nes-stop-btn","nes-coach-now-btn","nes-note-btn"]
+        .forEach(id => { const b = document.getElementById(id); if (b) b.disabled = false; });
+    // Start RAF
+    nesRafLoop();
+    // Kick the first coach call immediately so we don't stare at a blank panel.
+    if (mode !== "human") {
+        setTimeout(() => nesAskCoach(true), 800);
+    }
+}
+
+function nesRafLoop() {
+    if (!nesState.running) return;
+    if (!nesState.paused && nesState.nes) {
+        try { nesState.nes.frame(); } catch (e) { console.warn("[nes] frame error", e); }
+    }
+    nesFpsTick();
+
+    const now = performance.now();
+    // Heartbeat tick to server: 2 Hz with the latest frame as thumbnail
+    if (now - nesState.lastTickSentAt > 500) {
+        nesState.lastTickSentAt = now;
+        nesSendTick().catch(() => {});
+    }
+    // Coach at the chosen interval (human-only mode skips)
+    if (nesState.mode !== "human"
+        && !nesState.coachInFlight
+        && now - nesState.lastCoachAt > nesState.coachInterval) {
+        nesState.lastCoachAt = now;
+        nesAskCoach(false).catch(() => {});
+    }
+    // Clear Red Alert when its window elapses
+    const ra = document.getElementById("nes-red-alert");
+    if (ra && now > nesState.redAlertUntil) ra.classList.remove("active");
+
+    nesState.rafHandle = requestAnimationFrame(nesRafLoop);
+}
+
+async function nesSendTick() {
+    const s = nesState.session;
+    if (!s) return;
+    const canvas = document.getElementById("nes-canvas");
+    if (!canvas) return;
+    // Downscale the preview to keep POST body small — the coach later
+    // asks for a fresh frame so this is just a session heartbeat.
+    let frameB64 = "";
+    try {
+        // Throttle PNG generation to every ~5 ticks (≈2.5s)
+        if (nesState.frameN % 150 === 0) {
+            frameB64 = canvas.toDataURL("image/png");
+        }
+    } catch (_) {}
+    try {
+        await fetchJson(`/api/nes/sessions/${s.id}/tick`, {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({
+                frame_b64: frameB64,
+                frame_n: nesState.frameN,
+                state: nesReadGameState(),
+            }),
+        });
+    } catch (_) {}
+}
+
+// Very generic hook — later we can plug per-ROM RAM inspectors here
+// (e.g. SMB: lives at $075A). For now just return the frame number.
+function nesReadGameState() {
+    return { frame: nesState.frameN };
+}
+
+async function nesAskCoach(first = false) {
+    const s = nesState.session;
+    if (!s || nesState.coachInFlight) return;
+    nesState.coachInFlight = true;
+
+    const canvas = document.getElementById("nes-canvas");
+    let frameB64 = "";
+    try { frameB64 = canvas.toDataURL("image/png"); } catch (_) {}
+
+    nesSetCoachText(first ? "Coach booting…" : "Thinking…", "thinking");
+
+    try {
+        const resp = await fetchJson(`/api/nes/sessions/${s.id}/coach`, {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({ frame_b64: frameB64 }),
+        });
+        if (resp.error) {
+            nesSetCoachText(resp.error, "danger");
+            return;
+        }
+        const danger = /^danger\b/i.test(resp.plan || "");
+        nesSetCoachText(resp.plan || "(no plan)", danger ? "danger" : "");
+        nesSetCoachMeta(`${resp.model} · ${resp.ms}ms${resp.used_vision ? " · vision" : " · text"}`);
+        if (danger) {
+            const ra = document.getElementById("nes-red-alert");
+            if (ra) ra.classList.add("active");
+            nesState.redAlertUntil = performance.now() + 6000;
+        }
+    } catch (e) {
+        nesSetCoachText(`Coach call failed: ${e.message}`, "danger");
+    } finally {
+        nesState.coachInFlight = false;
+    }
+}
+
+function nesPauseToggle() {
+    if (!nesState.running) return;
+    nesState.paused = !nesState.paused;
+    const btn = document.getElementById("nes-pause-btn");
+    if (btn) btn.textContent = nesState.paused ? "▶ Resume" : "⏸ Pause";
+}
+
+function nesReset() {
+    if (!nesState.nes) return;
+    try {
+        // jsnes exposes .reset on the CPU
+        nesState.nes.reset();
+        nesState.frameN = 0;
+    } catch (e) {
+        console.warn("[nes] reset failed", e);
+    }
+}
+
+function nesStop() {
+    nesState.running = false;
+    nesState.paused = false;
+    if (nesState.rafHandle) cancelAnimationFrame(nesState.rafHandle);
+    nesState.rafHandle = 0;
+    if (nesState.session) {
+        fetchJson(`/api/nes/sessions/${nesState.session.id}`, {method:"DELETE"}).catch(()=>{});
+    }
+    nesState.nes = null;
+    nesState.session = null;
+    nesSetOverlay("Stopped. Pick a ROM to boot again.", true);
+    nesSetCoachText("", "");
+    nesSetCoachMeta("—");
+    document.getElementById("nes-score").textContent = "-";
+    document.getElementById("nes-lives").textContent = "-";
+    ["nes-pause-btn","nes-reset-btn","nes-stop-btn","nes-coach-now-btn","nes-note-btn"]
+        .forEach(id => { const b = document.getElementById(id); if (b) b.disabled = true; });
+}
+
+async function nesAddNote() {
+    const s = nesState.session;
+    if (!s) return;
+    const text = prompt("Note to deposit to forge:vault (nes:" + s.rom_slug + "):");
+    if (!text) return;
+    try {
+        const resp = await fetchJson(`/api/nes/sessions/${s.id}/event`, {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({ kind: "note", summary: text, frame_n: nesState.frameN }),
+        });
+        nesRefreshEvents();
+        if (!resp.vault_ok) {
+            console.info("[nes] vault deposit skipped:", resp.vault_msg);
+        }
+    } catch (_) {}
+}
+
+async function nesRefreshEvents() {
+    const s = nesState.session;
+    const el = document.getElementById("nes-events");
+    if (!s || !el) return;
+    try {
+        const summary = await fetchJson(`/api/nes/sessions/${s.id}`);
+        const events = summary.events || [];
+        if (!events.length) {
+            el.innerHTML = `<div class="nes-events-empty">No events yet.</div>`;
+            return;
+        }
+        el.innerHTML = "";
+        events.slice().reverse().forEach(ev => {
+            const row = document.createElement("div");
+            row.className = "nes-event-row " + (ev.kind || "note");
+            row.innerHTML = `
+                <span class="ev-kind">${escapeHtml(ev.kind || "note")}</span>
+                <span class="ev-summary">${escapeHtml(ev.summary)}</span>
+                <span class="ev-frame">#${ev.frame_n}</span>
+            `;
+            el.appendChild(row);
+        });
+    } catch (_) {}
+}
+
+// Keyboard → jsnes controller (Player 1)
+const NES_KEYMAP = {
+    "ArrowUp":    ["jsnes.Controller.BUTTON_UP", 4],
+    "ArrowDown":  ["jsnes.Controller.BUTTON_DOWN", 5],
+    "ArrowLeft":  ["jsnes.Controller.BUTTON_LEFT", 6],
+    "ArrowRight": ["jsnes.Controller.BUTTON_RIGHT", 7],
+    "KeyZ":       ["jsnes.Controller.BUTTON_B", 1],
+    "KeyX":       ["jsnes.Controller.BUTTON_A", 0],
+    "Enter":      ["jsnes.Controller.BUTTON_START", 3],
+    "ShiftLeft":  ["jsnes.Controller.BUTTON_SELECT", 2],
+    "ShiftRight": ["jsnes.Controller.BUTTON_SELECT", 2],
+};
+
+function nesKeyHandler(evt, down) {
+    if (!nesState.nes) return;
+    const entry = NES_KEYMAP[evt.code];
+    if (!entry) return;
+    // Only capture when the NES tab is active — avoid hijacking arrows
+    // on other tabs.
+    const nesTab = document.getElementById("tab-nes");
+    if (!nesTab || !nesTab.classList.contains("active")) return;
+    evt.preventDefault();
+    const button = entry[1];
+    if (down) nesState.nes.buttonDown(1, button);
+    else      nesState.nes.buttonUp(1, button);
+}
+
+function bindNesUi() {
+    const romSel = document.getElementById("nes-rom-select");
+    const modeSel = document.getElementById("nes-mode-select");
+    const coachSel = document.getElementById("nes-coach-model");
+    const intervalSlider = document.getElementById("nes-coach-interval");
+    const intervalLabel = document.getElementById("nes-coach-interval-label");
+    const startBtn = document.getElementById("nes-start-btn");
+    const pauseBtn = document.getElementById("nes-pause-btn");
+    const resetBtn = document.getElementById("nes-reset-btn");
+    const stopBtn = document.getElementById("nes-stop-btn");
+    const coachNowBtn = document.getElementById("nes-coach-now-btn");
+    const noteBtn = document.getElementById("nes-note-btn");
+
+    if (startBtn) startBtn.addEventListener("click", nesBoot);
+    if (pauseBtn) pauseBtn.addEventListener("click", nesPauseToggle);
+    if (resetBtn) resetBtn.addEventListener("click", nesReset);
+    if (stopBtn)  stopBtn .addEventListener("click", nesStop);
+    if (coachNowBtn) coachNowBtn.addEventListener("click", () => nesAskCoach(false));
+    if (noteBtn)  noteBtn .addEventListener("click", nesAddNote);
+    if (intervalSlider) {
+        intervalSlider.addEventListener("input", () => {
+            const v = parseInt(intervalSlider.value, 10);
+            nesState.coachInterval = v;
+            if (intervalLabel) intervalLabel.textContent = (v / 1000).toFixed(1) + " s";
+        });
+    }
+
+    window.addEventListener("keydown", e => nesKeyHandler(e, true));
+    window.addEventListener("keyup",   e => nesKeyHandler(e, false));
 }
 
 function resetRunState(mode = modeFromControls()) {

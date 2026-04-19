@@ -3,7 +3,7 @@ from . import (
     filesystem, shell, browser, http, python_repl,
     git_ops, search, clipboard, image, database, archive,
     email, escalation, prophecy, surgeon, salesforce, blender, mcp,
-    playwright, music,
+    playwright, music, nes,
 )
 
 
@@ -35,6 +35,8 @@ def create_registry() -> ToolRegistry:
     playwright.register(reg)
     # ACE-Step — local music generation via HTTP (user-launched)
     music.register(reg)
+    # NES Arena — coach/inspect live emulator sessions (jsnes in browser)
+    nes.register(reg)
     # MCP namespaces — unified store/recall across forge:vault, forge:graph, external
     mcp.register(reg)
     # Generative UI — interactive widget rendering

@@ -27,6 +27,7 @@
             <button class="tab-btn" data-tab="surgeon">Surgeon</button>
             <button class="tab-btn" data-tab="runtime">Runtime</button>
             <button class="tab-btn" data-tab="chess">Chess</button>
+            <button class="tab-btn" data-tab="nes">NES</button>
             <button class="tab-btn" data-tab="keys">Keys</button>
         </nav>
         <div class="command-center">
@@ -1231,6 +1232,93 @@
         </div>
     </div>
 
+    <!-- ── TAB: NES Arena (jsnes in-browser emulator + Grok coach) ────── -->
+    <div class="tab-content" id="tab-nes">
+        <div class="nes-layout">
+            <section class="panel nes-setup-panel">
+                <div class="panel-header nes-panel-header">
+                    <h3>NES Arena</h3>
+                    <span class="nes-subtitle">jsnes runs in your browser. Grok coaches with screen-aware strategy.</span>
+                </div>
+                <div class="nes-setup-row">
+                    <label class="field">
+                        <span>ROM</span>
+                        <select id="nes-rom-select" class="nes-select">
+                            <option value="">Loading ROM library…</option>
+                        </select>
+                    </label>
+                    <label class="field">
+                        <span>Mode</span>
+                        <select id="nes-mode-select" class="nes-select">
+                            <option value="human">Human (P1 keyboard, no Grok)</option>
+                            <option value="hybrid-coach" selected>Hybrid — Human + Grok coach</option>
+                            <option value="grok">Grok plays P1 (coach + controller)</option>
+                        </select>
+                    </label>
+                    <label class="field">
+                        <span>Coach model</span>
+                        <select id="nes-coach-model" class="nes-select"></select>
+                    </label>
+                    <button class="nes-btn nes-start-btn" id="nes-start-btn">Boot ROM</button>
+                </div>
+                <div class="nes-setup-row2">
+                    <label class="field nes-interval">
+                        <span>Coach every</span>
+                        <input type="range" id="nes-coach-interval" min="1000" max="8000" step="500" value="2500">
+                        <span class="nes-interval-label" id="nes-coach-interval-label">2.5 s</span>
+                    </label>
+                    <div class="nes-keybind-hint">
+                        P1: <kbd>←↑→↓</kbd> D-pad · <kbd>Z</kbd>=B · <kbd>X</kbd>=A · <kbd>Enter</kbd>=Start · <kbd>Shift</kbd>=Select
+                    </div>
+                </div>
+            </section>
+
+            <section class="panel nes-main-panel" id="nes-main-panel">
+                <div class="nes-main-grid">
+                    <div class="nes-screen-wrap">
+                        <canvas id="nes-canvas" width="256" height="240" class="nes-canvas"></canvas>
+                        <div class="nes-overlay" id="nes-overlay">
+                            <div class="nes-overlay-msg" id="nes-overlay-msg">Select a ROM, then press <strong>Boot ROM</strong>.</div>
+                        </div>
+                        <div class="nes-red-alert" id="nes-red-alert"></div>
+                        <div class="nes-hud">
+                            <span class="nes-hud-item">FR <strong id="nes-fps">0</strong></span>
+                            <span class="nes-hud-item">FN <strong id="nes-frame-n">0</strong></span>
+                            <span class="nes-hud-item">SCORE <strong id="nes-score">-</strong></span>
+                            <span class="nes-hud-item">LIVES <strong id="nes-lives">-</strong></span>
+                            <button class="nes-btn nes-mini-btn" id="nes-pause-btn" disabled>⏸ Pause</button>
+                            <button class="nes-btn nes-mini-btn" id="nes-reset-btn" disabled>↻ Reset</button>
+                            <button class="nes-btn nes-mini-btn nes-mini-danger" id="nes-stop-btn" disabled>■ Stop</button>
+                        </div>
+                    </div>
+
+                    <aside class="nes-side-panel">
+                        <div class="nes-coach-block">
+                            <div class="nes-coach-header">
+                                <span>Coach plan</span>
+                                <span class="nes-coach-meta" id="nes-coach-meta">—</span>
+                            </div>
+                            <div class="nes-coach-body" id="nes-coach-body">
+                                Boot a ROM to start receiving plans.
+                            </div>
+                            <button class="nes-btn nes-mini-btn" id="nes-coach-now-btn" disabled>Ask coach now</button>
+                        </div>
+
+                        <div class="nes-events-block">
+                            <div class="nes-events-header">
+                                <span>Events / Vault log</span>
+                                <button class="nes-btn nes-mini-btn" id="nes-note-btn" disabled>＋ Note</button>
+                            </div>
+                            <div class="nes-events" id="nes-events">
+                                <div class="nes-events-empty">No events yet.</div>
+                            </div>
+                        </div>
+                    </aside>
+                </div>
+            </section>
+        </div>
+    </div>
+
     <!-- ── TAB: Keys (API secret management, masked) ──────────────────── -->
     <div class="tab-content" id="tab-keys">
         <div class="keys-layout">
@@ -1260,6 +1348,7 @@
     <!-- ── LCARS MCP Hub sidebar (vault/graph + external MCP servers) ─── -->
     <aside id="mcp-hub"></aside>
 
+    <script src="/static/vendor/jsnes.min.js"></script>
     <script src="/static/app.js"></script>
     <script src="/static/mcp-hub.js"></script>
 

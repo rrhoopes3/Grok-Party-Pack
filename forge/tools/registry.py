@@ -80,6 +80,8 @@ TOOL_CATEGORIES = {
                    "playwright_screenshot", "playwright_click",
                    "playwright_fill", "playwright_eval", "playwright_close"},
     "music":      {"music_generate", "music_status"},
+    "nes":        {"nes_list_roms", "nes_list_sessions", "nes_get_session",
+                   "nes_coach_plan", "nes_log_event"},
     "mcp":        {"mcp_store", "mcp_recall", "mcp_call_tool",
                    "mcp_list_tools", "mcp_list_namespaces"},
 }

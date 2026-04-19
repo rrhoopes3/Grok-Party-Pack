@@ -365,6 +365,23 @@ ACESTEP_BASE_URL = os.getenv("FORGE_ACESTEP_URL", "http://127.0.0.1:7865")
 # Checkpoint path passed through to ACE-Step pipeline. Empty = auto-download.
 ACESTEP_CHECKPOINT = os.getenv("FORGE_ACESTEP_CHECKPOINT", "")
 
+# ── NES Arena ─────────────────────────────────────────────────────────────
+# Hybrid-intelligence NES emulator. jsnes runs in the browser; the coach
+# (and, optionally, a fast controller) call back to this Forge for strategy.
+NES_PACK_ENABLED = os.getenv("FORGE_NES_PACK_ENABLED", "true").lower() == "true"
+# Root directory to scan for .nes ROMs (recursive). User's existing dump
+# lives at B:/Grok/forge/nes which contains Castlevania 2, Metroid, Zelda,
+# Punch-Out, Rygar, etc. plus the FCEUX binary and save states.
+NES_ROMS_DIR = Path(os.getenv("FORGE_NES_ROMS_DIR",
+    str(Path(__file__).resolve().parent / "nes")))
+# Coach: slow, strategic. Fires every NES_COACH_INTERVAL_MS. Vision-capable
+# models get the frame; others get a text summary only.
+NES_COACH_MODEL = os.getenv("FORGE_NES_COACH_MODEL", "grok-4.20-0309-reasoning")
+# Controller: fast, reflex. Called between coach ticks to translate plan
+# into buttons. v1 uses the same provider path; swap to a local VLM later.
+NES_CONTROLLER_MODEL = os.getenv("FORGE_NES_CONTROLLER_MODEL", "grok-4-1-fast-non-reasoning")
+NES_COACH_INTERVAL_MS = int(os.getenv("FORGE_NES_COACH_INTERVAL_MS", "2500"))
+
 # ── Scheduler ─────────────────────────────────────────────────────────────
 SCHEDULER_ENABLED = os.getenv("FORGE_SCHEDULER_ENABLED", "true").lower() == "true"
 
