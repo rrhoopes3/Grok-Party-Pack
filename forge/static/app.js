@@ -2074,14 +2074,16 @@ function nesPopulateCoachModels() {
     if (defaultIdx >= 0) sel.selectedIndex = defaultIdx;
 }
 
-// jsnes rendering: onFrame receives a 256*240 Uint32 buffer in ABGR8888.
-// Canvas ImageData is RGBA8888 little-endian. jsnes already writes the
-// right layout into the buffer it hands us, so we just copy.
+// jsnes rendering — onFrame receives a 256×240 Uint32 buffer where each
+// pixel is packed as 0x00BBGGRR (little-endian RGBA with A=0). Canvas
+// ImageData wants 0xFFBBGGRR so we OR the alpha byte on per pixel.
+// Without this every pixel renders fully transparent → canvas appears
+// pure black while emulation proceeds invisibly in the background.
 function nesOnFrame(framebuffer) {
     if (!nesState.imageData || !nesState.frameBuf) return;
     const fb = nesState.frameBuf;
     for (let i = 0; i < fb.length; i++) {
-        fb[i] = framebuffer[i];
+        fb[i] = framebuffer[i] | 0xFF000000;
     }
     const canvas = document.getElementById("nes-canvas");
     if (canvas) {
