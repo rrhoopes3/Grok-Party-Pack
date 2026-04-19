@@ -1993,6 +1993,10 @@ const nesState = {
     controllerUrl: "http://localhost:1234/v1",
     controllerModel: "grok-4-1-fast-non-reasoning",
     controllerLatencyMs: 0,
+    controllerCalls: 0,             // # of successful controller replies this boot
+    controllerCostUsd: 0,           // running $ spend for this boot
+    controllerConsecutiveEmpty: 0,  // ticks in a row where buttons=[]
+    controllerPaused: false,        // auto-pause flag when stuck
     lastActions: [],            // ring of last N {buttons, hold_ms} for prompt
     activeHolds: new Map(),     // button name → scheduled release timestamp
 
@@ -2146,9 +2150,14 @@ function nesFpsTick() {
     if (fn) fn.textContent = nesState.frameN.toString();
     const ct = document.getElementById("nes-ctrl-ms");
     if (ct) {
-        ct.textContent = nesState.controllerLatencyMs > 0
+        if (nesState.controllerPaused) ct.textContent = "PAUSED";
+        else ct.textContent = nesState.controllerLatencyMs > 0
             ? `${nesState.controllerLatencyMs}ms` : "—";
     }
+    const calls = document.getElementById("nes-ctrl-calls");
+    if (calls) calls.textContent = nesState.controllerCalls.toString();
+    const cost = document.getElementById("nes-ctrl-cost");
+    if (cost) cost.textContent = `$${nesState.controllerCostUsd.toFixed(4)}`;
 }
 
 async function nesBoot() {
@@ -2252,6 +2261,10 @@ async function nesBoot() {
     nesState.controllerInFlight = false;
     nesState.lastControllerAt = 0;
     nesState.controllerLatencyMs = 0;
+    nesState.controllerCalls = 0;
+    nesState.controllerCostUsd = 0;
+    nesState.controllerConsecutiveEmpty = 0;
+    nesState.controllerPaused = false;
     nesState.lastActions = [];
     nesState.activeHolds.clear();
 
@@ -2415,11 +2428,13 @@ function nesRafLoop() {
         nesAskCoach(false).catch(() => {});
     }
     // Fast controller loop — fires only when Grok is actually driving
-    // ("grok" mode). Skipped in human / hybrid-coach since those keep
-    // the user on the keyboard.
+    // ("grok" mode). Skipped in human / hybrid-coach modes, when the
+    // auto-pause flag is set (too many empty replies in a row), and
+    // when the provider select is "off".
     if (nesState.mode === "grok"
         && nesState.nes
         && !nesState.controllerInFlight
+        && !nesState.controllerPaused
         && now - nesState.lastControllerAt > nesState.controllerInterval) {
         nesState.lastControllerAt = now;
         nesRunControllerTick().catch(() => {});
@@ -2658,6 +2673,9 @@ async function nesRunControllerTick() {
 
 // Provider: Grok cloud via Forge backend. Fast (~300-800ms), supports
 // vision if the model does; the backend route falls back to text-only.
+// Tracks cost + call count + "stuck on menu" streaks so we can auto-
+// pause when the model keeps returning empty buttons (cheaper than
+// letting the user discover the $ drip in their billing dashboard).
 async function nesControllerViaGrok({ model, frameB64, coachPlan, recentActions }) {
     const sid = nesState.session?.id;
     if (!sid) return null;
@@ -2677,10 +2695,60 @@ async function nesControllerViaGrok({ model, frameB64, coachPlan, recentActions 
         }
         return null;
     }
-    return {
-        buttons: Array.isArray(data.buttons) ? data.buttons : [],
-        hold_ms: data.hold_ms || 120,
-    };
+    // Update cost + call counters from the usage block the backend now
+    // returns. `session_total_cost_usd` is the authoritative source (it
+    // rolls up on the server side), but we also keep a client-side
+    // running sum so the HUD updates immediately without waiting for
+    // a GET /sessions/<id> round-trip.
+    if (data.usage) {
+        nesState.controllerCalls += 1;
+        if (typeof data.usage.cost_usd === "number") {
+            nesState.controllerCostUsd += data.usage.cost_usd;
+        }
+    }
+    const buttons = Array.isArray(data.buttons) ? data.buttons : [];
+    // Auto-pause when the model returns empty buttons N times in a row.
+    // Usually happens when stuck on a menu / unreadable screen / Grok
+    // mis-reads a black frame. Stopping is cheaper than paying a 0.5c
+    // round-trip per second to confirm it's still stuck.
+    const STUCK_THRESHOLD = 5;
+    if (buttons.length === 0) {
+        nesState.controllerConsecutiveEmpty += 1;
+        if (nesState.controllerConsecutiveEmpty >= STUCK_THRESHOLD
+            && !nesState.controllerPaused) {
+            nesState.controllerPaused = true;
+            nesSetCoachText(
+                `Controller auto-paused after ${STUCK_THRESHOLD} empty replies ` +
+                `($${nesState.controllerCostUsd.toFixed(4)} spent, ` +
+                `${nesState.controllerCalls} calls). ` +
+                `Screen may be stuck on a menu; press START manually or ` +
+                `click "▶ Resume Ctrl" to retry.`,
+                "danger"
+            );
+            // Flip the controller provider to "off" visually so the user
+            // sees the pause, and swap the mute/theater nearby for a
+            // resume affordance.
+            nesSyncControllerPauseUi();
+        }
+    } else {
+        nesState.controllerConsecutiveEmpty = 0;
+    }
+    return { buttons, hold_ms: data.hold_ms || 120 };
+}
+
+function nesSyncControllerPauseUi() {
+    const btn = document.getElementById("nes-ctrl-resume-btn");
+    if (btn) {
+        btn.style.display = nesState.controllerPaused ? "" : "none";
+    }
+}
+
+function nesResumeController() {
+    nesState.controllerPaused = false;
+    nesState.controllerConsecutiveEmpty = 0;
+    nesState._controllerWarned = false;
+    nesSetCoachText("Controller resumed.", "");
+    nesSyncControllerPauseUi();
 }
 
 // Provider: LM Studio via our /api/nes/controller same-origin proxy.
@@ -2743,7 +2811,31 @@ async function nesControllerViaLMStudio({ model, frameB64, coachPlan, recentActi
     const reply = (choice.content && choice.content.length > 0)
         ? choice.content
         : (choice.reasoning_content || "");
-    return nesParseControllerReply(reply);
+    const action = nesParseControllerReply(reply);
+
+    // Cost bookkeeping for LM Studio — model is running locally so
+    // cost_usd is effectively 0, but we still track call count so the
+    // HUD shows "CALLS 47 · COST $0.0000" and the stuck-detection fires
+    // on empty outputs the same way Grok does.
+    nesState.controllerCalls += 1;
+    if (action.buttons.length === 0) {
+        nesState.controllerConsecutiveEmpty += 1;
+        if (nesState.controllerConsecutiveEmpty >= 5 && !nesState.controllerPaused) {
+            nesState.controllerPaused = true;
+            nesSetCoachText(
+                `Controller auto-paused — 5 empty replies in a row. ` +
+                `Gemma 4 / Ministral / Qwen reasoning variants tend to ` +
+                `burn their whole budget on chain-of-thought and emit ` +
+                `nothing. Try switching Controller via = Grok, or click ` +
+                `▶ Resume Ctrl.`,
+                "danger"
+            );
+            nesSyncControllerPauseUi();
+        }
+    } else {
+        nesState.controllerConsecutiveEmpty = 0;
+    }
+    return action;
 }
 
 function nesPauseToggle() {
@@ -2928,6 +3020,8 @@ function bindNesUi() {
     if (muteBtn) muteBtn.addEventListener("click", nesToggleMute);
     const theaterBtn = document.getElementById("nes-theater-btn");
     if (theaterBtn) theaterBtn.addEventListener("click", nesToggleTheater);
+    const resumeBtn = document.getElementById("nes-ctrl-resume-btn");
+    if (resumeBtn) resumeBtn.addEventListener("click", nesResumeController);
 
     // ROM dropdown self-heal — if the first fetch failed (server was
     // restarting, network blip, whatever), retry when the user clicks
