@@ -48,101 +48,9 @@ textarea {
     display: none !important;
 }
 
-/* ── Topbar ───────────────────────────────────────────────────────── */
-
-.topbar {
-    padding: 8px 20px;
-    display: flex;
-    align-items: center;
-    gap: 14px;
-    border-bottom: 1px solid var(--line);
-    background: rgba(10, 14, 18, 0.82);
-    backdrop-filter: blur(14px);
-    flex-shrink: 0;
-}
-
-.brand-block {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-}
-
-.logo {
-    font-size: 1.1rem;
-    font-weight: 800;
-    letter-spacing: 0.24em;
-    color: var(--accent-strong);
-}
-
-/* ── Tab bar ──────────────────────────────────────────────────────── */
-
-.tab-bar {
-    display: flex;
-    gap: 2px;
-    margin-left: 12px;
-}
-
-.tab-btn {
-    padding: 7px 14px;
-    border: 1px solid transparent;
-    border-radius: 8px;
-    background: transparent;
-    color: var(--muted);
-    font-size: 0.8rem;
-    cursor: pointer;
-    transition: color 0.15s, background 0.15s, border-color 0.15s;
-}
-
-.tab-btn:hover {
-    color: var(--text);
-    background: rgba(255, 255, 255, 0.05);
-}
-
-.tab-btn.active {
-    color: var(--accent-strong);
-    background: rgba(242, 167, 75, 0.1);
-    border-color: rgba(242, 167, 75, 0.3);
-}
-
-/* ── Feature badges (right side of topbar) ────────────────────────── */
-
-.feature-badges {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    margin-left: auto;
-}
-
-.feature-badge,
-.pill {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    border-radius: 999px;
-    padding: 4px 9px;
-    font-size: 0.7rem;
-    letter-spacing: 0.03em;
-    border: 1px solid var(--line-strong);
-    background: rgba(255, 255, 255, 0.04);
-    color: var(--muted);
-}
-
-.status-pill {
-    min-width: 80px;
-    text-align: center;
-    padding: 7px 12px;
-    border-radius: 999px;
-    font-size: 0.8rem;
-    border: 1px solid var(--line);
-    background: rgba(255, 255, 255, 0.03);
-    color: var(--muted);
-}
-
-.status-pill.running {
-    border-color: rgba(242, 167, 75, 0.45);
-    background: rgba(242, 167, 75, 0.12);
-    color: var(--accent-strong);
-}
+/* NOTE: .topbar / .tab-bar / .feature-badges / .status-pill rules live
+ * entirely in lcars.css now. This section was removed — all four used
+ * hardcoded rgba() backgrounds that fought the LCARS overlay. */
 
 /* ── Tab content panels ───────────────────────────────────────────── */
 
@@ -303,7 +211,6 @@ textarea {
 
 /* ── Panels ───────────────────────────────────────────────────────── */
 
-.deck-card,
 .panel {
     background: linear-gradient(180deg, rgba(23, 31, 42, 0.96), rgba(19, 27, 38, 0.98));
     border: 1px solid var(--line);
@@ -528,11 +435,6 @@ button.stack-item:hover {
     background: rgba(255, 255, 255, 0.04);
     color: var(--muted);
     font-size: 0.8rem;
-}
-
-.msg.status.planning {
-    border-color: rgba(116, 183, 255, 0.3);
-    color: var(--blue);
 }
 
 .msg.status.executing {
@@ -1628,18 +1530,6 @@ input[type="range"] {
     letter-spacing: 0.06em;
 }
 
-.sentiment-badge.bullish {
-    background: rgba(99, 199, 178, 0.18);
-    color: var(--signal);
-    border: 1px solid rgba(99, 199, 178, 0.3);
-}
-
-.sentiment-badge.bearish {
-    background: rgba(255, 106, 106, 0.18);
-    color: var(--danger);
-    border: 1px solid rgba(255, 106, 106, 0.3);
-}
-
 .sentiment-badge.neutral {
     background: rgba(156, 172, 191, 0.12);
     color: var(--muted);
@@ -1816,9 +1706,6 @@ input[type="range"] {
     color: var(--fg);
 }
 .trade-confirm strong { color: var(--accent); }
-.trade-confirm .confirm-btns { margin-top: 6px; display: flex; gap: 6px; }
-.trade-confirm .confirm-btns button { font-size: 0.72rem; padding: 4px 12px; }
-
 .trade-result {
     margin-top: 6px;
     font-size: 0.78rem;
@@ -1942,26 +1829,6 @@ input[type="range"] {
     border-radius: 20px;
     text-transform: uppercase;
     letter-spacing: 0.5px;
-}
-.trading-active-badge.active-yfinance {
-    background: rgba(255, 255, 255, 0.08);
-    color: var(--muted);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-}
-.trading-active-badge.active-tradier {
-    background: rgba(99, 199, 178, 0.15);
-    color: var(--signal);
-    border: 1px solid rgba(99, 199, 178, 0.3);
-}
-.trading-active-badge.active-robinhood {
-    background: rgba(0, 200, 83, 0.15);
-    color: #5cff82;
-    border: 1px solid rgba(0, 200, 83, 0.3);
-}
-.trading-active-badge.active-robinhood-crypto {
-    background: rgba(116, 183, 255, 0.15);
-    color: var(--blue);
-    border: 1px solid rgba(116, 183, 255, 0.3);
 }
 
 .trading-switcher {
@@ -2149,10 +2016,6 @@ input[type="range"] {
 }
 
 /* ── Polymarket ─────────────────────────────────────────────────────────── */
-.polymarket-layout {
-    grid-template-columns: 320px 1fr;
-}
-
 .poly-markets-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
@@ -2224,40 +2087,6 @@ input[type="range"] {
     gap: 3px;
 }
 
-/* Detail Card */
-.poly-detail-card {
-    background: var(--surface);
-    border: 1px solid var(--line);
-    border-radius: 10px;
-    padding: 14px;
-    margin-top: 12px;
-}
-.poly-detail-card h4 {
-    font-size: 0.95rem;
-    color: var(--text);
-    margin: 0 0 10px;
-    line-height: 1.4;
-}
-.poly-detail-prices {
-    display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
-    margin-bottom: 10px;
-}
-.poly-detail-meta {
-    font-size: 0.78rem;
-    color: var(--muted);
-    margin-bottom: 8px;
-    line-height: 1.6;
-}
-.poly-detail-desc {
-    font-size: 0.78rem;
-    color: var(--text);
-    opacity: 0.8;
-    line-height: 1.5;
-    max-height: 200px;
-    overflow-y: auto;
-}
 .poly-event-market-row {
     padding: 8px 0;
     border-bottom: 1px solid var(--line);

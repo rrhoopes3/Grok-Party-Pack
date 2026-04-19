@@ -3,14 +3,19 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>The Forge | Agent Runtime Console</title>
+    <title>The Forge | LCARS Agent Runtime Console</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Antonio:wght@400;600;700&family=Oswald:wght@400;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="/static/mcp-hub.css">
+    <link rel="stylesheet" href="/static/lcars.css">
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
-<body>
+<body class="lcars">
     <header class="topbar">
         <div class="brand-block">
-            <div class="logo">THE FORGE</div>
+            <div class="logo">THE FORGE <span class="logo-sub">NX-7430</span></div>
         </div>
         <nav class="tab-bar" id="tab-bar">
             <button class="tab-btn active" data-tab="console">Console</button>
@@ -22,12 +27,25 @@
             <button class="tab-btn" data-tab="surgeon">Surgeon</button>
             <button class="tab-btn" data-tab="runtime">Runtime</button>
         </nav>
+        <div class="command-center">
+            <div class="command-model-badge">
+                <span class="cc-label">EXEC</span>
+                <strong id="cc-model-name">—</strong>
+            </div>
+            <div class="command-alert">
+                <span class="alert-dot" id="cc-alert-dot"></span>
+                <strong id="cc-alert-level">GREEN</strong>
+            </div>
+        </div>
         <div class="feature-badges" id="feature-badges"></div>
         <div class="status-pill" id="status">Ready</div>
     </header>
 
     <!-- ── TAB: Console (default) ─────────────────────────────────── -->
     <div class="tab-content active" id="tab-console">
+      <div class="console-split">
+        <aside class="lcars-left-rail">
+          <div class="lcars-rail-label">CONTROL SURFACE</div>
         <section class="control-deck">
             <div class="control-row">
                 <label class="toggle-field" title="Restrict file and shell access to a directory">
@@ -84,7 +102,9 @@
                 <button id="reset-cost-btn" class="ghost-btn small-btn" title="Reset spend">Reset</button>
             </div>
         </section>
+        </aside>
 
+        <div class="lcars-viewer">
         <!-- Live run status bar -->
         <div class="live-bar" id="live-bar">
             <span><em>ID</em> <strong id="meta-task-id">-</strong></span>
@@ -203,6 +223,32 @@
                 </section>
 
                 <section class="chat-area" id="chat-area">
+                    <!-- ── Landing hero — mix of minimalist + capability grid.
+                         Hidden when a task is in flight (chat-area.is-task-active).
+                         The brain visual mounts into #intro-brain (canvas / SVG / whatever). -->
+                    <section class="console-intro" id="console-intro">
+                        <div class="intro-visual" id="intro-brain" aria-hidden="true">
+                            <!-- Interactive brain visual mounts here.
+                                 Target: full-bleed inside this box, respects parent size.
+                                 Fallback while empty: subtle animated pulse via ::after. -->
+                        </div>
+                        <div class="intro-copy">
+                            <p class="intro-eyebrow">NX-7430 · COMMAND NEXUS</p>
+                            <h1 class="intro-lede">Type a task. The council plans. The executor builds.</h1>
+
+                            <ul class="intro-caps" role="list">
+                                <li><span class="cap-tag cap-amber">COUNCIL</span>16 Grok agents deliberate and plan</li>
+                                <li><span class="cap-tag cap-teal">EXECUTOR</span>40 tools across 5 providers</li>
+                                <li><span class="cap-tag cap-canary">ROUTING</span>Auto-fallback on quota or outage</li>
+                                <li><span class="cap-tag cap-green">FIREWALL</span>Semantic check on every call</li>
+                                <li><span class="cap-tag cap-lilac">TRUST</span>EMA-calibrated reassignment</li>
+                                <li><span class="cap-tag cap-red">ARENA</span>AI vs AI. The gods score.</li>
+                            </ul>
+
+                            <p class="intro-footnote">Ctrl/Cmd + Enter on the composer to ignite.</p>
+                        </div>
+                    </section>
+
                     <div class="split-panes">
                         <div class="pane-dialogue">
                             <div class="pane-header">Dialogue</div>
@@ -230,6 +276,8 @@
                 </section>
             </section>
         </main>
+        </div><!-- /.lcars-viewer -->
+      </div><!-- /.console-split -->
     </div>
 
     <!-- ── TAB: History ───────────────────────────────────────────── -->
@@ -1110,6 +1158,58 @@
         </div>
     </div>
 
+    <!-- ── LCARS MCP Hub sidebar (vault/graph + external MCP servers) ─── -->
+    <aside id="mcp-hub"></aside>
+
     <script src="/static/app.js"></script>
+    <script src="/static/mcp-hub.js"></script>
+
+    <!-- Mirror app state into the LCARS command-center header block.
+         Cheap polling (500ms) so we don't have to intrusively hook app.js. -->
+    <script>
+    (function () {
+      "use strict";
+      const sel      = () => document.getElementById("model-select");
+      const status   = () => document.getElementById("status");
+      const ccModel  = document.getElementById("cc-model-name");
+      const ccAlert  = document.getElementById("cc-alert-level");
+      const ccAlertWrap = document.querySelector(".command-alert");
+
+      const killBtn = () => document.getElementById("kill-btn");
+      const chatArea = () => document.getElementById("chat-area");
+
+      function classify(statusEl) {
+        if (!statusEl) return "GREEN";
+        if (statusEl.classList.contains("error"))   return "RED";
+        if (statusEl.classList.contains("running")) return "YELLOW";
+        return "GREEN";
+      }
+      function sync() {
+        const s = sel();
+        if (s && ccModel && s.options.length) {
+          const txt = s.options[s.selectedIndex]?.text;
+          if (txt) ccModel.textContent = txt;
+        }
+        if (status() && ccAlert && ccAlertWrap) {
+          const lvl = classify(status());
+          ccAlert.textContent = lvl;
+          ccAlertWrap.dataset.level = lvl;
+        }
+        // Collapse the landing hero while a task is in flight. Kill button
+        // visibility is the cleanest proxy for "a task is running" that
+        // doesn't require hooking into app.js's SSE lifecycle directly.
+        const ca = chatArea();
+        const kb = killBtn();
+        if (ca && kb) {
+          const taskActive = !kb.classList.contains("hidden");
+          ca.classList.toggle("is-task-active", taskActive);
+        }
+      }
+      document.addEventListener("DOMContentLoaded", sync);
+      sel()?.addEventListener("change", sync);
+      setInterval(sync, 500);
+      sync();
+    })();
+    </script>
 </body>
 </html>
