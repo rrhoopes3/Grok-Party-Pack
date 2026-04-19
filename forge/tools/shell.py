@@ -6,7 +6,14 @@ from forge.config import SHELL_TIMEOUT_SECONDS, SHELL_WORKING_DIR
 
 
 def run_command(command: str, _sandbox_cwd: str = "") -> str:
-    """Run a shell command and return stdout + stderr."""
+    """Run a shell command and return stdout + stderr.
+
+    Force UTF-8 capture on stdout/stderr — on Windows the default is
+    cp1252, which crashes on emoji / any non-latin1 byte and breaks the
+    arena's Pictionary RULES.txt (🎨), any ROM index entries with
+    accented names, etc. errors='replace' so a stray invalid byte
+    becomes U+FFFD instead of aborting the whole call.
+    """
     try:
         cwd = _sandbox_cwd if _sandbox_cwd else str(SHELL_WORKING_DIR)
         result = subprocess.run(
@@ -14,6 +21,8 @@ def run_command(command: str, _sandbox_cwd: str = "") -> str:
             shell=True,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=SHELL_TIMEOUT_SECONDS,
             cwd=cwd,
         )

@@ -20,12 +20,26 @@ def run_python(code: str, _sandbox_cwd: str = "") -> str:
             tmp_path = f.name
 
         try:
+            # Two encoding fixes for Windows:
+            # 1. Capture stdout/stderr as UTF-8 (default cp1252 chokes
+            #    on emoji + any byte >0x7F, which wrecked the arena's
+            #    Pictionary RULES.txt read).
+            # 2. PYTHONIOENCODING=utf-8 forces the child Python to
+            #    WRITE utf-8 to stdout in the first place — without it,
+            #    print("🎨") on Windows throws UnicodeEncodeError
+            #    before our capture side even gets a chance.
+            env = os.environ.copy()
+            env["PYTHONIOENCODING"] = "utf-8"
+            env["PYTHONUTF8"] = "1"
             result = subprocess.run(
                 ["python", tmp_path],
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=SHELL_TIMEOUT_SECONDS,
                 cwd=cwd,
+                env=env,
             )
             output = {
                 "returncode": result.returncode,
