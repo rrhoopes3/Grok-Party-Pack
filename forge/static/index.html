@@ -26,6 +26,8 @@
             <button class="tab-btn" data-tab="prophecy">Prophecy</button>
             <button class="tab-btn" data-tab="surgeon">Surgeon</button>
             <button class="tab-btn" data-tab="runtime">Runtime</button>
+            <button class="tab-btn" data-tab="chess">Chess</button>
+            <button class="tab-btn" data-tab="keys">Keys</button>
         </nav>
         <div class="command-center">
             <div class="command-model-badge">
@@ -1153,6 +1155,103 @@
 
                 <div id="trading-config-panel" class="trading-config-panel">
                     <div class="trading-loading">Fetching trading config...</div>
+                </div>
+            </section>
+        </div>
+    </div>
+
+    <!-- ── TAB: Chess (LLM vs LLM arena) ──────────────────────────────── -->
+    <div class="tab-content" id="tab-chess">
+        <div class="chess-layout">
+            <section class="panel chess-setup-panel">
+                <div class="panel-header chess-panel-header">
+                    <h3>LLM Chess Arena</h3>
+                    <span class="chess-subtitle">Two models play. Moves are legality-checked server-side.</span>
+                </div>
+                <div class="chess-setup-row">
+                    <label class="field">
+                        <span>White ♔</span>
+                        <select id="chess-white-model" class="chess-model-select"></select>
+                    </label>
+                    <label class="field">
+                        <span>Black ♚</span>
+                        <select id="chess-black-model" class="chess-model-select"></select>
+                    </label>
+                    <button class="btn-primary chess-btn chess-new-btn" id="chess-new-btn">Start match</button>
+                </div>
+            </section>
+
+            <section class="panel chess-main-panel" id="chess-main-panel">
+                <div class="chess-main-grid">
+                    <div class="chess-board-wrap">
+                        <div class="chess-board" id="chess-board">
+                            <div class="chess-empty">No active match. Configure players above and press "Start match".</div>
+                        </div>
+                        <div class="chess-board-meta">
+                            <span class="chess-side-badge" id="chess-white-badge">— White</span>
+                            <span class="chess-vs">vs</span>
+                            <span class="chess-side-badge" id="chess-black-badge">— Black</span>
+                        </div>
+                    </div>
+
+                    <aside class="chess-side-panel">
+                        <div class="chess-status-block">
+                            <div class="chess-turn-label">
+                                <span>Turn</span>
+                                <strong id="chess-turn">—</strong>
+                            </div>
+                            <div class="chess-turn-label">
+                                <span>Status</span>
+                                <strong id="chess-status">—</strong>
+                            </div>
+                            <div class="chess-turn-label">
+                                <span>Move #</span>
+                                <strong id="chess-movenum">0</strong>
+                            </div>
+                        </div>
+
+                        <div class="chess-controls">
+                            <button class="chess-btn" id="chess-step-btn" disabled>Step (next move)</button>
+                            <button class="chess-btn chess-auto-btn" id="chess-auto-btn" disabled>Auto-play</button>
+                            <button class="chess-btn chess-resign-btn" id="chess-resign-white-btn" disabled>Resign White</button>
+                            <button class="chess-btn chess-resign-btn" id="chess-resign-black-btn" disabled>Resign Black</button>
+                        </div>
+
+                        <div class="chess-status-msg" id="chess-status-msg"></div>
+
+                        <div class="chess-moves-block">
+                            <div class="chess-moves-header">Move log</div>
+                            <div class="chess-moves" id="chess-moves">
+                                <div class="chess-moves-empty">No moves yet.</div>
+                            </div>
+                        </div>
+                    </aside>
+                </div>
+            </section>
+        </div>
+    </div>
+
+    <!-- ── TAB: Keys (API secret management, masked) ──────────────────── -->
+    <div class="tab-content" id="tab-keys">
+        <div class="keys-layout">
+            <section class="panel keys-panel">
+                <div class="panel-header keys-panel-header">
+                    <h3>API Keys Vault</h3>
+                    <span class="keys-subtitle">Secrets persist to <code>forge/.env</code>. Raw values never leave the server.</span>
+                </div>
+                <div class="keys-category-bar">
+                    <button class="keys-filter-btn active" data-cat="all">All</button>
+                    <button class="keys-filter-btn" data-cat="llm">LLM</button>
+                    <button class="keys-filter-btn" data-cat="tools">Tools</button>
+                    <button class="keys-filter-btn" data-cat="trading">Trading</button>
+                    <button class="keys-filter-btn" data-cat="infra">Infra</button>
+                </div>
+                <div class="keys-list" id="keys-list">
+                    <div class="keys-loading">Loading providers…</div>
+                </div>
+                <div class="keys-footer">
+                    <button class="btn-secondary" id="keys-refresh-btn">Refresh</button>
+                    <span class="keys-status" id="keys-status"></span>
                 </div>
             </section>
         </div>

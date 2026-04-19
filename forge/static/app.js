@@ -182,6 +182,8 @@ function bindEvents() {
         if (tab === "trading") initTrading();
         if (tab === "prophecy") loadProphecyList();
         if (tab === "surgeon") loadSurgeonOps();
+        if (tab === "keys") loadKeys();
+        if (tab === "chess") { chessPopulateModelSelects(); renderChess(); }
     });
 
     // Prophecy events
@@ -216,6 +218,12 @@ function bindEvents() {
     if (surgeonOperateBtn) surgeonOperateBtn.addEventListener("click", surgeonOperate);
     if (surgeonMethodsBtn) surgeonMethodsBtn.addEventListener("click", surgeonLoadMethods);
     if (surgeonOpsRefreshBtn) surgeonOpsRefreshBtn.addEventListener("click", loadSurgeonOps);
+
+    // Keys vault events (refresh button + category filter pills)
+    bindKeysUi();
+
+    // Chess arena events (new / step / auto / resign)
+    bindChessUi();
 }
 
 async function init() {
@@ -1076,6 +1084,562 @@ async function clearMemory() {
     } catch (error) {
         addMessage("error", `Failed to clear memory: ${error.message}`);
     }
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// API Keys tab — read/write provider secrets via /api/keys
+// ══════════════════════════════════════════════════════════════════════
+// The server returns only {set, last4, length, masked} — raw values never
+// touch the client on load. When the user types a new value we POST it
+// back; the server persists to forge/.env and hot-patches the running
+// process.
+
+const keysState = {
+    providers: [],
+    category: "all",
+    editing: null, // provider id currently being edited
+};
+
+function keysSetStatus(msg, kind = "") {
+    const el = document.getElementById("keys-status");
+    if (!el) return;
+    el.textContent = msg || "";
+    el.className = "keys-status" + (kind ? " " + kind : "");
+    if (msg && kind === "ok") {
+        setTimeout(() => { if (el.textContent === msg) keysSetStatus(""); }, 3000);
+    }
+}
+
+async function loadKeys() {
+    const listEl = document.getElementById("keys-list");
+    if (!listEl) return;
+    listEl.innerHTML = `<div class="keys-loading">Loading providers…</div>`;
+    try {
+        const resp = await fetchJson("/api/keys");
+        keysState.providers = Array.isArray(resp?.providers) ? resp.providers : [];
+        renderKeys();
+    } catch (err) {
+        listEl.innerHTML = `<div class="keys-empty">Failed to load keys: ${escapeHtml(err.message)}</div>`;
+    }
+}
+
+function renderKeys() {
+    const listEl = document.getElementById("keys-list");
+    if (!listEl) return;
+
+    const cat = keysState.category;
+    const rows = keysState.providers.filter(p => cat === "all" || p.category === cat);
+
+    if (!rows.length) {
+        listEl.innerHTML = `<div class="keys-empty">No providers in this category.</div>`;
+        return;
+    }
+
+    listEl.innerHTML = "";
+    rows.forEach(p => listEl.appendChild(buildKeyRow(p)));
+}
+
+function buildKeyRow(p) {
+    const row = document.createElement("div");
+    row.className = "key-row";
+    row.dataset.provider = p.id;
+    row.dataset.set = p.set ? "true" : "false";
+
+    const docs = p.docs_url
+        ? ` <a href="${escapeHtml(p.docs_url)}" target="_blank" rel="noopener">docs</a>`
+        : "";
+
+    const maskedDisplay = p.set
+        ? `<span class="key-masked">${escapeHtml(p.masked)}</span>
+           <span class="key-badge set">SET</span>`
+        : `<span class="key-masked empty">not configured</span>
+           <span class="key-badge empty">EMPTY</span>`;
+
+    row.innerHTML = `
+        <div class="key-meta">
+            <span class="key-label">${escapeHtml(p.label)}</span>
+            <span class="key-envvar">${escapeHtml(p.env_var)}${docs}</span>
+        </div>
+        <div class="key-value">${maskedDisplay}</div>
+        <div class="key-actions">
+            <button class="key-btn update" data-action="update">${p.set ? "Replace" : "Add"}</button>
+            <button class="key-btn clear"  data-action="clear"${p.set ? "" : " disabled"}>Clear</button>
+        </div>
+    `;
+
+    row.addEventListener("click", onKeyRowClick);
+
+    // If this row was being edited, re-expand the editor.
+    if (keysState.editing === p.id) {
+        expandKeyEditor(row, p);
+    }
+
+    return row;
+}
+
+function onKeyRowClick(e) {
+    const btn = e.target.closest("[data-action]");
+    if (!btn) return;
+    const row = e.currentTarget;
+    const providerId = row.dataset.provider;
+    const provider = keysState.providers.find(p => p.id === providerId);
+    if (!provider) return;
+
+    const action = btn.dataset.action;
+    if (action === "update")  toggleKeyEditor(row, provider);
+    if (action === "clear")   confirmClearKey(provider);
+    if (action === "save")    submitKeySave(row, provider);
+    if (action === "cancel")  collapseKeyEditor(row, provider);
+}
+
+function toggleKeyEditor(row, provider) {
+    const existing = row.querySelector(".key-edit");
+    if (existing) {
+        collapseKeyEditor(row, provider);
+        return;
+    }
+    expandKeyEditor(row, provider);
+}
+
+function expandKeyEditor(row, provider) {
+    keysState.editing = provider.id;
+    if (row.querySelector(".key-edit")) return;
+
+    const form = document.createElement("div");
+    form.className = "key-edit";
+    form.innerHTML = `
+        <input type="password"
+               class="key-input"
+               placeholder="${escapeHtml(provider.hint || 'Paste key…')}"
+               autocomplete="off"
+               spellcheck="false">
+        <label class="key-reveal">
+            <input type="checkbox" class="key-reveal-toggle"> show
+        </label>
+        <button class="key-btn save"   data-action="save">Save</button>
+        <button class="key-btn cancel" data-action="cancel">Cancel</button>
+    `;
+    row.appendChild(form);
+
+    const input = form.querySelector(".key-input");
+    const reveal = form.querySelector(".key-reveal-toggle");
+    reveal.addEventListener("change", () => {
+        input.type = reveal.checked ? "text" : "password";
+    });
+    input.focus();
+    input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") { e.preventDefault(); submitKeySave(row, provider); }
+        if (e.key === "Escape") { e.preventDefault(); collapseKeyEditor(row, provider); }
+    });
+}
+
+function collapseKeyEditor(row, provider) {
+    const form = row.querySelector(".key-edit");
+    if (form) form.remove();
+    if (keysState.editing === provider.id) keysState.editing = null;
+}
+
+async function submitKeySave(row, provider) {
+    const input = row.querySelector(".key-input");
+    if (!input) return;
+    const value = input.value;
+    if (!value) {
+        keysSetStatus("Enter a value or use Clear.", "err");
+        return;
+    }
+    keysSetStatus(`Saving ${provider.env_var}…`);
+    try {
+        const record = await fetchJson(`/api/keys/${encodeURIComponent(provider.id)}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ value }),
+        });
+        if (record.error) {
+            keysSetStatus(record.error, "err");
+            return;
+        }
+        // Merge updated record into state
+        const idx = keysState.providers.findIndex(p => p.id === provider.id);
+        if (idx >= 0) keysState.providers[idx] = record;
+        keysState.editing = null;
+        renderKeys();
+        keysSetStatus(`${provider.label} updated. Last 4: ${record.last4 || "—"}`, "ok");
+    } catch (err) {
+        keysSetStatus(`Save failed: ${err.message}`, "err");
+    }
+}
+
+async function confirmClearKey(provider) {
+    if (!confirm(`Clear ${provider.label}? This removes ${provider.env_var} from forge/.env and the running process.`)) return;
+    keysSetStatus(`Clearing ${provider.env_var}…`);
+    try {
+        const record = await fetchJson(`/api/keys/${encodeURIComponent(provider.id)}`, {
+            method: "DELETE",
+        });
+        if (record.error) {
+            keysSetStatus(record.error, "err");
+            return;
+        }
+        const idx = keysState.providers.findIndex(p => p.id === provider.id);
+        if (idx >= 0) keysState.providers[idx] = record;
+        keysState.editing = null;
+        renderKeys();
+        keysSetStatus(`${provider.label} cleared.`, "ok");
+    } catch (err) {
+        keysSetStatus(`Clear failed: ${err.message}`, "err");
+    }
+}
+
+function bindKeysUi() {
+    const refreshBtn = document.getElementById("keys-refresh-btn");
+    if (refreshBtn) refreshBtn.addEventListener("click", loadKeys);
+
+    document.querySelectorAll(".keys-filter-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+            document.querySelectorAll(".keys-filter-btn").forEach(b => b.classList.remove("active"));
+            btn.classList.add("active");
+            keysState.category = btn.dataset.cat || "all";
+            renderKeys();
+        });
+    });
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// Chess Arena tab — LLM vs LLM match
+// ══════════════════════════════════════════════════════════════════════
+// The server is the source of truth for board state and legality. The UI
+// holds just the latest snapshot + a small autoplay loop that calls
+// /step repeatedly until the match ends or the user stops it.
+
+const chessState = {
+    match: null,
+    autoPlaying: false,
+    stepInFlight: false,
+};
+
+// Unicode figurines, keyed by python-chess's single-letter piece symbols.
+const CHESS_GLYPHS = {
+    "K": "\u2654", "Q": "\u2655", "R": "\u2656",
+    "B": "\u2657", "N": "\u2658", "P": "\u2659",
+    "k": "\u265A", "q": "\u265B", "r": "\u265C",
+    "b": "\u265D", "n": "\u265E", "p": "\u265F",
+};
+
+function chessSetStatus(msg, kind = "") {
+    const el = document.getElementById("chess-status-msg");
+    if (!el) return;
+    el.textContent = msg || "";
+    el.className = "chess-status-msg" + (kind ? " " + kind : "");
+}
+
+function chessPopulateModelSelects() {
+    // Reuse state.models from loadModels() (already fetched during init).
+    const whiteSel = document.getElementById("chess-white-model");
+    const blackSel = document.getElementById("chess-black-model");
+    if (!whiteSel || !blackSel) return;
+    const models = (state.models || []).filter(m => m.id !== "auto");
+    if (models.length === 0) return;
+    if (whiteSel.options.length > 0) return;  // already populated
+
+    // Group by provider the same way populateModelSelect does
+    const grouped = {};
+    for (const m of models) {
+        const provider = m.provider || "Other";
+        (grouped[provider] ||= []).push(m);
+    }
+
+    [whiteSel, blackSel].forEach((sel, idx) => {
+        sel.innerHTML = "";
+        for (const [provider, list] of Object.entries(grouped)) {
+            const group = document.createElement("optgroup");
+            group.label = provider;
+            list.forEach(m => {
+                const opt = document.createElement("option");
+                opt.value = m.id;
+                opt.textContent = m.label || m.id;
+                group.appendChild(opt);
+            });
+            sel.appendChild(group);
+        }
+        // Pick sensible defaults: white = first fast model, black = second.
+        if (sel.options.length > 0) {
+            sel.selectedIndex = Math.min(idx, sel.options.length - 1);
+        }
+    });
+}
+
+// FEN → 8x8 array of piece chars. First rank in FEN is rank 8 (top).
+function fenToGrid(fen) {
+    const placement = (fen || "").split(" ")[0] || "";
+    const ranks = placement.split("/");
+    const grid = [];
+    ranks.forEach(rank => {
+        const row = [];
+        for (const ch of rank) {
+            if (/[1-8]/.test(ch)) {
+                const n = parseInt(ch, 10);
+                for (let i = 0; i < n; i++) row.push(null);
+            } else {
+                row.push(ch);
+            }
+        }
+        while (row.length < 8) row.push(null);
+        grid.push(row);
+    });
+    while (grid.length < 8) grid.push(Array(8).fill(null));
+    return grid;
+}
+
+// Converts a UCI token (e.g. "e2e4") to [fromSquare, toSquare] algebraic.
+function uciSquares(uci) {
+    if (!uci || uci.length < 4) return [null, null];
+    return [uci.slice(0, 2), uci.slice(2, 4)];
+}
+
+function renderChess() {
+    const board = document.getElementById("chess-board");
+    if (!board) return;
+
+    const m = chessState.match;
+    if (!m) {
+        board.innerHTML = `<div class="chess-empty">No active match. Configure players above and press "Start match".</div>`;
+        document.getElementById("chess-turn").textContent = "—";
+        document.getElementById("chess-status").textContent = "—";
+        document.getElementById("chess-movenum").textContent = "0";
+        document.getElementById("chess-white-badge").textContent = "— White";
+        document.getElementById("chess-black-badge").textContent = "— Black";
+        document.getElementById("chess-moves").innerHTML =
+            `<div class="chess-moves-empty">No moves yet.</div>`;
+        ["chess-step-btn","chess-auto-btn","chess-resign-white-btn","chess-resign-black-btn"]
+            .forEach(id => { const b = document.getElementById(id); if (b) b.disabled = true; });
+        return;
+    }
+
+    // Board
+    const grid = fenToGrid(m.fen);
+    const lastMove = m.moves && m.moves.length ? m.moves[m.moves.length - 1] : null;
+    const [lastFrom, lastTo] = lastMove ? uciSquares(lastMove.uci) : [null, null];
+    const checkSquare = m.in_check ? findKingSquare(grid, m.turn === "white" ? "K" : "k") : null;
+
+    const cells = [];
+    for (let r = 0; r < 8; r++) {       // r=0 → rank 8 (top)
+        for (let f = 0; f < 8; f++) {   // f=0 → file a (left)
+            const rankChar = (8 - r).toString();
+            const fileChar = "abcdefgh"[f];
+            const square = fileChar + rankChar;
+            const piece = grid[r][f];
+            const isLight = ((r + f) % 2 === 0);
+            const classes = ["chess-square", isLight ? "light" : "dark"];
+            if (square === lastFrom) classes.push("last-from");
+            if (square === lastTo)   classes.push("last-to");
+            if (square === checkSquare) classes.push("in-check");
+
+            const coordFile = (r === 7) ? `<span class="coord file">${fileChar}</span>` : "";
+            const coordRank = (f === 0) ? `<span class="coord rank">${rankChar}</span>` : "";
+            const pieceHtml = piece
+                ? `<span class="chess-piece ${piece === piece.toUpperCase() ? "white" : "black"}">${CHESS_GLYPHS[piece] || piece}</span>`
+                : "";
+            cells.push(`<div class="${classes.join(" ")}" data-sq="${square}">${coordFile}${coordRank}${pieceHtml}</div>`);
+        }
+    }
+    board.innerHTML = cells.join("");
+
+    // Status block
+    const turnEl = document.getElementById("chess-turn");
+    const statusEl = document.getElementById("chess-status");
+    const moveNumEl = document.getElementById("chess-movenum");
+    if (m.status === "active") {
+        turnEl.textContent = m.turn.toUpperCase();
+        turnEl.className = m.turn === "white" ? "white-turn" : "black-turn";
+        statusEl.textContent = m.in_check ? "CHECK" : "IN PLAY";
+        statusEl.className = m.in_check ? "black-turn" : "";
+    } else {
+        turnEl.textContent = "—";
+        turnEl.className = "ended";
+        const label = {
+            white_wins: "WHITE WINS",
+            black_wins: "BLACK WINS",
+            draw: "DRAW",
+        }[m.status] || m.status.toUpperCase();
+        statusEl.textContent = m.reason ? `${label} (${m.reason})` : label;
+        statusEl.className = "ended";
+    }
+    moveNumEl.textContent = Math.ceil(m.halfmove_count / 2).toString();
+
+    // Player badges
+    const whiteBadge = document.getElementById("chess-white-badge");
+    const blackBadge = document.getElementById("chess-black-badge");
+    whiteBadge.textContent = `${m.white_model} · White`;
+    blackBadge.textContent = `${m.black_model} · Black`;
+    whiteBadge.classList.toggle("active", m.status === "active" && m.turn === "white");
+    blackBadge.classList.toggle("active", m.status === "active" && m.turn === "black");
+
+    // Controls
+    const active = m.status === "active";
+    const busy = chessState.stepInFlight || chessState.autoPlaying;
+    document.getElementById("chess-step-btn").disabled = !active || busy;
+    document.getElementById("chess-auto-btn").disabled = !active || chessState.stepInFlight;
+    document.getElementById("chess-resign-white-btn").disabled = !active || busy;
+    document.getElementById("chess-resign-black-btn").disabled = !active || busy;
+
+    const autoBtn = document.getElementById("chess-auto-btn");
+    autoBtn.textContent = chessState.autoPlaying ? "Stop auto-play" : "Auto-play";
+    autoBtn.classList.toggle("is-running", chessState.autoPlaying);
+
+    // Move log
+    renderChessMoves(m.moves);
+}
+
+function findKingSquare(grid, kingChar) {
+    for (let r = 0; r < 8; r++) {
+        for (let f = 0; f < 8; f++) {
+            if (grid[r][f] === kingChar) {
+                return "abcdefgh"[f] + (8 - r).toString();
+            }
+        }
+    }
+    return null;
+}
+
+function renderChessMoves(moves) {
+    const el = document.getElementById("chess-moves");
+    if (!el) return;
+    if (!moves || !moves.length) {
+        el.innerHTML = `<div class="chess-moves-empty">No moves yet.</div>`;
+        return;
+    }
+    el.innerHTML = "";
+    moves.forEach(mv => {
+        const row = document.createElement("div");
+        row.className = "chess-move-row " + (mv.side === "white" ? "white-move" : "black-move") + (mv.forced ? " forced" : "");
+        const moveNum = Math.floor((mv.n - 1) / 2) + 1;
+        const dots = mv.side === "white" ? "." : "…";
+        const meta = `${mv.ms}ms${mv.attempts > 1 ? ` · ${mv.attempts}×` : ""}${mv.forced ? " · forced" : ""}`;
+        row.innerHTML = `
+            <span class="move-n">${moveNum}${dots}</span>
+            <span class="move-san" title="${escapeHtml(mv.uci)}">${escapeHtml(mv.san)}</span>
+            <span class="move-meta">${escapeHtml(meta)}</span>
+        `;
+        if (mv.thinking) row.title = mv.thinking;
+        el.appendChild(row);
+    });
+    // Scroll to bottom
+    el.scrollTop = el.scrollHeight;
+}
+
+async function chessNewMatch() {
+    const white = document.getElementById("chess-white-model").value;
+    const black = document.getElementById("chess-black-model").value;
+    if (!white || !black) {
+        chessSetStatus("Select both models first.", "err");
+        return;
+    }
+    chessSetStatus("Starting match…", "working");
+    try {
+        const resp = await fetchJson("/api/chess", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ white_model: white, black_model: black }),
+        });
+        if (resp.error) { chessSetStatus(resp.error, "err"); return; }
+        chessState.match = resp;
+        chessState.autoPlaying = false;
+        renderChess();
+        chessSetStatus(`Match started — ${white} vs ${black}. Auto-playing…`, "ok");
+        // Kick off auto-play automatically. Users expected "start match" to
+        // mean "begin the game" — making them hunt for a separate Step /
+        // Auto-play button was a UX footgun. They can still pause anytime.
+        chessToggleAuto();
+    } catch (err) {
+        chessSetStatus(`Start failed: ${err.message}`, "err");
+    }
+}
+
+async function chessStep() {
+    if (!chessState.match || chessState.stepInFlight) return;
+    if (chessState.match.status !== "active") return;
+    const mid = chessState.match.id;
+    const turn = chessState.match.turn;
+    const model = chessState.match.current_model;
+    chessState.stepInFlight = true;
+    chessSetStatus(`${turn.toUpperCase()} (${model}) is thinking…`, "working");
+    renderChess();
+    try {
+        const resp = await fetchJson(`/api/chess/${encodeURIComponent(mid)}/step`, {
+            method: "POST",
+        });
+        if (resp.id) chessState.match = resp;
+        if (resp.error) {
+            chessSetStatus(resp.error, "err");
+            chessState.autoPlaying = false;
+        } else if (chessState.match) {
+            const last = chessState.match.moves[chessState.match.moves.length - 1];
+            if (last) {
+                const flag = last.forced ? " ⚠ forced random" : "";
+                chessSetStatus(`${last.side} played ${last.san}${flag}`, last.forced ? "err" : "ok");
+            }
+        }
+    } catch (err) {
+        chessSetStatus(`Step failed: ${err.message}`, "err");
+        chessState.autoPlaying = false;
+    } finally {
+        chessState.stepInFlight = false;
+        renderChess();
+    }
+}
+
+async function chessToggleAuto() {
+    if (!chessState.match) return;
+    if (chessState.autoPlaying) {
+        chessState.autoPlaying = false;
+        chessSetStatus("Auto-play stopped.", "");
+        renderChess();
+        return;
+    }
+    chessState.autoPlaying = true;
+    renderChess();
+    // Sequential loop — one /step at a time, stop on non-active or user toggle.
+    while (chessState.autoPlaying
+           && chessState.match
+           && chessState.match.status === "active") {
+        await chessStep();
+        // Safety: tiny yield so UI can update and the abort button is responsive.
+        await new Promise(r => setTimeout(r, 150));
+    }
+    chessState.autoPlaying = false;
+    renderChess();
+}
+
+async function chessResign(side) {
+    if (!chessState.match) return;
+    if (!confirm(`Resign for ${side.toUpperCase()}?`)) return;
+    try {
+        const resp = await fetchJson(`/api/chess/${encodeURIComponent(chessState.match.id)}/resign`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ side }),
+        });
+        if (resp.error) { chessSetStatus(resp.error, "err"); return; }
+        chessState.match = resp;
+        chessState.autoPlaying = false;
+        renderChess();
+        chessSetStatus(`${side} resigned. ${resp.status === "white_wins" ? "White wins" : "Black wins"}.`, "ok");
+    } catch (err) {
+        chessSetStatus(`Resign failed: ${err.message}`, "err");
+    }
+}
+
+function bindChessUi() {
+    const newBtn    = document.getElementById("chess-new-btn");
+    const stepBtn   = document.getElementById("chess-step-btn");
+    const autoBtn   = document.getElementById("chess-auto-btn");
+    const resignW   = document.getElementById("chess-resign-white-btn");
+    const resignB   = document.getElementById("chess-resign-black-btn");
+    if (newBtn)  newBtn .addEventListener("click", chessNewMatch);
+    if (stepBtn) stepBtn.addEventListener("click", chessStep);
+    if (autoBtn) autoBtn.addEventListener("click", chessToggleAuto);
+    if (resignW) resignW.addEventListener("click", () => chessResign("white"));
+    if (resignB) resignB.addEventListener("click", () => chessResign("black"));
 }
 
 function resetRunState(mode = modeFromControls()) {

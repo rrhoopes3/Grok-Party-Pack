@@ -907,6 +907,131 @@ def reset_cost():
     return jsonify({"status": "reset", "session_cost": 0.0, "session_toll": 0.0})
 
 
+# ── API keys vault ──────────────────────────────────────────────────────
+# Per-provider secret management. Values are persisted to forge/.env and
+# hot-patched into the running process. The raw key value is never returned
+# over HTTP — only `{set, last4, length, masked}` via forge.secrets_vault.
+
+from forge import secrets_vault as _vault
+
+
+@app.route("/api/keys")
+def keys_list():
+    """Return the full provider list with masked status."""
+    return jsonify({"providers": _vault.list_keys()})
+
+
+@app.route("/api/keys/<provider_id>", methods=["POST"])
+def keys_set(provider_id: str):
+    """Set a provider's key. Body: {value: "..."}. Empty value clears it."""
+    if _vault.get_provider(provider_id) is None:
+        return jsonify({"error": f"Unknown provider: {provider_id!r}"}), 404
+    body = request.get_json(silent=True) or {}
+    value = body.get("value", "")
+    if not isinstance(value, str):
+        return jsonify({"error": "value must be a string"}), 400
+    try:
+        record = _vault.set_key(provider_id, value)
+    except Exception as e:
+        log.exception("keys_set failed for %s", provider_id)
+        return jsonify({"error": f"{type(e).__name__}: {e}"}), 500
+    return jsonify(record)
+
+
+@app.route("/api/keys/<provider_id>", methods=["DELETE"])
+def keys_clear(provider_id: str):
+    """Clear a provider's key."""
+    if _vault.get_provider(provider_id) is None:
+        return jsonify({"error": f"Unknown provider: {provider_id!r}"}), 404
+    try:
+        record = _vault.clear_key(provider_id)
+    except Exception as e:
+        log.exception("keys_clear failed for %s", provider_id)
+        return jsonify({"error": f"{type(e).__name__}: {e}"}), 500
+    return jsonify(record)
+
+
+# ── Chess Arena ─────────────────────────────────────────────────────────
+# Two-model chess matches. State lives in memory — matches survive tab
+# refresh but not server restart. Move legality is enforced server-side by
+# python-chess; the LLM only proposes.
+
+from forge import chess_arena as _chess
+
+
+@app.route("/api/chess", methods=["GET"])
+def chess_list():
+    """List known matches (active + finished, newest first, capped)."""
+    return jsonify({"matches": _chess.list_matches()})
+
+
+@app.route("/api/chess", methods=["POST"])
+def chess_new():
+    """Create a match. Body: {white_model, black_model, starting_fen?}."""
+    body = request.get_json(silent=True) or {}
+    white = (body.get("white_model") or "").strip()
+    black = (body.get("black_model") or "").strip()
+    if not white or not black:
+        return jsonify({"error": "white_model and black_model are required"}), 400
+    try:
+        match = _chess.new_match(
+            white_model=white,
+            black_model=black,
+            starting_fen=body.get("starting_fen", "") or "",
+        )
+    except Exception as e:
+        log.exception("chess_new failed")
+        return jsonify({"error": f"{type(e).__name__}: {e}"}), 400
+    return jsonify(_chess.serialize_match(match))
+
+
+@app.route("/api/chess/<match_id>", methods=["GET"])
+def chess_get(match_id: str):
+    m = _chess.get_match(match_id)
+    if m is None:
+        return jsonify({"error": f"Unknown match: {match_id!r}"}), 404
+    return jsonify(_chess.serialize_match(m))
+
+
+@app.route("/api/chess/<match_id>/step", methods=["POST"])
+def chess_step(match_id: str):
+    """Ask the current side's LLM for a move and apply it."""
+    m = _chess.get_match(match_id)
+    if m is None:
+        return jsonify({"error": f"Unknown match: {match_id!r}"}), 404
+    try:
+        m = _chess.make_move(match_id)
+    except RuntimeError as e:
+        # Missing API key / upstream failure — surface as 502 so UI can show it
+        return jsonify({"error": str(e), **_chess.serialize_match(_chess.get_match(match_id))}), 502
+    except Exception as e:
+        log.exception("chess_step failed for %s", match_id)
+        return jsonify({"error": f"{type(e).__name__}: {e}"}), 500
+    return jsonify(_chess.serialize_match(m))
+
+
+@app.route("/api/chess/<match_id>/resign", methods=["POST"])
+def chess_resign(match_id: str):
+    """Resign for a side. Body: {side: 'white'|'black'}."""
+    body = request.get_json(silent=True) or {}
+    side = body.get("side", "")
+    try:
+        m = _chess.resign(match_id, side)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    if m is None:
+        return jsonify({"error": f"Unknown match: {match_id!r}"}), 404
+    return jsonify(_chess.serialize_match(m))
+
+
+@app.route("/api/chess/<match_id>", methods=["DELETE"])
+def chess_delete(match_id: str):
+    """Delete a match from the in-memory registry."""
+    if not _chess.delete_match(match_id):
+        return jsonify({"error": f"Unknown match: {match_id!r}"}), 404
+    return jsonify({"deleted": match_id})
+
+
 def track_cost(msg: dict, task_id: str = ""):
     """Update session and per-task cost from token usage messages."""
     global session_cost_usd
