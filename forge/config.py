@@ -20,12 +20,12 @@ POLYMARKET_PRIVATE_KEY = os.getenv("POLYMARKET_PRIVATE_KEY", "")
 # Multi-agent model is for *planning* only — it does NOT support client-side
 # tools on standard tier (returns "beta access required"). Use a tool-capable
 # model (reasoning / non-reasoning) for the executor.
-PLANNER_MODEL = os.getenv("FORGE_PLANNER_MODEL", "grok-4.20-multi-agent-0309")
-EXECUTOR_MODEL = os.getenv("FORGE_EXECUTOR_MODEL", "grok-4.20-0309-reasoning")
+PLANNER_MODEL = os.getenv("FORGE_PLANNER_MODEL", "grok-4.20-0309-non-reasoning")
+EXECUTOR_MODEL = os.getenv("FORGE_EXECUTOR_MODEL", "grok-code-fast-1")
 PLANNER_AGENT_COUNT = int(os.getenv("FORGE_PLANNER_AGENT_COUNT", "16"))
 # Hard cap on planner deliberation — protects against models that burn tens
 # of thousands of reasoning tokens before emitting a plan.
-PLANNER_MAX_REASONING_TOKENS = int(os.getenv("FORGE_PLANNER_MAX_REASONING_TOKENS", "30000"))
+PLANNER_MAX_REASONING_TOKENS = int(os.getenv("FORGE_PLANNER_MAX_REASONING_TOKENS", "12000"))
 
 # Available executor models with pricing (cost per 1M tokens) and capability
 # flags. `supports_tools=False` means the model cannot perform client-side
@@ -37,6 +37,12 @@ EXECUTOR_MODELS = {
         "supports_tools": True,
     },
     # xAI
+    # "grok-build" exists on xAI but requires OAuth2 (IDE-only). API keys get
+    # PERMISSION_DENIED. Left out of the registry — the dropdown would
+    # mislead users into picking a model that can't be driven from Forge.
+    # If xAI opens it up for API keys, re-add:
+    #   "grok-build": {"label": "Grok Build", "provider": "xAI",
+    #                   "cost_in": ?, "cost_out": ?, "supports_tools": True}
     "grok-4-1-fast-reasoning": {
         "label": "Grok 4.1 Fast Reasoning", "provider": "xAI",
         "cost_in": 0.20, "cost_out": 0.50,
@@ -292,6 +298,19 @@ SALESFORCE_PACK_ENABLED = os.getenv("FORGE_SALESFORCE_PACK_ENABLED", "false").lo
 # See https://github.com/ahujasid/blender-mcp for addon install instructions.
 BLENDER_PACK_ENABLED = os.getenv("FORGE_BLENDER_PACK_ENABLED", "false").lower() == "true"
 
+# ── Playwright Pack ───────────────────────────────────────────────────────
+# Requires Node + `npx` on PATH so `npx @playwright/mcp@latest` can launch.
+# First run downloads Chromium (~150MB); subsequent runs are fast.
+PLAYWRIGHT_PACK_ENABLED = os.getenv("FORGE_PLAYWRIGHT_PACK_ENABLED", "false").lower() == "true"
+
+# ── ACE-Step Music Pack ───────────────────────────────────────────────────
+# Local music generation via ACE-Step (diffusion text-to-music, 3.5B, ~8GB
+# VRAM). Tool hits an HTTP endpoint — user must launch ACE-Step separately:
+#   cd B:/AI Tunes/ACE-Step
+#   venv\Scripts\python.exe infer-api.py   # FastAPI /generate on :7865
+# or the Gradio UI at same port via venv\Scripts\acestep.exe.
+MUSIC_PACK_ENABLED = os.getenv("FORGE_MUSIC_PACK_ENABLED", "false").lower() == "true"
+
 # ── MCP Client (multi-node: internal forge:vault / forge:graph + external) ─
 # Unified store/recall surface across Forge's own memory subsystems AND any
 # MCP server spawned over stdio (blender-mcp, @salesforce/mcp, etc.).
@@ -326,8 +345,25 @@ MCP_SERVERS: dict[str, dict] = {
         "auto_start": True,
         "timeout": 60.0,
     },
+    "playwright": {
+        # Official Microsoft Playwright MCP — browser automation.
+        # Drives a real Chromium and exposes navigate / click / screenshot /
+        # fill / eval / snapshot / network primitives. First run pulls
+        # Chromium via `npx`, so give the first spawn a generous window.
+        "command": ["npx", "-y", "@playwright/mcp@latest"],
+        "enabled": os.getenv("FORGE_MCP_SERVER_PLAYWRIGHT_ENABLED", "true").lower() == "true",
+        "auto_start": True,
+        "timeout": 90.0,
+    },
     # future: cursor, linear, notion, github, …
 }
+
+# ── ACE-Step local server ─────────────────────────────────────────────────
+# Base URL of the ACE-Step HTTP server (FastAPI infer-api.py or Gradio).
+# Forge's music tool POSTs to <base>/generate — matches infer-api.py's route.
+ACESTEP_BASE_URL = os.getenv("FORGE_ACESTEP_URL", "http://127.0.0.1:7865")
+# Checkpoint path passed through to ACE-Step pipeline. Empty = auto-download.
+ACESTEP_CHECKPOINT = os.getenv("FORGE_ACESTEP_CHECKPOINT", "")
 
 # ── Scheduler ─────────────────────────────────────────────────────────────
 SCHEDULER_ENABLED = os.getenv("FORGE_SCHEDULER_ENABLED", "true").lower() == "true"
