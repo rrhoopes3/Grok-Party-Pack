@@ -121,6 +121,13 @@ def _model_rejects_temperature(model: str) -> bool:
     return False
 
 
+# OpenAI renamed `max_tokens` → `max_completion_tokens` on o-series + GPT-5.
+# Anthropic kept max_tokens. xAI/LM Studio/Ollama still accept max_tokens.
+def _model_uses_max_completion_tokens(model: str) -> bool:
+    m = (model or "").lower()
+    return m.startswith(("o1-", "o3-", "o4-", "gpt-5"))
+
+
 def _call_anthropic(prompt: str, system: str, model: str, temperature: float, max_tokens: int) -> str:
     import anthropic
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
@@ -151,8 +158,12 @@ def _call_openai_compat(
         messages.append({"role": "system", "content": system})
     messages.append({"role": "user", "content": prompt})
     call_kwargs: dict[str, Any] = {
-        "model": model, "messages": messages, "max_tokens": max_tokens,
+        "model": model, "messages": messages,
     }
+    if _model_uses_max_completion_tokens(model):
+        call_kwargs["max_completion_tokens"] = max_tokens
+    else:
+        call_kwargs["max_tokens"] = max_tokens
     if not _model_rejects_temperature(model):
         call_kwargs["temperature"] = temperature
     resp = client.chat.completions.create(**call_kwargs)

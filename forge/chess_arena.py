@@ -78,6 +78,15 @@ def _model_rejects_temperature(model: str) -> bool:
     return False
 
 
+# OpenAI renamed `max_tokens` → `max_completion_tokens` on the o-series
+# and GPT-5 family (they 400 with "Unsupported parameter: 'max_tokens'").
+# Anthropic kept `max_tokens` on everything, so this check is OpenAI-side
+# only. xAI's Grok / LM Studio / Ollama all still accept max_tokens.
+def _model_uses_max_completion_tokens(model: str) -> bool:
+    m = model.lower()
+    return m.startswith(("o1-", "o3-", "o4-", "gpt-5"))
+
+
 def _compute_cost(model: str, input_tokens: int, output_tokens: int) -> float:
     """Dollars spent for a single call, using the per-million pricing in
     forge.config.EXECUTOR_MODELS. Unknown models default to zero cost
@@ -109,6 +118,8 @@ def _llm_oneshot(prompt: str, system: str, model: str,
     if provider == "anthropic":
         import anthropic
         client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+        # Anthropic keeps max_tokens on every model (no rename), so no
+        # conditional here — only temperature gets dropped on 4.5+.
         kwargs: dict[str, Any] = {
             "model": model, "max_tokens": max_tokens,
             "messages": [{"role": "user", "content": prompt}],
@@ -149,8 +160,14 @@ def _llm_oneshot(prompt: str, system: str, model: str,
         messages.append({"role": "system", "content": system})
     messages.append({"role": "user", "content": prompt})
     call_kwargs: dict[str, Any] = {
-        "model": model, "messages": messages, "max_tokens": max_tokens,
+        "model": model, "messages": messages,
     }
+    # gpt-5 / o-series require max_completion_tokens; everything else
+    # (gpt-4o, xAI Grok, LM Studio, Ollama) still takes max_tokens.
+    if _model_uses_max_completion_tokens(model):
+        call_kwargs["max_completion_tokens"] = max_tokens
+    else:
+        call_kwargs["max_tokens"] = max_tokens
     if not skip_temp:
         call_kwargs["temperature"] = temperature
     resp = client.chat.completions.create(**call_kwargs)
