@@ -1419,6 +1419,29 @@
                             <button class="nes-btn nes-mini-btn" id="nes-coach-now-btn" disabled>Ask coach now</button>
                         </div>
 
+                        <!-- On-screen player controller — useful for name-
+                             register screens / menus where Grok can't easily
+                             navigate, and for laptops without a gamepad.
+                             Click-and-hold semantics: mousedown presses,
+                             mouseup/mouseleave releases (so you can hold
+                             RIGHT to walk, etc.). -->
+                        <div class="nes-pc-block">
+                            <div class="nes-pc-header">
+                                <span>Manual Controls · P1</span>
+                                <span class="nes-pc-hint">Click and hold · keys still work</span>
+                            </div>
+                            <div class="nes-pc-grid">
+                                <button class="nes-pc-btn nes-pc-up"     data-btn="UP">↑</button>
+                                <button class="nes-pc-btn nes-pc-left"   data-btn="LEFT">←</button>
+                                <button class="nes-pc-btn nes-pc-down"   data-btn="DOWN">↓</button>
+                                <button class="nes-pc-btn nes-pc-right"  data-btn="RIGHT">→</button>
+                                <button class="nes-pc-btn nes-pc-b"      data-btn="B">B</button>
+                                <button class="nes-pc-btn nes-pc-a"      data-btn="A">A</button>
+                                <button class="nes-pc-btn nes-pc-select" data-btn="SELECT">SEL</button>
+                                <button class="nes-pc-btn nes-pc-start"  data-btn="START">START</button>
+                            </div>
+                        </div>
+
                         <div class="nes-events-block">
                             <div class="nes-events-header">
                                 <span>Events / Vault log</span>
