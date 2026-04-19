@@ -2275,6 +2275,27 @@ async function nesBoot() {
     // Enable controls
     ["nes-pause-btn","nes-reset-btn","nes-stop-btn","nes-coach-now-btn","nes-note-btn","nes-mute-btn"]
         .forEach(id => { const b = document.getElementById(id); if (b) b.disabled = false; });
+
+    // Auto-tap START 1.5s after boot — covers the near-universal NES
+    // pattern where a title screen waits for START to begin gameplay.
+    // If the game's already past the title (e.g. save state) this just
+    // pauses/unpauses once briefly, which is harmless.
+    setTimeout(() => {
+        if (!nesState.nes || !nesState.running || nesState.paused) return;
+        try {
+            nesState.nes.buttonDown(1, NES_BUTTON_CODES.START);
+            setTimeout(() => {
+                if (nesState.nes) {
+                    try { nesState.nes.buttonUp(1, NES_BUTTON_CODES.START); } catch (_) {}
+                }
+            }, 150);
+            // Record this as a synthetic action so the client-side filter
+            // doesn't stall Grok from pressing START again in the next tick
+            // if a second menu screen appears.
+            nesState.lastActions.push({ buttons: ["START"], hold_ms: 150 });
+        } catch (_) {}
+    }, 1500);
+
     // Start RAF
     nesRafLoop();
     // Kick the first coach call immediately so we don't stare at a blank panel.
@@ -2735,30 +2756,29 @@ async function nesControllerViaGrok({ model, frameB64, coachPlan, recentActions 
         }
     }
     const buttons = Array.isArray(data.buttons) ? data.buttons : [];
-    // Auto-pause when the model returns empty buttons N times in a row.
-    // Usually happens when stuck on a menu / unreadable screen / Grok
-    // mis-reads a black frame. Stopping is cheaper than paying a 0.5c
-    // round-trip per second to confirm it's still stuck.
-    const STUCK_THRESHOLD = 5;
-    if (buttons.length === 0) {
+    // Auto-pause when the model returns empty buttons many ticks in a
+    // row — stopping is cheaper than paying round-trips to confirm the
+    // screen hasn't changed. Two knobs to keep false positives low:
+    //   GRACE_CALLS: first N ticks don't count (warm-up, title screen)
+    //   STUCK_THRESHOLD: consecutive empties after the grace period
+    const GRACE_CALLS = 2;
+    const STUCK_THRESHOLD = 8;
+    const pastGrace = nesState.controllerCalls > GRACE_CALLS;
+    if (buttons.length === 0 && pastGrace) {
         nesState.controllerConsecutiveEmpty += 1;
         if (nesState.controllerConsecutiveEmpty >= STUCK_THRESHOLD
             && !nesState.controllerPaused) {
             nesState.controllerPaused = true;
             nesSetCoachText(
-                `Controller auto-paused after ${STUCK_THRESHOLD} empty replies ` +
-                `($${nesState.controllerCostUsd.toFixed(4)} spent, ` +
-                `${nesState.controllerCalls} calls). ` +
-                `Screen may be stuck on a menu; press START manually or ` +
-                `click "▶ Resume Ctrl" to retry.`,
-                "danger"
+                `Controller idle for ${STUCK_THRESHOLD} ticks — paused to save tokens ` +
+                `(so far: ${nesState.controllerCalls} calls, $${nesState.controllerCostUsd.toFixed(4)}). ` +
+                `If the game's on a menu, press ENTER to tap START manually, ` +
+                `then click ▶ Resume Ctrl.`,
+                ""
             );
-            // Flip the controller provider to "off" visually so the user
-            // sees the pause, and swap the mute/theater nearby for a
-            // resume affordance.
             nesSyncControllerPauseUi();
         }
-    } else {
+    } else if (buttons.length > 0) {
         nesState.controllerConsecutiveEmpty = 0;
     }
     return { buttons, hold_ms: data.hold_ms || 120 };
@@ -2846,21 +2866,24 @@ async function nesControllerViaLMStudio({ model, frameB64, coachPlan, recentActi
     // HUD shows "CALLS 47 · COST $0.0000" and the stuck-detection fires
     // on empty outputs the same way Grok does.
     nesState.controllerCalls += 1;
-    if (action.buttons.length === 0) {
+    const GRACE_CALLS = 2;
+    const STUCK_THRESHOLD = 8;
+    const pastGrace = nesState.controllerCalls > GRACE_CALLS;
+    if (action.buttons.length === 0 && pastGrace) {
         nesState.controllerConsecutiveEmpty += 1;
-        if (nesState.controllerConsecutiveEmpty >= 5 && !nesState.controllerPaused) {
+        if (nesState.controllerConsecutiveEmpty >= STUCK_THRESHOLD
+            && !nesState.controllerPaused) {
             nesState.controllerPaused = true;
             nesSetCoachText(
-                `Controller auto-paused — 5 empty replies in a row. ` +
-                `Gemma 4 / Ministral / Qwen reasoning variants tend to ` +
-                `burn their whole budget on chain-of-thought and emit ` +
-                `nothing. Try switching Controller via = Grok, or click ` +
-                `▶ Resume Ctrl.`,
-                "danger"
+                `Controller idle for ${STUCK_THRESHOLD} ticks — paused to save time. ` +
+                `Gemma 4 / Qwen / Ministral reasoning variants tend to ` +
+                `burn their token budget on chain-of-thought and emit nothing. ` +
+                `Switch Controller via = Grok for a faster path, or click ▶ Resume Ctrl.`,
+                ""
             );
             nesSyncControllerPauseUi();
         }
-    } else {
+    } else if (action.buttons.length > 0) {
         nesState.controllerConsecutiveEmpty = 0;
     }
     return action;
