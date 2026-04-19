@@ -1988,6 +1988,7 @@ const nesState = {
     // lowest latency. `lastAction` is kept to de-duplicate identical
     // plans in the controller prompt so the model varies its moves.
     controllerInFlight: false,
+    tickInFlight: false,          // guard for /tick heartbeat (was unguarded)
     lastControllerAt: 0,
     controllerInterval: 1000,
     controllerUrl: "http://localhost:1234/v1",
@@ -2436,10 +2437,18 @@ function nesRafLoop() {
 
     nesFpsTick();
 
-    // Heartbeat tick to server: 2 Hz with the latest frame as thumbnail
-    if (now - nesState.lastTickSentAt > 500) {
+    // Heartbeat tick to server: ~0.7 Hz (was 2 Hz — too aggressive on
+    // Windows localhost where the Flask dev server is single-threaded
+    // and slow coach calls block the whole socket pool. Saw
+    // ERR_NO_BUFFER_SPACE when ticks piled up behind a stalled coach.)
+    // tickInFlight guard prevents a backed-up queue from growing even
+    // when a single tick takes unexpectedly long.
+    if (!nesState.tickInFlight && now - nesState.lastTickSentAt > 1500) {
         nesState.lastTickSentAt = now;
-        nesSendTick().catch(() => {});
+        nesState.tickInFlight = true;
+        nesSendTick()
+            .catch(() => {})
+            .finally(() => { nesState.tickInFlight = false; });
     }
     // Coach at the chosen interval (human-only mode skips)
     if (nesState.mode !== "human"
@@ -2476,24 +2485,26 @@ async function nesSendTick() {
     if (!canvas) return;
     // Downscale the preview to keep POST body small — the coach later
     // asks for a fresh frame so this is just a session heartbeat.
-    let frameB64 = "";
+    // Further: skip the frame entirely now that the heartbeat is only
+    // every ~1.5s. The coach POSTs its own fresh frame when it fires,
+    // so shipping one here is pure redundancy that bloats socket use.
     try {
-        // Throttle PNG generation to every ~5 ticks (≈2.5s)
-        if (nesState.frameN % 150 === 0) {
-            frameB64 = canvas.toDataURL("image/png");
-        }
-    } catch (_) {}
-    try {
-        await fetchJson(`/api/nes/sessions/${s.id}/tick`, {
+        // Abort if the tick hangs more than 4s — prevents Chrome's
+        // per-origin connection pool from clogging during a Flask stall.
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 4000);
+        await fetch(`/api/nes/sessions/${s.id}/tick`, {
             method: "POST",
             headers: {"Content-Type": "application/json"},
             body: JSON.stringify({
-                frame_b64: frameB64,
+                frame_b64: "",
                 frame_n: nesState.frameN,
                 state: nesReadGameState(),
             }),
+            signal: controller.signal,
         });
-    } catch (_) {}
+        clearTimeout(timeoutId);
+    } catch (_) { /* aborts + network errors are silently ignored */ }
 }
 
 // Very generic hook — later we can plug per-ROM RAM inspectors here
