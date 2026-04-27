@@ -20,12 +20,12 @@ POLYMARKET_PRIVATE_KEY = os.getenv("POLYMARKET_PRIVATE_KEY", "")
 # Multi-agent model is for *planning* only — it does NOT support client-side
 # tools on standard tier (returns "beta access required"). Use a tool-capable
 # model (reasoning / non-reasoning) for the executor.
-PLANNER_MODEL = os.getenv("FORGE_PLANNER_MODEL", "grok-4.20-multi-agent-0309")
-EXECUTOR_MODEL = os.getenv("FORGE_EXECUTOR_MODEL", "grok-4.20-0309-reasoning")
+PLANNER_MODEL = os.getenv("FORGE_PLANNER_MODEL", "grok-4.20-0309-non-reasoning")
+EXECUTOR_MODEL = os.getenv("FORGE_EXECUTOR_MODEL", "grok-code-fast-1")
 PLANNER_AGENT_COUNT = int(os.getenv("FORGE_PLANNER_AGENT_COUNT", "16"))
 # Hard cap on planner deliberation — protects against models that burn tens
 # of thousands of reasoning tokens before emitting a plan.
-PLANNER_MAX_REASONING_TOKENS = int(os.getenv("FORGE_PLANNER_MAX_REASONING_TOKENS", "30000"))
+PLANNER_MAX_REASONING_TOKENS = int(os.getenv("FORGE_PLANNER_MAX_REASONING_TOKENS", "12000"))
 
 # Available executor models with pricing (cost per 1M tokens) and capability
 # flags. `supports_tools=False` means the model cannot perform client-side
@@ -37,6 +37,12 @@ EXECUTOR_MODELS = {
         "supports_tools": True,
     },
     # xAI
+    # "grok-build" exists on xAI but requires OAuth2 (IDE-only). API keys get
+    # PERMISSION_DENIED. Left out of the registry — the dropdown would
+    # mislead users into picking a model that can't be driven from Forge.
+    # If xAI opens it up for API keys, re-add:
+    #   "grok-build": {"label": "Grok Build", "provider": "xAI",
+    #                   "cost_in": ?, "cost_out": ?, "supports_tools": True}
     "grok-4-1-fast-reasoning": {
         "label": "Grok 4.1 Fast Reasoning", "provider": "xAI",
         "cost_in": 0.20, "cost_out": 0.50,
@@ -69,23 +75,75 @@ EXECUTOR_MODELS = {
         "cost_in": 0.20, "cost_out": 1.50,
         "supports_tools": True,
     },
-    # Anthropic
-    "claude-sonnet-4-20250514": {
-        "label": "Claude Sonnet 4", "provider": "Anthropic",
-        "cost_in": 3.00, "cost_out": 15.00,
-        "supports_tools": True,
-    },
-    "claude-opus-4-20250514": {
-        "label": "Claude Opus 4", "provider": "Anthropic",
+    # Anthropic — verified against live /v1/models (2026-04-19). IDs that
+    # look natural ("claude-sonnet-4-7", "claude-haiku-4-5") don't all
+    # exist — Anthropic only publishes the unversioned alias for the top
+    # flagship and sometimes one size below. Everything else needs the
+    # dated suffix. Previous config invented a couple of IDs that 404'd
+    # on first call.
+    "claude-opus-4-7": {
+        "label": "Claude Opus 4.7", "provider": "Anthropic",
         "cost_in": 15.00, "cost_out": 75.00,
         "supports_tools": True,
     },
-    "claude-haiku-4-20250414": {
-        "label": "Claude Haiku 4", "provider": "Anthropic",
-        "cost_in": 0.80, "cost_out": 4.00,
+    "claude-sonnet-4-6": {
+        "label": "Claude Sonnet 4.6", "provider": "Anthropic",
+        "cost_in": 3.00, "cost_out": 15.00,
         "supports_tools": True,
     },
-    # OpenAI
+    "claude-opus-4-6": {
+        "label": "Claude Opus 4.6", "provider": "Anthropic",
+        "cost_in": 15.00, "cost_out": 75.00,
+        "supports_tools": True,
+    },
+    "claude-opus-4-5-20251101": {
+        "label": "Claude Opus 4.5", "provider": "Anthropic",
+        "cost_in": 15.00, "cost_out": 75.00,
+        "supports_tools": True,
+    },
+    "claude-sonnet-4-5-20250929": {
+        "label": "Claude Sonnet 4.5", "provider": "Anthropic",
+        "cost_in": 3.00, "cost_out": 15.00,
+        "supports_tools": True,
+    },
+    "claude-haiku-4-5-20251001": {
+        "label": "Claude Haiku 4.5", "provider": "Anthropic",
+        "cost_in": 1.00, "cost_out": 5.00,
+        "supports_tools": True,
+    },
+    "claude-opus-4-1-20250805": {
+        "label": "Claude Opus 4.1", "provider": "Anthropic",
+        "cost_in": 15.00, "cost_out": 75.00,
+        "supports_tools": True,
+    },
+    # Legacy Claude 4 pinned IDs — still live on Anthropic's API.
+    "claude-opus-4-20250514": {
+        "label": "Claude Opus 4 (legacy pin)", "provider": "Anthropic",
+        "cost_in": 15.00, "cost_out": 75.00,
+        "supports_tools": True,
+    },
+    "claude-sonnet-4-20250514": {
+        "label": "Claude Sonnet 4 (legacy pin)", "provider": "Anthropic",
+        "cost_in": 3.00, "cost_out": 15.00,
+        "supports_tools": True,
+    },
+    # OpenAI — GPT-5.4 family is the current flagship; 4o tier retained for
+    # low-cost jobs; o3-mini kept for reasoning tasks that still prefer it.
+    "gpt-5.4": {
+        "label": "GPT-5.4", "provider": "OpenAI",
+        "cost_in": 2.50, "cost_out": 15.00,
+        "supports_tools": True,
+    },
+    "gpt-5.4-mini": {
+        "label": "GPT-5.4 Mini", "provider": "OpenAI",
+        "cost_in": 0.75, "cost_out": 4.50,
+        "supports_tools": True,
+    },
+    "gpt-5.4-nano": {
+        "label": "GPT-5.4 Nano", "provider": "OpenAI",
+        "cost_in": 0.20, "cost_out": 1.25,
+        "supports_tools": True,
+    },
     "gpt-4o": {
         "label": "GPT-4o", "provider": "OpenAI",
         "cost_in": 2.50, "cost_out": 10.00,
@@ -284,6 +342,101 @@ VRC48M_KEY = os.getenv("FORGE_VRC48M_KEY", "vrc48m-dev-key-change-in-prod")
 RAG_ENABLED = os.getenv("FORGE_RAG_ENABLED", "true").lower() == "true"
 RAG_DATA_DIR = DATA_DIR / "rag"
 RAG_DATA_DIR.mkdir(exist_ok=True)
+
+# ── Salesforce Pack ───────────────────────────────────────────────────────
+# Requires `sf` CLI authenticated to at least one org (`sf org login web`).
+# Writes are additionally gated by FORGE_SF_ALLOW_WRITES=true.
+SALESFORCE_PACK_ENABLED = os.getenv("FORGE_SALESFORCE_PACK_ENABLED", "false").lower() == "true"
+
+# ── Blender Pack ──────────────────────────────────────────────────────────
+# Requires Blender with the blender-mcp addon installed and connected, plus
+# `uv` on PATH so `uvx blender-mcp` can launch the MCP server on demand.
+# See https://github.com/ahujasid/blender-mcp for addon install instructions.
+BLENDER_PACK_ENABLED = os.getenv("FORGE_BLENDER_PACK_ENABLED", "false").lower() == "true"
+
+# ── Playwright Pack ───────────────────────────────────────────────────────
+# Requires Node + `npx` on PATH so `npx @playwright/mcp@latest` can launch.
+# First run downloads Chromium (~150MB); subsequent runs are fast.
+PLAYWRIGHT_PACK_ENABLED = os.getenv("FORGE_PLAYWRIGHT_PACK_ENABLED", "false").lower() == "true"
+
+# ── ACE-Step Music Pack ───────────────────────────────────────────────────
+# Local music generation via ACE-Step (diffusion text-to-music, 3.5B, ~8GB
+# VRAM). Tool hits an HTTP endpoint — user must launch ACE-Step separately:
+#   cd B:/AI Tunes/ACE-Step
+#   venv\Scripts\python.exe infer-api.py   # FastAPI /generate on :7865
+# or the Gradio UI at same port via venv\Scripts\acestep.exe.
+MUSIC_PACK_ENABLED = os.getenv("FORGE_MUSIC_PACK_ENABLED", "false").lower() == "true"
+
+# ── MCP Client (multi-node: internal forge:vault / forge:graph + external) ─
+# Unified store/recall surface across Forge's own memory subsystems AND any
+# MCP server spawned over stdio (blender-mcp, @salesforce/mcp, etc.).
+MCP_ENABLED = os.getenv("FORGE_MCP_ENABLED", "true").lower() == "true"
+# When true, every successful executor tool call is synced into
+# forge:vault + forge:graph as the agent works.
+MCP_AUTO_SYNC_ENABLED = os.getenv("FORGE_MCP_AUTO_SYNC_ENABLED", "true").lower() == "true"
+
+# Config-driven external MCP server dispatch table. Router reads this at
+# startup so namespaces are pluggable without per-pack tool files.
+#
+#   command     — argv list for stdio spawn; command[0] must be on PATH
+#   enabled     — router will reject calls to disabled servers with a
+#                 friendly error pointing at the fix
+#   auto_start  — include in splash banner as an active namespace
+#                 (actual pre-spawning / session pooling is future work;
+#                 first call still pays subprocess cold start)
+#   timeout     — seconds per tool call
+#
+# Each `enabled` flag is individually overridable via
+#   FORGE_MCP_SERVER_<NAME_UPPER>_ENABLED=(true|false)
+MCP_SERVERS: dict[str, dict] = {
+    "blender": {
+        "command": ["uvx", "blender-mcp"],
+        "enabled": os.getenv("FORGE_MCP_SERVER_BLENDER_ENABLED", "true").lower() == "true",
+        "auto_start": True,
+        "timeout": 120.0,
+    },
+    "salesforce": {
+        "command": ["uvx", "@salesforce/mcp"],
+        "enabled": os.getenv("FORGE_MCP_SERVER_SALESFORCE_ENABLED", "true").lower() == "true",
+        "auto_start": True,
+        "timeout": 60.0,
+    },
+    "playwright": {
+        # Official Microsoft Playwright MCP — browser automation.
+        # Drives a real Chromium and exposes navigate / click / screenshot /
+        # fill / eval / snapshot / network primitives. First run pulls
+        # Chromium via `npx`, so give the first spawn a generous window.
+        "command": ["npx", "-y", "@playwright/mcp@latest"],
+        "enabled": os.getenv("FORGE_MCP_SERVER_PLAYWRIGHT_ENABLED", "true").lower() == "true",
+        "auto_start": True,
+        "timeout": 90.0,
+    },
+    # future: cursor, linear, notion, github, …
+}
+
+# ── ACE-Step local server ─────────────────────────────────────────────────
+# Base URL of the ACE-Step HTTP server (FastAPI infer-api.py or Gradio).
+# Forge's music tool POSTs to <base>/generate — matches infer-api.py's route.
+ACESTEP_BASE_URL = os.getenv("FORGE_ACESTEP_URL", "http://127.0.0.1:7865")
+# Checkpoint path passed through to ACE-Step pipeline. Empty = auto-download.
+ACESTEP_CHECKPOINT = os.getenv("FORGE_ACESTEP_CHECKPOINT", "")
+
+# ── NES Arena ─────────────────────────────────────────────────────────────
+# Hybrid-intelligence NES emulator. jsnes runs in the browser; the coach
+# (and, optionally, a fast controller) call back to this Forge for strategy.
+NES_PACK_ENABLED = os.getenv("FORGE_NES_PACK_ENABLED", "true").lower() == "true"
+# Root directory to scan for .nes ROMs (recursive). User's existing dump
+# lives at B:/Grok/forge/nes which contains Castlevania 2, Metroid, Zelda,
+# Punch-Out, Rygar, etc. plus the FCEUX binary and save states.
+NES_ROMS_DIR = Path(os.getenv("FORGE_NES_ROMS_DIR",
+    str(Path(__file__).resolve().parent / "nes")))
+# Coach: slow, strategic. Fires every NES_COACH_INTERVAL_MS. Vision-capable
+# models get the frame; others get a text summary only.
+NES_COACH_MODEL = os.getenv("FORGE_NES_COACH_MODEL", "grok-4.20-0309-reasoning")
+# Controller: fast, reflex. Called between coach ticks to translate plan
+# into buttons. v1 uses the same provider path; swap to a local VLM later.
+NES_CONTROLLER_MODEL = os.getenv("FORGE_NES_CONTROLLER_MODEL", "grok-4-1-fast-non-reasoning")
+NES_COACH_INTERVAL_MS = int(os.getenv("FORGE_NES_COACH_INTERVAL_MS", "2500"))
 
 # ── Scheduler ─────────────────────────────────────────────────────────────
 SCHEDULER_ENABLED = os.getenv("FORGE_SCHEDULER_ENABLED", "true").lower() == "true"

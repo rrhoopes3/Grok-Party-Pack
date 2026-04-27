@@ -2,7 +2,8 @@ from .registry import ToolRegistry
 from . import (
     filesystem, shell, browser, http, python_repl,
     git_ops, search, clipboard, image, database, archive,
-    email, escalation, prophecy, surgeon,
+    email, escalation, prophecy, surgeon, salesforce, blender, mcp,
+    playwright, music, nes,
 )
 
 
@@ -26,6 +27,18 @@ def create_registry() -> ToolRegistry:
     prophecy.register(reg)
     # Surgeon — model surgery via OBLITERATUS
     surgeon.register(reg)
+    # Salesforce — personal productivity via sf CLI
+    salesforce.register(reg)
+    # Blender — 3D scene manipulation via blender-mcp (MCP client)
+    blender.register(reg)
+    # Playwright — browser automation via @playwright/mcp (MCP client)
+    playwright.register(reg)
+    # ACE-Step — local music generation via HTTP (user-launched)
+    music.register(reg)
+    # NES Arena — coach/inspect live emulator sessions (jsnes in browser)
+    nes.register(reg)
+    # MCP namespaces — unified store/recall across forge:vault, forge:graph, external
+    mcp.register(reg)
     # Generative UI — interactive widget rendering
     from forge.generative_ui import register_widget_tools
     register_widget_tools(reg)

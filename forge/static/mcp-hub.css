@@ -1,0 +1,308 @@
+/*
+ * MCP Hub sidebar — LCARS-flavored, self-contained.
+ *
+ * Mounts inside <aside id="mcp-hub">. All styles are scoped under that
+ * selector so they won't leak into the host page. Drop the stylesheet
+ * anywhere — no framework required. Typography defaults to a condensed
+ * sans; falls back gracefully if Antonio isn't available.
+ */
+
+#mcp-hub {
+  --lcars-bg: #05070b;
+  --lcars-panel: #121821;
+  --lcars-border: rgba(255, 153, 0, 0.25);
+  --lcars-amber: #ff9900;
+  --lcars-peach: #ffcc99;
+  --lcars-canary: #ffcc66;
+  --lcars-blue: #9999ff;
+  --lcars-teal: #66ccff;
+  --lcars-lilac: #cc99cc;
+  --lcars-red: #cc6666;
+  --lcars-green: #99cc99;
+  --lcars-text: #eadfd0;
+  --lcars-muted: #8a94a3;
+  --lcars-row-gap: 6px;
+
+  font-family: "Antonio", "Oswald", "Roboto Condensed", "Arial Narrow", sans-serif;
+  color: var(--lcars-text);
+  background: var(--lcars-bg);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 12px;
+  line-height: 1.35;
+  box-sizing: border-box;
+  height: 100%;
+  overflow-y: auto;
+  padding: 0;
+}
+
+#mcp-hub *,
+#mcp-hub *::before,
+#mcp-hub *::after { box-sizing: border-box; }
+
+/* ── Header ─────────────────────────────────────────────────────────── */
+
+#mcp-hub .hub-header {
+  display: grid;
+  grid-template-columns: 60px 1fr;
+  grid-template-rows: 46px auto;
+  gap: 4px;
+  padding: 6px 8px 8px;
+  overflow: hidden;
+}
+
+/* Classic LCARS elbow — the 60px block with a rounded top-left corner
+ * sits above-left of a shorter amber bar that sweeps right across the
+ * whole row, giving the familiar ⌐-shaped frame. Built with pure grid,
+ * no absolute positioning. */
+#mcp-hub .hub-elbow {
+  grid-column: 1;
+  grid-row: 1;
+  background: var(--lcars-amber);
+  border-top-left-radius: 32px;
+  align-self: stretch;
+}
+
+#mcp-hub .hub-title {
+  grid-column: 2;
+  grid-row: 1;
+  align-self: end;
+  color: var(--lcars-bg);
+  font-weight: 700;
+  font-size: 14px;
+  padding: 0 10px;
+  height: 24px;
+  line-height: 24px;
+  background: var(--lcars-amber);
+  border-radius: 0;
+}
+
+#mcp-hub .hub-subtitle {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  color: var(--lcars-muted);
+  font-size: 10px;
+  margin-top: 4px;
+  font-family: "Cascadia Code", "JetBrains Mono", monospace;
+  text-transform: none;
+  letter-spacing: 0;
+  word-break: break-word;
+}
+
+/* ── Section labels with left bracket ───────────────────────────────── */
+
+#mcp-hub .section {
+  padding: 4px 8px 10px;
+}
+
+#mcp-hub .section-label {
+  display: grid;
+  grid-template-columns: 60px 1fr auto;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 6px;
+}
+#mcp-hub .section-label .tab {
+  height: 20px;
+  background: var(--lcars-peach);
+  border-radius: 0 10px 10px 0;
+  color: var(--lcars-bg);
+  font-weight: 700;
+  padding-right: 8px;
+  text-align: right;
+  line-height: 20px;
+  font-size: 10px;
+}
+#mcp-hub .section-label .name {
+  font-size: 12px;
+  color: var(--lcars-peach);
+  letter-spacing: 0.08em;
+}
+#mcp-hub .section-label .count {
+  font-size: 10px;
+  color: var(--lcars-muted);
+  font-family: "Cascadia Code", "JetBrains Mono", monospace;
+  text-transform: none;
+}
+
+#mcp-hub .section.external .section-label .tab { background: var(--lcars-canary); }
+#mcp-hub .section.external .section-label .name { color: var(--lcars-canary); }
+#mcp-hub .section.internal .section-label .tab { background: var(--lcars-blue); }
+#mcp-hub .section.internal .section-label .name { color: var(--lcars-blue); }
+
+/* ── Row (namespace entry) ──────────────────────────────────────────── */
+
+#mcp-hub .ns-row {
+  display: grid;
+  grid-template-columns: 60px 1fr;
+  gap: 6px;
+  margin-bottom: var(--lcars-row-gap);
+  cursor: pointer;
+  background: var(--lcars-panel);
+  border: 1px solid transparent;
+  transition: border-color 120ms ease;
+}
+#mcp-hub .ns-row:hover {
+  border-color: var(--lcars-border);
+}
+#mcp-hub .ns-row.active {
+  border-color: var(--lcars-amber);
+}
+
+#mcp-hub .ns-row .ns-bar {
+  background: var(--lcars-teal);
+  border-top-right-radius: 14px;
+  border-bottom-right-radius: 14px;
+  height: 100%;
+  min-height: 42px;
+  color: var(--lcars-bg);
+  padding: 6px 8px 6px 6px;
+  font-weight: 700;
+  font-size: 10px;
+  text-align: right;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+#mcp-hub .ns-row.vault .ns-bar { background: var(--lcars-blue); }
+#mcp-hub .ns-row.graph .ns-bar { background: var(--lcars-lilac); }
+#mcp-hub .ns-row.up .ns-bar { background: var(--lcars-teal); }
+#mcp-hub .ns-row.down .ns-bar { background: var(--lcars-red); }
+#mcp-hub .ns-row.unknown .ns-bar { background: var(--lcars-peach); }
+#mcp-hub .ns-row.disabled .ns-bar {
+  background: var(--lcars-muted);
+  opacity: 0.65;
+}
+
+#mcp-hub .ns-body {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 6px 8px 6px 0;
+  gap: 2px;
+}
+#mcp-hub .ns-body .ns-name {
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 0.05em;
+}
+#mcp-hub .ns-body .ns-meta {
+  font-family: "Cascadia Code", "JetBrains Mono", monospace;
+  font-size: 10px;
+  color: var(--lcars-muted);
+  text-transform: none;
+  letter-spacing: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* ── Status pills ───────────────────────────────────────────────────── */
+
+#mcp-hub .pill {
+  display: inline-block;
+  padding: 0 6px;
+  border-radius: 8px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  font-family: inherit;
+  text-transform: uppercase;
+  line-height: 14px;
+}
+#mcp-hub .pill.up { background: var(--lcars-green); color: var(--lcars-bg); }
+#mcp-hub .pill.down { background: var(--lcars-red); color: var(--lcars-bg); }
+#mcp-hub .pill.unknown { background: var(--lcars-peach); color: var(--lcars-bg); }
+#mcp-hub .pill.disabled { background: var(--lcars-muted); color: var(--lcars-bg); }
+
+/* ── Expanded detail panel (when a row is active) ───────────────────── */
+
+#mcp-hub .ns-detail {
+  background: var(--lcars-panel);
+  padding: 6px 8px 8px 66px;
+  border-left: 4px solid var(--lcars-amber);
+  margin: -2px 0 var(--lcars-row-gap) 0;
+  font-family: "Cascadia Code", "JetBrains Mono", monospace;
+  font-size: 10px;
+  color: var(--lcars-muted);
+  text-transform: none;
+  letter-spacing: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+#mcp-hub .ns-detail .cmd { color: var(--lcars-peach); }
+#mcp-hub .ns-detail .err { color: var(--lcars-red); }
+#mcp-hub .ns-detail ul { margin: 4px 0 0; padding-left: 14px; }
+#mcp-hub .ns-detail li { margin-bottom: 2px; }
+#mcp-hub .ns-detail .detail-actions {
+  display: flex;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+/* ── Buttons ────────────────────────────────────────────────────────── */
+
+#mcp-hub .btn {
+  font-family: inherit;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 700;
+  font-size: 10px;
+  color: var(--lcars-bg);
+  background: var(--lcars-amber);
+  border: none;
+  padding: 3px 10px;
+  border-radius: 0 12px 12px 0;
+  cursor: pointer;
+  transition: filter 120ms ease;
+}
+#mcp-hub .btn:hover { filter: brightness(1.15); }
+#mcp-hub .btn:active { filter: brightness(0.85); }
+#mcp-hub .btn.ghost {
+  background: transparent;
+  color: var(--lcars-peach);
+  border: 1px solid var(--lcars-peach);
+  border-radius: 0 10px 10px 0;
+}
+#mcp-hub .btn.danger { background: var(--lcars-red); }
+
+/* ── Footer ─────────────────────────────────────────────────────────── */
+
+#mcp-hub .hub-footer {
+  margin-top: auto;
+  padding: 8px;
+  border-top: 1px solid var(--lcars-border);
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+#mcp-hub .hub-footer .stamp {
+  margin-left: auto;
+  color: var(--lcars-muted);
+  font-size: 9px;
+  font-family: "Cascadia Code", "JetBrains Mono", monospace;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+/* ── Loading / empty state ──────────────────────────────────────────── */
+
+#mcp-hub .hub-loading {
+  padding: 12px;
+  font-family: "Cascadia Code", "JetBrains Mono", monospace;
+  font-size: 10px;
+  color: var(--lcars-muted);
+  text-transform: none;
+  letter-spacing: 0;
+}
+#mcp-hub .hub-error {
+  margin: 8px;
+  padding: 6px 8px;
+  border-left: 3px solid var(--lcars-red);
+  color: var(--lcars-red);
+  font-family: "Cascadia Code", "JetBrains Mono", monospace;
+  font-size: 10px;
+  text-transform: none;
+  letter-spacing: 0;
+}

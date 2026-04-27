@@ -1,0 +1,2837 @@
+/*
+ * LCARS v2 — Forge Command Nexus
+ * ===============================
+ *
+ * Primary visual language for The Forge. Loaded AFTER style.css, this
+ * stylesheet owns the look: palette, typography, borders, LCARS chrome
+ * (elbows, pill buttons, colored pane headers, command bar).
+ *
+ * Design language: Okudagram LCARS tuned for QD-OLED emissive displays.
+ * True-black backgrounds (OLED pixels off → infinite contrast), high-
+ * saturation LCARS palette, solid flat color blocks, condensed uppercase
+ * typography. No glassmorphism, no scanlines, no CRT tricks — those
+ * fight with LCARS's flat-block grammar.
+ *
+ * Layout additions (new HTML coming in next pass):
+ *   body.lcars > .lcars-frame                — left LCARS frame (decorative)
+ *   body.lcars > .topbar                     — full-width LCARS header
+ *   body.lcars > .lcars-shell                — 3-col: left rail / viewer / MCP hub
+ *     .lcars-left-rail                       — control surface (sandbox, model, agents, pack)
+ *     .lcars-viewer                          — main content (tabs render here)
+ *     #mcp-hub                               — tactical station (right)
+ *
+ * Everything is scoped under body.lcars so toggling the lcars class off
+ * falls back to the old style.css theme cleanly.
+ */
+
+/* ── Palette ─────────────────────────────────────────────────────────── */
+
+:root {
+  /* Okudagram LCARS primaries, emissive-tuned */
+  --lcars-bg:         #000000;  /* OLED: pixel off, infinite contrast */
+  --lcars-panel:      #05070a;  /* near-black; still reads as separate */
+  --lcars-panel-2:    #0a0d12;
+  --lcars-ink:        #000000;
+  --lcars-border:     rgba(255, 153, 0, 0.55);
+  --lcars-border-dim: rgba(255, 153, 0, 0.18);
+
+  --lcars-amber:      #ff9900;   /* Okuda amber, already pure */
+  --lcars-peach:      #ffb380;
+  --lcars-canary:     #ffcc00;
+  --lcars-orange:     #ff7733;
+  --lcars-blue:       #6688ff;
+  --lcars-teal:       #33ccff;
+  --lcars-lilac:      #cc88ff;
+  --lcars-violet:     #ff3399;
+  --lcars-red:        #ff3344;
+  --lcars-rust:       #cc6666;   /* classic LCARS "red 2" — used for Keys tab */
+  --lcars-plum:       #9966cc;   /* LCARS "violet 2" — used for Chess tab */
+  --lcars-scarlet:    #ff5544;   /* NES Arena — arcade/CRT power-LED red */
+  --lcars-green:      #66ff99;
+  --lcars-text:       #ffe4c4;
+  --lcars-muted:      #778899;
+
+  /* Subtle emissive bloom for backlit-display feel */
+  --lcars-glow-amber: 0 0 20px rgba(255, 153, 0, 0.30);
+  --lcars-glow-teal:  0 0 16px rgba(51, 204, 255, 0.28);
+  --lcars-glow-red:   0 0 18px rgba(255, 51, 68, 0.35);
+
+  /* Override the baseline forge vars so every legacy selector reads LCARS */
+  --bg:            var(--lcars-bg);
+  --bg-elevated:   var(--lcars-panel);
+  --bg-panel:      var(--lcars-panel-2);
+  --bg-soft:       #111820;
+  --line:          var(--lcars-border-dim);
+  --line-strong:   var(--lcars-border);
+  --text:          var(--lcars-text);
+  --muted:         var(--lcars-muted);
+  --accent:        var(--lcars-amber);
+  --accent-strong: var(--lcars-canary);
+  --signal:        var(--lcars-green);
+  --warning:       var(--lcars-canary);
+  --danger:        var(--lcars-red);
+  --blue:          var(--lcars-teal);
+  --red:           var(--lcars-red);
+  --shadow:        0 18px 50px rgba(0, 0, 0, 0.6);
+
+  /* Layout metrics */
+  --lcars-header-h:     68px;
+  --lcars-footer-h:     52px;
+  --lcars-left-rail-w:  260px;
+  --lcars-mcp-hub-w:    300px;
+}
+
+/* ── Body + global ───────────────────────────────────────────────────── */
+
+body.lcars {
+  font-family: "Antonio", "Oswald", "Arial Narrow", "Bahnschrift Condensed", sans-serif;
+  background: #000000;
+  color: var(--lcars-text);
+  letter-spacing: 0.04em;
+  filter: saturate(1.05);
+  /* Make room for the fixed topbar above, the fixed MCP hub on the
+   * right, and the fixed LCARS footer below. All three are position:
+   * fixed so they need padding to avoid covering the document flow. */
+  padding-top: var(--lcars-header-h);
+  padding-right: var(--lcars-mcp-hub-w);
+  padding-bottom: var(--lcars-footer-h);
+}
+
+body.lcars input,
+body.lcars select,
+body.lcars textarea,
+body.lcars button {
+  font-family: inherit;
+}
+
+/* Monospace surfaces — metrics, code, composer */
+body.lcars .deck-metric strong,
+body.lcars .live-bar strong,
+body.lcars .composer textarea,
+body.lcars .msg.tool-call,
+body.lcars .msg.tool-result,
+body.lcars .msg.toll,
+body.lcars .msg.guardrail,
+body.lcars .messages,
+body.lcars pre,
+body.lcars code {
+  font-family: "Cascadia Code", "JetBrains Mono", "Consolas", monospace;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+/* ── Topbar — THE FORGE · NX-7430 · GROK 4.30 ────────────────────────── */
+
+body.lcars .topbar {
+  background: #000000;
+  border-bottom: none;
+  padding: 0;
+  gap: 0;
+  align-items: stretch;
+  height: var(--lcars-header-h);
+  backdrop-filter: none;
+  display: grid;
+  grid-template-columns:
+    auto                        /* brand block */
+    auto                        /* tab bar */
+    1fr                         /* command-center (stretches) */
+    auto                        /* feature badges */
+    auto;                       /* status pill */
+  /* Fixed so body.padding-right doesn't squeeze it */
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 90;
+  flex-shrink: 0;
+}
+
+/* The amber sweep that completes the LCARS ⌐ elbow across the top */
+body.lcars .topbar::before {
+  content: "";
+  position: absolute;
+  top: 16px;
+  left: 0;
+  right: 0;
+  height: 20px;
+  background: var(--lcars-amber);
+  box-shadow: var(--lcars-glow-amber);
+  pointer-events: none;
+  z-index: 1;
+}
+
+body.lcars .brand-block {
+  grid-column: 1;
+  align-self: end;
+  z-index: 2;
+  background: #000000;
+  padding: 0 12px 8px 16px;
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  height: 100%;
+}
+
+/* Grok Party Pack insignia — sits to the left of the text pill. Pulled
+   out of the black brand-block background with a subtle amber halo so
+   it pops without fighting the topbar's amber sweep above it. */
+body.lcars .gpp-logo {
+  height: 52px;
+  width: auto;
+  margin-bottom: 2px;
+  border-radius: 8px;
+  box-shadow:
+    0 0 0 1px rgba(255, 153, 0, 0.45),
+    0 0 12px rgba(255, 153, 0, 0.35);
+  flex-shrink: 0;
+  z-index: 3;
+  /* Slight crop of the nebula margins so the insignia fills the frame */
+  object-fit: cover;
+  object-position: center;
+}
+body.lcars .gpp-logo:hover {
+  filter: brightness(1.12);
+  box-shadow:
+    0 0 0 1px var(--lcars-canary),
+    0 0 18px rgba(255, 204, 0, 0.5);
+}
+
+body.lcars .lcars-brand-elbow {
+  width: 14px;
+  height: 28px;
+  background: var(--lcars-amber);
+  border-radius: 0 14px 0 0;
+  box-shadow: var(--lcars-glow-amber);
+  align-self: flex-end;
+}
+
+body.lcars .logo {
+  color: var(--lcars-ink);
+  background: var(--lcars-amber);
+  padding: 2px 14px 2px 12px;
+  font-family: "Antonio", "Oswald", sans-serif;
+  font-weight: 700;
+  font-size: 1rem;
+  letter-spacing: 0.18em;
+  line-height: 22px;
+  border-radius: 0 12px 12px 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  box-shadow: var(--lcars-glow-amber);
+}
+body.lcars .logo .logo-sub {
+  color: var(--lcars-ink);
+  background: var(--lcars-peach);
+  font-size: 0.6rem;
+  letter-spacing: 0.14em;
+  padding: 0 8px;
+  border-radius: 8px;
+  line-height: 16px;
+}
+
+/* ── Tab bar → LCARS pill buttons ────────────────────────────────────── */
+
+body.lcars .tab-bar {
+  grid-column: 2;
+  display: flex;
+  gap: 4px;
+  align-items: flex-end;
+  padding: 0 10px 8px;
+  margin-left: 0;
+  z-index: 2;
+  background: #000000;
+}
+
+body.lcars .tab-btn {
+  font-family: "Antonio", "Oswald", sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 0.74rem;
+  font-weight: 700;
+  padding: 3px 14px;
+  border: none;
+  border-radius: 12px;
+  background: var(--lcars-peach);
+  color: var(--lcars-ink);
+  height: 24px;
+  line-height: 18px;
+  transition: filter 120ms ease, transform 120ms ease;
+  cursor: pointer;
+}
+body.lcars .tab-btn:hover { filter: brightness(1.18); transform: translateY(-1px); }
+body.lcars .tab-btn:nth-child(1) { background: var(--lcars-peach); }
+body.lcars .tab-btn:nth-child(2) { background: var(--lcars-teal); }
+body.lcars .tab-btn:nth-child(3) { background: var(--lcars-lilac); }
+body.lcars .tab-btn:nth-child(4) { background: var(--lcars-canary); }
+body.lcars .tab-btn:nth-child(5) { background: var(--lcars-blue); }
+body.lcars .tab-btn:nth-child(6) { background: var(--lcars-orange); }
+body.lcars .tab-btn:nth-child(7) { background: var(--lcars-green); }
+body.lcars .tab-btn:nth-child(8)  { background: var(--lcars-violet); }
+body.lcars .tab-btn:nth-child(9)  { background: var(--lcars-plum);    color: #ffe4c4; }
+body.lcars .tab-btn:nth-child(10) { background: var(--lcars-scarlet); color: #ffe4c4; }
+body.lcars .tab-btn:nth-child(11) { background: var(--lcars-rust);    color: #ffe4c4; }
+
+body.lcars .tab-btn.active {
+  background: var(--lcars-amber) !important;
+  color: var(--lcars-ink);
+  box-shadow: 0 0 0 2px var(--lcars-canary) inset, var(--lcars-glow-amber);
+  filter: none;
+}
+
+/* ── Command center (model badge, alert status, cost, tokens) ───────── */
+
+body.lcars .command-center {
+  grid-column: 3;
+  align-self: end;
+  justify-self: end;
+  z-index: 2;
+  background: #000000;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 0 10px 6px;
+  font-size: 0.72rem;
+  flex-wrap: nowrap;
+  overflow: hidden;
+  max-width: 100%;
+}
+
+body.lcars .command-center .cc-label {
+  color: var(--lcars-peach);
+  font-family: "Antonio", "Oswald", sans-serif;
+  letter-spacing: 0.16em;
+  font-size: 0.6rem;
+  margin-right: 5px;
+}
+
+body.lcars .command-center strong {
+  color: var(--lcars-canary);
+  font-family: "Cascadia Code", "JetBrains Mono", monospace;
+  font-weight: 600;
+  font-size: 0.78rem;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+body.lcars .command-model-badge {
+  background: var(--lcars-amber);
+  color: var(--lcars-ink);
+  padding: 2px 12px;
+  border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  box-shadow: var(--lcars-glow-amber);
+}
+body.lcars .command-model-badge .cc-label {
+  color: var(--lcars-ink);
+}
+body.lcars .command-model-badge strong {
+  color: var(--lcars-ink);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-family: "Antonio", "Oswald", sans-serif;
+  font-size: 0.78rem;
+}
+
+body.lcars .command-alert {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+body.lcars .command-alert .alert-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--lcars-green);
+  box-shadow: 0 0 8px var(--lcars-green);
+  animation: lcars-pulse 2.2s ease-in-out infinite;
+}
+body.lcars .command-alert[data-level="YELLOW"] .alert-dot {
+  background: var(--lcars-canary);
+  box-shadow: 0 0 8px var(--lcars-canary);
+}
+body.lcars .command-alert[data-level="RED"] .alert-dot {
+  background: var(--lcars-red);
+  box-shadow: var(--lcars-glow-red);
+}
+body.lcars .command-alert[data-level="GREEN"] strong { color: var(--lcars-green); }
+body.lcars .command-alert[data-level="YELLOW"] strong { color: var(--lcars-canary); }
+body.lcars .command-alert[data-level="RED"] strong { color: var(--lcars-red); }
+
+body.lcars .command-meter {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 10px;
+  border: 1px solid var(--lcars-border-dim);
+  border-left: 3px solid var(--lcars-amber);
+  border-radius: 0 8px 8px 0;
+  background: #000000;
+}
+
+/* ── Feature badges (live MCP/feature flags) ─────────────────────────── */
+
+body.lcars .feature-badges {
+  grid-column: 4;
+  align-self: end;
+  z-index: 2;
+  background: #000000;
+  margin: 0;
+  padding: 0 8px 8px;
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: flex-end;
+}
+
+body.lcars .feature-badge,
+body.lcars .pill {
+  border: 1px solid var(--lcars-border-dim);
+  background: #000000;
+  color: var(--lcars-peach);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.62rem;
+  border-radius: 10px;
+  padding: 2px 9px;
+  line-height: 14px;
+}
+
+/* ── Status pill (READY / RUNNING / ERROR) ───────────────────────────── */
+
+body.lcars .status-pill {
+  grid-column: 5;
+  align-self: end;
+  z-index: 2;
+  background: var(--lcars-canary);
+  color: var(--lcars-ink);
+  border: none;
+  border-radius: 12px;
+  padding: 2px 16px;
+  margin: 0 8px 8px 0;
+  min-width: 82px;
+  text-align: center;
+  font-family: "Antonio", "Oswald", sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-weight: 700;
+  font-size: 0.74rem;
+  height: 24px;
+  line-height: 20px;
+}
+body.lcars .status-pill.running {
+  background: var(--lcars-amber);
+  box-shadow: var(--lcars-glow-amber);
+  animation: lcars-pulse 1.4s ease-in-out infinite;
+}
+body.lcars .status-pill.error {
+  background: var(--lcars-red);
+  box-shadow: var(--lcars-glow-red);
+}
+
+@keyframes lcars-pulse {
+  0%, 100% { filter: brightness(1); }
+  50%      { filter: brightness(1.25); }
+}
+
+/* ── Tab content layout ──────────────────────────────────────────────── */
+
+body.lcars .tab-content {
+  display: none;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}
+body.lcars .tab-content.active { display: flex; }
+
+body.lcars .tab-layout-split,
+body.lcars .tab-layout-single {
+  padding: 12px 16px;
+  background: #000000;
+}
+
+/* ── Console split: left rail + viewer ───────────────────────────────── */
+
+body.lcars .console-split {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  gap: 0;
+}
+
+body.lcars .lcars-left-rail {
+  width: var(--lcars-left-rail-w);
+  flex-shrink: 0;
+  background: #000000;
+  border-right: 2px solid var(--lcars-border-dim);
+  padding: 12px 10px 12px 14px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  /* Make the left rail feel like a proper LCARS control surface:
+   * a thin amber vertical bar hugging the right edge plus a labeled
+   * section header at the top. */
+}
+
+body.lcars .lcars-rail-label {
+  color: var(--lcars-amber);
+  background: var(--lcars-amber);
+  color: var(--lcars-ink);
+  font-family: "Antonio", "Oswald", sans-serif;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  font-size: 0.72rem;
+  padding: 3px 12px;
+  border-radius: 0 10px 10px 0;
+  margin: 0 -10px 4px -14px;
+  padding-left: 14px;
+  box-shadow: var(--lcars-glow-amber);
+  align-self: flex-start;
+}
+
+body.lcars .lcars-viewer {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+}
+
+/* ── Control deck → vertical inside left rail ────────────────────────── */
+
+body.lcars .control-deck {
+  background: transparent;
+  border-bottom: none;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+body.lcars .control-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: stretch;
+}
+
+body.lcars .control-row .field,
+body.lcars .control-row .toggle-field {
+  background: #000000;
+  border: 1px solid var(--lcars-border-dim);
+  border-left: 3px solid var(--lcars-amber);
+  border-radius: 0 10px 10px 0;
+  padding: 6px 10px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  min-width: 0;
+  width: 100%;
+}
+body.lcars .control-row .toggle-field {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+}
+body.lcars .control-row .field input,
+body.lcars .control-row .field select {
+  width: 100%;
+}
+body.lcars .control-row #agent-control .slider-row {
+  width: 100%;
+}
+body.lcars .control-row #agent-control input[type="range"] {
+  flex: 1;
+}
+/* Deck metrics become a tight 2-column grid inside the rail */
+body.lcars .control-row .deck-metrics {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 10px;
+  margin: 4px 0 0;
+  padding: 8px 10px;
+  border: 1px solid var(--lcars-border-dim);
+  border-left: 3px solid var(--lcars-canary);
+  border-radius: 0 10px 10px 0;
+  background: #000000;
+}
+body.lcars .control-row .deck-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+body.lcars .control-row .deck-metric em {
+  font-size: 0.58rem;
+  color: var(--lcars-peach);
+}
+/* Arena + Reset go at the bottom of the rail, stacked */
+body.lcars .control-row #arena-btn,
+body.lcars .control-row #reset-cost-btn {
+  width: 100%;
+  justify-content: center;
+}
+
+body.lcars .control-row .field span,
+body.lcars .control-row .toggle-field > span:first-child {
+  color: var(--lcars-peach);
+  font-family: "Antonio", "Oswald", sans-serif;
+  font-weight: 700;
+  font-size: 0.66rem;
+  letter-spacing: 0.12em;
+}
+
+body.lcars .control-row .field input,
+body.lcars .control-row .field select {
+  background: #000000;
+  color: var(--lcars-text);
+  border: none;
+  border-radius: 4px;
+  font-size: 0.82rem;
+}
+body.lcars .control-row .field input:focus,
+body.lcars .control-row .field select:focus {
+  box-shadow: 0 0 0 2px var(--lcars-amber);
+  outline: none;
+}
+
+/* ── Deck metrics (COST / TOLL / TASK / LIMIT) ───────────────────────── */
+
+body.lcars .deck-metrics { gap: 10px; }
+body.lcars .deck-metric em {
+  color: var(--lcars-peach);
+  font-family: "Antonio", "Oswald", sans-serif;
+  letter-spacing: 0.14em;
+  font-size: 0.64rem;
+}
+body.lcars .deck-metric strong { color: var(--lcars-canary); }
+
+/* ── Live run status bar ─────────────────────────────────────────────── */
+
+body.lcars .live-bar {
+  background: #000000;
+  border-bottom: 1px solid var(--lcars-border-dim);
+  padding: 5px 16px;
+  font-size: 0.72rem;
+  flex-shrink: 0;
+}
+body.lcars .live-bar em {
+  color: var(--lcars-peach);
+  font-family: "Antonio", "Oswald", sans-serif;
+  letter-spacing: 0.12em;
+  font-size: 0.62rem;
+}
+body.lcars .live-bar strong { color: var(--lcars-canary); }
+
+/* ── Workspace / main viewer ─────────────────────────────────────────── */
+
+body.lcars .workspace {
+  padding: 10px 16px;
+  background: #000000;
+  flex: 1;
+  min-height: 0;
+}
+
+/* ── Panels ──────────────────────────────────────────────────────────── */
+
+body.lcars .panel {
+  background: #000000;
+  border: 1px solid var(--lcars-border-dim);
+  border-left: 4px solid var(--lcars-amber);
+  border-radius: 0 14px 14px 0;
+  box-shadow: 0 0 0 1px rgba(255, 153, 0, 0.04), 0 12px 30px rgba(0, 0, 0, 0.5);
+}
+
+body.lcars .panel-header,
+body.lcars .card-header {
+  margin-bottom: 10px;
+}
+
+body.lcars .panel-header h3,
+body.lcars .card-header h2 {
+  color: var(--lcars-amber);
+  font-family: "Antonio", "Oswald", sans-serif;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  font-size: 0.86rem;
+}
+body.lcars .panel-subtitle,
+body.lcars .card-header p {
+  color: var(--lcars-muted);
+  font-size: 0.76rem;
+}
+
+/* ── Chat area (main viewer) — Dialogue + Technical ──────────────────── */
+
+body.lcars .chat-area {
+  gap: 10px;
+}
+
+body.lcars .split-panes {
+  gap: 12px;
+}
+
+body.lcars .pane-dialogue,
+body.lcars .pane-technical {
+  background: #000000;
+  border: 2px solid var(--lcars-amber);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 0 18px rgba(255, 153, 0, 0.12);
+}
+body.lcars .pane-technical {
+  border-color: var(--lcars-teal);
+  box-shadow: 0 0 18px rgba(51, 204, 255, 0.12);
+}
+
+body.lcars .pane-header {
+  background: var(--lcars-amber);
+  color: var(--lcars-ink);
+  font-family: "Antonio", "Oswald", sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  font-weight: 700;
+  padding: 4px 14px;
+  border: none;
+  font-size: 0.76rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+body.lcars .pane-dialogue .pane-header { color: var(--lcars-ink); }
+body.lcars .pane-technical .pane-header {
+  background: var(--lcars-teal);
+  color: var(--lcars-ink);
+}
+
+body.lcars .messages {
+  background: #000000;
+  color: var(--lcars-text);
+}
+
+/* ── Message variants ────────────────────────────────────────────────── */
+
+body.lcars .msg {
+  background: #000000;
+  border: 1px solid var(--lcars-border-dim);
+  border-left: 3px solid var(--lcars-amber);
+  border-radius: 0 10px 10px 0;
+  color: var(--lcars-text);
+}
+
+body.lcars .msg.user {
+  background: rgba(255, 153, 0, 0.10);
+  border-color: var(--lcars-amber);
+  border-left-color: var(--lcars-canary);
+}
+
+body.lcars .msg.status {
+  background: #000000;
+  color: var(--lcars-peach);
+  border: 1px solid var(--lcars-border-dim);
+  border-radius: 999px;
+}
+body.lcars .msg.status.executing {
+  color: var(--lcars-green);
+  border-color: rgba(102, 255, 153, 0.35);
+}
+
+body.lcars .msg.plan,
+body.lcars .msg.response {
+  background: #000000;
+  border-left-color: var(--lcars-peach);
+}
+
+body.lcars .msg.step-card {
+  background: rgba(51, 204, 255, 0.06);
+  border-color: rgba(51, 204, 255, 0.35);
+  border-left-color: var(--lcars-teal);
+}
+
+body.lcars .msg.step-done {
+  background: rgba(102, 255, 153, 0.05);
+  border-color: rgba(102, 255, 153, 0.32);
+  border-left-color: var(--lcars-green);
+}
+
+body.lcars .msg.tool-call {
+  border-color: rgba(51, 204, 255, 0.3);
+  border-left-color: var(--lcars-teal);
+  color: var(--lcars-teal);
+}
+
+body.lcars .msg.tool-result {
+  border-color: rgba(102, 255, 153, 0.28);
+  border-left-color: var(--lcars-green);
+  color: var(--lcars-green);
+}
+
+body.lcars .msg.guardrail,
+body.lcars .msg.guardrail-summary {
+  background: rgba(255, 204, 0, 0.06);
+  border-color: rgba(255, 204, 0, 0.4);
+  border-left-color: var(--lcars-canary);
+  color: var(--lcars-canary);
+}
+
+body.lcars .msg.firewall,
+body.lcars .msg.error,
+body.lcars .msg.cancelled,
+body.lcars .msg.escalation {
+  background: rgba(255, 51, 68, 0.06);
+  border-color: rgba(255, 51, 68, 0.4);
+  border-left-color: var(--lcars-red);
+  color: var(--lcars-red);
+}
+
+body.lcars .msg.toll,
+body.lcars .msg.toll-summary {
+  border-color: rgba(255, 153, 0, 0.3);
+  border-left-color: var(--lcars-amber);
+  color: var(--lcars-canary);
+}
+
+body.lcars .msg.done {
+  background: rgba(102, 255, 153, 0.06);
+  border-color: rgba(102, 255, 153, 0.4);
+  border-left-color: var(--lcars-green);
+  color: var(--lcars-green);
+}
+
+/* ── Composer → CMD> command bar ─────────────────────────────────────── */
+
+body.lcars .composer {
+  background: #000000;
+  border: 2px solid var(--lcars-amber);
+  border-radius: 12px;
+  padding: 8px 14px;
+  box-shadow: 0 0 18px rgba(255, 153, 0, 0.12);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  position: relative;
+}
+body.lcars .composer::before {
+  content: "CMD >";
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  color: var(--lcars-amber);
+  font-family: "Cascadia Code", "JetBrains Mono", monospace;
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  pointer-events: none;
+}
+
+body.lcars .composer textarea {
+  background: #000000;
+  border: none;
+  color: var(--lcars-text);
+  padding: 2px 8px 2px 56px;
+  font-size: 0.88rem;
+  min-height: 40px;
+  resize: vertical;
+  width: 100%;
+}
+body.lcars .composer textarea:focus {
+  outline: none;
+  box-shadow: none;
+}
+body.lcars .composer textarea::placeholder {
+  color: var(--lcars-muted);
+}
+
+body.lcars .composer-hint {
+  color: var(--lcars-muted);
+  font-size: 0.68rem;
+  font-family: "Cascadia Code", monospace;
+}
+
+body.lcars .composer-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* ── Buttons — LCARS pills ───────────────────────────────────────────── */
+
+body.lcars .accent-btn,
+body.lcars .ghost-btn,
+body.lcars .kill-btn,
+body.lcars .ghost-btn-sm {
+  font-family: "Antonio", "Oswald", sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-weight: 700;
+  border: none;
+  border-radius: 0 14px 14px 0;
+  padding: 6px 18px;
+  transition: filter 120ms ease, transform 120ms ease;
+  cursor: pointer;
+}
+
+body.lcars .accent-btn {
+  background: var(--lcars-amber);
+  color: var(--lcars-ink);
+  box-shadow: var(--lcars-glow-amber);
+}
+body.lcars .ghost-btn {
+  background: #000000;
+  color: var(--lcars-peach);
+  border: 1px solid var(--lcars-peach);
+}
+body.lcars .kill-btn {
+  background: var(--lcars-red);
+  color: var(--lcars-ink);
+  box-shadow: var(--lcars-glow-red);
+}
+body.lcars .small-btn { padding: 4px 14px; font-size: 0.72rem; }
+body.lcars .ghost-btn-sm {
+  background: transparent;
+  color: var(--lcars-muted);
+  border: 1px solid var(--lcars-border-dim);
+  border-radius: 0 10px 10px 0;
+  padding: 3px 10px;
+  font-size: 0.7rem;
+}
+body.lcars .accent-btn:hover,
+body.lcars .ghost-btn:hover,
+body.lcars .kill-btn:hover,
+body.lcars .ghost-btn-sm:hover {
+  filter: brightness(1.18);
+  transform: translateY(-1px);
+}
+body.lcars .danger-btn {
+  background: var(--lcars-red) !important;
+  color: var(--lcars-ink) !important;
+  box-shadow: var(--lcars-glow-red);
+}
+
+/* ── Slider + Switch — illuminated bars ──────────────────────────────── */
+
+body.lcars input[type="range"] {
+  accent-color: var(--lcars-amber);
+}
+body.lcars .slider-row strong {
+  color: var(--lcars-canary);
+  font-family: "Cascadia Code", monospace;
+}
+
+body.lcars .switch-track {
+  border: 1px solid var(--lcars-border-dim);
+  background: #000000;
+}
+body.lcars .switch-track::after {
+  background: var(--lcars-muted);
+}
+body.lcars .switch input:checked + .switch-track {
+  background: rgba(255, 153, 0, 0.22);
+  border-color: var(--lcars-amber);
+  box-shadow: 0 0 10px rgba(255, 153, 0, 0.35) inset;
+}
+body.lcars .switch input:checked + .switch-track::after {
+  background: var(--lcars-amber);
+}
+
+/* ── Arena (split-screen combat, LCARS team colors) ──────────────────── */
+
+body.lcars .team-red,
+body.lcars .team-log-header.team-red {
+  background: var(--lcars-red);
+  color: var(--lcars-ink);
+  font-family: "Antonio", "Oswald", sans-serif;
+  letter-spacing: 0.14em;
+}
+body.lcars .team-blue,
+body.lcars .team-log-header.team-blue {
+  background: var(--lcars-teal);
+  color: var(--lcars-ink);
+  font-family: "Antonio", "Oswald", sans-serif;
+  letter-spacing: 0.14em;
+}
+body.lcars .score-red { background: var(--lcars-red); }
+body.lcars .score-blue { background: var(--lcars-teal); }
+
+body.lcars .round-label {
+  color: var(--lcars-canary);
+  font-family: "Antonio", "Oswald", sans-serif;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+body.lcars .arena-commentary {
+  background: #000000;
+  border: 1px solid var(--lcars-border-dim);
+  border-left: 4px solid var(--lcars-amber);
+  border-radius: 0 12px 12px 0;
+}
+body.lcars .commentary-text {
+  color: var(--lcars-peach);
+}
+
+body.lcars .arena-setup,
+body.lcars .arena-view,
+body.lcars .arena-team-log {
+  background: #000000;
+}
+
+/* ── Scrollbars — amber accent ───────────────────────────────────────── */
+
+body.lcars ::-webkit-scrollbar { width: 10px; height: 10px; }
+body.lcars ::-webkit-scrollbar-track { background: #000000; }
+body.lcars ::-webkit-scrollbar-thumb {
+  background: var(--lcars-border-dim);
+  border-radius: 5px;
+}
+body.lcars ::-webkit-scrollbar-thumb:hover {
+  background: var(--lcars-amber);
+}
+
+/* ── MCP Hub (right tactical station) ────────────────────────────────── */
+
+#mcp-hub {
+  position: fixed;
+  top: var(--lcars-header-h);
+  right: 0;
+  bottom: 0;
+  width: var(--lcars-mcp-hub-w);
+  z-index: 80;
+  background: #000000;
+  border-left: 4px solid var(--lcars-amber);
+  box-shadow: inset 4px 0 18px rgba(255, 153, 0, 0.15);
+  padding-top: 6px;
+  overflow-y: auto;
+}
+
+/* Make room on the right side of the body for the fixed MCP hub */
+body.lcars {
+  padding-right: var(--lcars-mcp-hub-w);
+}
+
+/* ── Responsive: collapse the side hub + left rail on narrow screens ── */
+
+@media (max-width: 1200px) {
+  body.lcars {
+    padding-right: 0;
+  }
+  #mcp-hub {
+    position: static;
+    width: 100%;
+    height: 240px;
+    border-left: none;
+    border-top: 4px solid var(--lcars-amber);
+  }
+  body.lcars .topbar {
+    grid-template-columns:
+      auto
+      auto
+      1fr
+      auto;
+  }
+}
+
+/* ── Miscellaneous legacy polish ─────────────────────────────────────── */
+
+/* Hide the decorative left-frame from the v1 overlay — v2 uses the topbar's
+ * own LCARS elbow inline in the header; a separate frame fights the layout. */
+body.lcars .lcars-frame { display: none; }
+
+/* Stack list items get the LCARS left-bar treatment */
+body.lcars .stack-item {
+  background: #000000;
+  border: 1px solid var(--lcars-border-dim);
+  border-left: 3px solid var(--lcars-peach);
+  border-radius: 0 10px 10px 0;
+  color: var(--lcars-text);
+}
+body.lcars .stack-item:hover {
+  border-left-color: var(--lcars-amber);
+}
+
+/* Markdown / generic prose inside messages */
+body.lcars .messages a { color: var(--lcars-teal); }
+body.lcars .messages code {
+  background: rgba(255, 153, 0, 0.08);
+  color: var(--lcars-canary);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+body.lcars .messages pre {
+  background: #000000;
+  border: 1px solid var(--lcars-border-dim);
+  border-left: 3px solid var(--lcars-amber);
+  border-radius: 0 8px 8px 0;
+  padding: 10px;
+}
+
+/* ── Landing intro hero ────────────────────────────────────────────────
+ * Slots above the dialogue/technical panes on the console tab. Two-col:
+ * interactive brain visual on the left, terse capability manifest on the
+ * right. Hides when #chat-area carries .is-task-active.
+ * ───────────────────────────────────────────────────────────────────── */
+
+body.lcars .console-intro {
+  display: grid;
+  grid-template-columns: minmax(280px, 38%) 1fr;
+  gap: 28px;
+  align-items: center;
+  padding: 32px 28px;
+  margin: 0 0 18px;
+  background: var(--lcars-panel);
+  border: 1px solid var(--lcars-border-dim);
+  border-left: 6px solid var(--lcars-amber);
+  border-radius: 0 18px 18px 0;
+  box-shadow: var(--lcars-glow-amber);
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+
+/* Task in flight → collapse the hero. No layout jump: opacity + margin/height. */
+body.lcars #chat-area.is-task-active .console-intro {
+  opacity: 0;
+  pointer-events: none;
+  max-height: 0;
+  margin: 0;
+  padding: 0;
+  border-width: 0;
+  overflow: hidden;
+}
+
+/* Visual slot — brain canvas mounts inside. Square-ish, full-bleed. */
+body.lcars .intro-visual {
+  position: relative;
+  aspect-ratio: 1 / 1;
+  width: 100%;
+  min-height: 220px;
+  border-radius: 14px;
+  background:
+    radial-gradient(circle at 50% 50%,
+      rgba(255, 153, 0, 0.06) 0%,
+      rgba(51, 204, 255, 0.04) 40%,
+      transparent 70%),
+    #000000;
+  border: 1px solid var(--lcars-border-dim);
+  overflow: hidden;
+}
+
+/* Placeholder pulse while the brain canvas hasn't mounted. Killed the
+   moment a child node is inserted (see :has selector). */
+body.lcars .intro-visual:empty::after {
+  content: "";
+  position: absolute;
+  inset: 22%;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle,
+      rgba(255, 153, 0, 0.22) 0%,
+      rgba(51, 204, 255, 0.12) 45%,
+      transparent 70%);
+  filter: blur(2px);
+  animation: intro-pulse 3.8s ease-in-out infinite;
+}
+@keyframes intro-pulse {
+  0%, 100% { transform: scale(0.92); opacity: 0.55; }
+  50%      { transform: scale(1.06); opacity: 0.95; }
+}
+
+/* Copy column — restrained, uppercase Antonio headline. */
+body.lcars .intro-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+body.lcars .intro-eyebrow {
+  font-family: "Antonio", "Oswald", sans-serif;
+  font-size: 0.78rem;
+  letter-spacing: 0.28em;
+  color: var(--lcars-teal);
+  margin: 0;
+  text-transform: uppercase;
+}
+
+body.lcars .intro-lede {
+  font-family: "Antonio", "Oswald", sans-serif;
+  font-size: clamp(1.4rem, 2.1vw, 1.9rem);
+  font-weight: 600;
+  line-height: 1.15;
+  letter-spacing: 0.01em;
+  color: var(--lcars-text);
+  margin: 0;
+  max-width: 32ch;
+}
+
+/* Capability manifest — single-col on narrow, 2-col on wider. Each row is
+   a label tag (color-coded LCARS chip) + one terse phrase. */
+body.lcars .intro-caps {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  column-gap: 22px;
+  row-gap: 10px;
+}
+
+body.lcars .intro-caps li {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  font-family: "Oswald", "Antonio", sans-serif;
+  font-size: 0.92rem;
+  color: var(--lcars-text);
+  line-height: 1.35;
+  padding: 4px 0;
+  border-bottom: 1px solid transparent;
+  transition: border-color 160ms ease;
+}
+body.lcars .intro-caps li:hover { border-bottom-color: var(--lcars-border-dim); }
+
+body.lcars .cap-tag {
+  flex: 0 0 auto;
+  min-width: 82px;
+  padding: 2px 10px;
+  border-radius: 10px;
+  font-family: "Antonio", "Oswald", sans-serif;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  text-align: center;
+  color: #000;
+  background: var(--lcars-amber);
+}
+body.lcars .cap-tag.cap-amber  { background: var(--lcars-amber); }
+body.lcars .cap-tag.cap-teal   { background: var(--lcars-teal); }
+body.lcars .cap-tag.cap-canary { background: var(--lcars-canary); }
+body.lcars .cap-tag.cap-green  { background: var(--lcars-green); }
+body.lcars .cap-tag.cap-lilac  { background: var(--lcars-lilac); }
+body.lcars .cap-tag.cap-red    { background: var(--lcars-red); color: #fff; }
+
+body.lcars .intro-footnote {
+  margin: 10px 0 0;
+  font-family: "Oswald", sans-serif;
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--lcars-muted);
+}
+
+/* Collapse to single-column on narrow viewports. */
+@media (max-width: 860px) {
+  body.lcars .console-intro {
+    grid-template-columns: 1fr;
+    padding: 22px 18px;
+  }
+  body.lcars .intro-visual {
+    aspect-ratio: 16 / 9;
+    min-height: 160px;
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   KEYS TAB — API secret vault
+   ══════════════════════════════════════════════════════════════════════
+   Rust-colored (LCARS "red 2") to signal "sensitive / restricted access".
+   Raw values never render in the DOM — only the masked form from the
+   server. Each row exposes: Update (inline password field + Save), Clear.
+   ════════════════════════════════════════════════════════════════════ */
+
+body.lcars .keys-layout {
+  padding: 20px 24px 40px;
+  max-width: 960px;
+  margin: 0 auto;
+}
+
+body.lcars .keys-panel {
+  border: 1px solid var(--lcars-rust);
+  border-radius: 14px;
+  background: #05070a;
+  overflow: hidden;
+  box-shadow: 0 0 22px rgba(204, 102, 102, 0.18);
+}
+
+body.lcars .keys-panel-header {
+  background: linear-gradient(90deg, var(--lcars-rust) 0%, #8a4848 100%);
+  color: var(--lcars-ink);
+  padding: 10px 18px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+body.lcars .keys-panel-header h3 {
+  margin: 0;
+  font-family: "Antonio", "Oswald", sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.22em;
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+body.lcars .keys-subtitle {
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  opacity: 0.85;
+}
+body.lcars .keys-subtitle code {
+  background: rgba(0, 0, 0, 0.28);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 0.72rem;
+}
+
+/* Category filter pills */
+body.lcars .keys-category-bar {
+  display: flex;
+  gap: 6px;
+  padding: 12px 18px 4px;
+  flex-wrap: wrap;
+}
+body.lcars .keys-filter-btn {
+  font-family: "Antonio", "Oswald", sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 4px 14px;
+  border: 1px solid var(--lcars-rust);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--lcars-rust);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+body.lcars .keys-filter-btn:hover {
+  background: rgba(204, 102, 102, 0.15);
+}
+body.lcars .keys-filter-btn.active {
+  background: var(--lcars-rust);
+  color: var(--lcars-ink);
+}
+
+/* Row layout — one per provider */
+body.lcars .keys-list {
+  padding: 10px 18px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+body.lcars .keys-loading,
+body.lcars .keys-empty {
+  color: var(--lcars-muted);
+  font-size: 0.82rem;
+  padding: 20px 0;
+  text-align: center;
+  letter-spacing: 0.08em;
+}
+
+body.lcars .key-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.4fr) minmax(200px, 2fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 14px;
+  background: #0a0d12;
+  border: 1px solid rgba(204, 102, 102, 0.22);
+  border-radius: 10px;
+  transition: border-color 140ms ease;
+}
+body.lcars .key-row:hover { border-color: rgba(204, 102, 102, 0.55); }
+body.lcars .key-row[data-set="true"] { border-left: 3px solid var(--lcars-green); }
+body.lcars .key-row[data-set="false"] { border-left: 3px solid var(--lcars-muted); }
+
+body.lcars .key-meta { min-width: 0; }
+body.lcars .key-label {
+  font-family: "Antonio", "Oswald", sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--lcars-text);
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+body.lcars .key-envvar {
+  font-family: "JetBrains Mono", "Consolas", monospace;
+  font-size: 0.68rem;
+  color: var(--lcars-muted);
+  letter-spacing: 0.04em;
+  display: block;
+  margin-top: 2px;
+}
+body.lcars .key-envvar a {
+  color: var(--lcars-teal);
+  text-decoration: none;
+  margin-left: 8px;
+}
+body.lcars .key-envvar a:hover { text-decoration: underline; }
+
+body.lcars .key-value {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+body.lcars .key-masked {
+  font-family: "JetBrains Mono", "Consolas", monospace;
+  font-size: 0.86rem;
+  letter-spacing: 0.08em;
+  color: var(--lcars-canary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+body.lcars .key-masked.empty {
+  color: var(--lcars-muted);
+  letter-spacing: 0.14em;
+  font-style: italic;
+}
+body.lcars .key-badge {
+  font-family: "Antonio", "Oswald", sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 0.62rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+body.lcars .key-badge.set    { background: var(--lcars-green); color: var(--lcars-ink); }
+body.lcars .key-badge.empty  { background: #222833; color: var(--lcars-muted); }
+
+body.lcars .key-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+body.lcars .key-btn {
+  font-family: "Antonio", "Oswald", sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 0.66rem;
+  font-weight: 700;
+  padding: 5px 12px;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: filter 120ms ease, transform 120ms ease;
+  color: var(--lcars-ink);
+}
+body.lcars .key-btn:hover { filter: brightness(1.15); transform: translateY(-1px); }
+body.lcars .key-btn.update { background: var(--lcars-canary); }
+body.lcars .key-btn.clear  { background: var(--lcars-rust); color: var(--lcars-text); }
+body.lcars .key-btn.save   { background: var(--lcars-green); }
+body.lcars .key-btn.cancel { background: #333a44; color: var(--lcars-text); }
+body.lcars .key-btn:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
+
+/* Inline edit form (expands below row) */
+body.lcars .key-edit {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding-top: 10px;
+  margin-top: 4px;
+  border-top: 1px dashed rgba(204, 102, 102, 0.25);
+}
+body.lcars .key-edit input[type="password"],
+body.lcars .key-edit input[type="text"] {
+  flex: 1;
+  min-width: 0;
+  font-family: "JetBrains Mono", "Consolas", monospace;
+  font-size: 0.86rem;
+  padding: 6px 10px;
+  background: #000;
+  border: 1px solid var(--lcars-rust);
+  border-radius: 6px;
+  color: var(--lcars-text);
+  letter-spacing: 0.04em;
+}
+body.lcars .key-edit input:focus {
+  outline: none;
+  border-color: var(--lcars-canary);
+  box-shadow: 0 0 0 2px rgba(255, 204, 0, 0.18);
+}
+body.lcars .key-edit .key-reveal {
+  font-size: 0.68rem;
+  color: var(--lcars-muted);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  user-select: none;
+}
+
+body.lcars .keys-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 18px 16px;
+  border-top: 1px solid rgba(204, 102, 102, 0.2);
+}
+body.lcars .keys-footer .btn-secondary {
+  font-family: "Antonio", "Oswald", sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  font-size: 0.72rem;
+  padding: 5px 16px;
+  background: var(--lcars-teal);
+  color: var(--lcars-ink);
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+  font-weight: 700;
+}
+body.lcars .keys-footer .btn-secondary:hover { filter: brightness(1.15); }
+body.lcars .keys-status {
+  font-size: 0.74rem;
+  color: var(--lcars-muted);
+  letter-spacing: 0.06em;
+  min-height: 1.2em;
+}
+body.lcars .keys-status.ok  { color: var(--lcars-green); }
+body.lcars .keys-status.err { color: var(--lcars-red); }
+
+/* Narrow viewports: stack the row */
+@media (max-width: 720px) {
+  body.lcars .key-row {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+  body.lcars .key-actions { justify-content: flex-start; }
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   CHESS TAB — LLM vs LLM match arena
+   ══════════════════════════════════════════════════════════════════════
+   Plum-bordered panels. The board itself uses classic alternating tiles
+   (teal / deep-indigo) instead of the cliché cream/brown, since the rest
+   of the shell is already QD-OLED cold. Pieces are Unicode figures, sized
+   by the square grid so they stay crisp at any zoom.
+   ════════════════════════════════════════════════════════════════════ */
+
+body.lcars .chess-layout {
+  padding: 18px 24px 40px;
+  max-width: 1280px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+body.lcars .chess-setup-panel,
+body.lcars .chess-main-panel {
+  border: 1px solid var(--lcars-plum);
+  border-radius: 14px;
+  background: #05070a;
+  overflow: hidden;
+  box-shadow: 0 0 22px rgba(153, 102, 204, 0.16);
+}
+
+body.lcars .chess-panel-header {
+  background: linear-gradient(90deg, var(--lcars-plum) 0%, #5a3880 100%);
+  color: #ffe4c4;
+  padding: 10px 18px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+body.lcars .chess-panel-header h3 {
+  margin: 0;
+  font-family: "Antonio", "Oswald", sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.22em;
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+body.lcars .chess-subtitle {
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  opacity: 0.85;
+}
+
+body.lcars .chess-setup-row {
+  display: grid;
+  grid-template-columns: minmax(200px, 1fr) minmax(200px, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+  padding: 14px 18px 16px;
+}
+body.lcars .chess-setup-row .field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+body.lcars .chess-setup-row .field > span {
+  font-family: "Antonio", "Oswald", sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 0.74rem;
+  color: var(--lcars-muted);
+}
+body.lcars .chess-model-select {
+  background: #000;
+  color: var(--lcars-text);
+  border: 1px solid var(--lcars-plum);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-family: "JetBrains Mono", "Consolas", monospace;
+  font-size: 0.82rem;
+}
+body.lcars .chess-model-select:focus {
+  outline: none;
+  border-color: var(--lcars-canary);
+  box-shadow: 0 0 0 2px rgba(255, 204, 0, 0.18);
+}
+
+body.lcars .chess-btn {
+  font-family: "Antonio", "Oswald", sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 7px 16px;
+  border: none;
+  border-radius: 10px;
+  background: var(--lcars-plum);
+  color: #ffe4c4;
+  cursor: pointer;
+  transition: filter 120ms ease, transform 120ms ease;
+}
+body.lcars .chess-btn:hover:not(:disabled) {
+  filter: brightness(1.15);
+  transform: translateY(-1px);
+}
+body.lcars .chess-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none;
+}
+body.lcars .chess-new-btn    { background: var(--lcars-canary); color: var(--lcars-ink); }
+body.lcars .chess-auto-btn   { background: var(--lcars-green);  color: var(--lcars-ink); }
+body.lcars .chess-auto-btn.is-running { background: var(--lcars-red); color: var(--lcars-text); }
+body.lcars .chess-resign-btn { background: #444a56; color: var(--lcars-text); }
+
+/* Main grid — board left, side panel right */
+body.lcars .chess-main-grid {
+  display: grid;
+  grid-template-columns: minmax(320px, 560px) minmax(280px, 1fr);
+  gap: 16px;
+  padding: 16px 18px 18px;
+  align-items: start;
+}
+
+body.lcars .chess-board-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+body.lcars .chess-board {
+  aspect-ratio: 1 / 1;
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  grid-template-rows: repeat(8, 1fr);
+  border: 2px solid var(--lcars-plum);
+  border-radius: 8px;
+  overflow: hidden;
+  user-select: none;
+  box-shadow: 0 0 28px rgba(153, 102, 204, 0.25);
+}
+body.lcars .chess-board .chess-empty {
+  grid-column: 1 / -1;
+  grid-row: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 30px;
+  text-align: center;
+  color: var(--lcars-muted);
+  font-family: "Antonio", "Oswald", sans-serif;
+  letter-spacing: 0.12em;
+  background: #05070a;
+}
+body.lcars .chess-square {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: clamp(1.6rem, 5vw, 2.6rem);
+  line-height: 1;
+  font-weight: 400;
+  position: relative;
+}
+body.lcars .chess-square.light { background: #233042; }
+body.lcars .chess-square.dark  { background: #0f1a2a; }
+body.lcars .chess-square.last-from { box-shadow: inset 0 0 0 3px rgba(255, 204, 0, 0.55); }
+body.lcars .chess-square.last-to   { box-shadow: inset 0 0 0 3px var(--lcars-canary); }
+body.lcars .chess-square.in-check  { box-shadow: inset 0 0 0 3px var(--lcars-red); }
+
+body.lcars .chess-piece.white { color: #f5f5f5; text-shadow: 0 1px 2px rgba(0,0,0,0.7); }
+body.lcars .chess-piece.black { color: #101018; text-shadow: 0 0 3px rgba(255,255,255,0.35); }
+
+/* Rank/file labels in corners */
+body.lcars .chess-square .coord {
+  position: absolute;
+  font-family: "JetBrains Mono", "Consolas", monospace;
+  font-size: 0.58rem;
+  letter-spacing: 0.04em;
+  opacity: 0.55;
+  pointer-events: none;
+}
+body.lcars .chess-square .coord.file { bottom: 2px; right: 4px; }
+body.lcars .chess-square .coord.rank { top: 2px; left: 4px; }
+body.lcars .chess-square.light .coord { color: #0a0d12; }
+body.lcars .chess-square.dark  .coord { color: #ffe4c4; }
+
+body.lcars .chess-board-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 4px 2px;
+}
+body.lcars .chess-side-badge {
+  font-family: "Antonio", "Oswald", sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 0.78rem;
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: #0a0d12;
+  border: 1px solid var(--lcars-plum);
+  color: var(--lcars-text);
+}
+body.lcars .chess-side-badge.active {
+  background: var(--lcars-canary);
+  color: var(--lcars-ink);
+  border-color: var(--lcars-canary);
+  box-shadow: 0 0 14px rgba(255, 204, 0, 0.35);
+}
+body.lcars .chess-vs {
+  font-family: "Antonio", "Oswald", sans-serif;
+  color: var(--lcars-muted);
+  letter-spacing: 0.2em;
+  font-size: 0.72rem;
+}
+
+/* Side panel — status + controls + move log */
+body.lcars .chess-side-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+body.lcars .chess-status-block {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+body.lcars .chess-turn-label {
+  background: #0a0d12;
+  border: 1px solid rgba(153, 102, 204, 0.35);
+  border-radius: 8px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+body.lcars .chess-turn-label span {
+  font-family: "Antonio", "Oswald", sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 0.62rem;
+  color: var(--lcars-muted);
+}
+body.lcars .chess-turn-label strong {
+  font-family: "Antonio", "Oswald", sans-serif;
+  font-size: 0.9rem;
+  letter-spacing: 0.1em;
+  color: var(--lcars-text);
+}
+body.lcars .chess-turn-label strong.white-turn { color: var(--lcars-canary); }
+body.lcars .chess-turn-label strong.black-turn { color: var(--lcars-teal); }
+body.lcars .chess-turn-label strong.ended      { color: var(--lcars-green); }
+
+body.lcars .chess-controls {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+body.lcars .chess-status-msg {
+  font-size: 0.78rem;
+  letter-spacing: 0.05em;
+  color: var(--lcars-muted);
+  min-height: 1.2em;
+  padding: 2px 4px;
+}
+body.lcars .chess-status-msg.ok  { color: var(--lcars-green); }
+body.lcars .chess-status-msg.err { color: var(--lcars-red); }
+body.lcars .chess-status-msg.working {
+  color: var(--lcars-canary);
+  animation: chess-thinking-pulse 1.4s ease-in-out infinite;
+}
+body.lcars .chess-status-msg.working::before {
+  content: "▸ ";
+  letter-spacing: 0;
+}
+@keyframes chess-thinking-pulse {
+  0%, 100% { opacity: 0.55; }
+  50%      { opacity: 1; }
+}
+
+body.lcars .chess-moves-block {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 280px;
+}
+body.lcars .chess-moves-header {
+  font-family: "Antonio", "Oswald", sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  font-size: 0.72rem;
+  color: var(--lcars-plum);
+  padding: 4px 0;
+  border-bottom: 1px solid rgba(153, 102, 204, 0.3);
+  margin-bottom: 6px;
+}
+body.lcars .chess-moves {
+  flex: 1;
+  overflow: auto;
+  background: #03050a;
+  border: 1px solid rgba(153, 102, 204, 0.25);
+  border-radius: 8px;
+  padding: 6px 4px;
+  max-height: 420px;
+  min-height: 200px;
+}
+body.lcars .chess-moves-empty {
+  color: var(--lcars-muted);
+  font-style: italic;
+  padding: 20px 10px;
+  text-align: center;
+  font-size: 0.82rem;
+}
+body.lcars .chess-move-row {
+  display: grid;
+  grid-template-columns: 26px 70px 1fr;
+  align-items: baseline;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-family: "JetBrains Mono", "Consolas", monospace;
+  font-size: 0.8rem;
+}
+body.lcars .chess-move-row:hover { background: rgba(153, 102, 204, 0.08); }
+body.lcars .chess-move-row.white-move { border-left: 2px solid var(--lcars-canary); }
+body.lcars .chess-move-row.black-move { border-left: 2px solid var(--lcars-teal); }
+body.lcars .chess-move-row .move-n    { color: var(--lcars-muted); }
+body.lcars .chess-move-row .move-san  { color: var(--lcars-text); font-weight: 600; }
+body.lcars .chess-move-row .move-meta {
+  color: var(--lcars-muted);
+  font-size: 0.72rem;
+  letter-spacing: 0.02em;
+}
+body.lcars .chess-move-row.forced .move-san::after {
+  content: " ⚠";
+  color: var(--lcars-red);
+}
+
+/* ── Chess setup: second row + commentary block ─────────────────────── */
+body.lcars .chess-setup-row2 {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 0 18px 14px;
+  flex-wrap: wrap;
+}
+body.lcars .chess-interval-field {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center;
+  gap: 8px;
+}
+body.lcars .chess-interval-field > span {
+  font-family: "Antonio", "Oswald", sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 0.72rem;
+  color: var(--lcars-muted);
+}
+body.lcars .chess-interval-field .chess-model-select {
+  padding: 4px 10px;
+  font-size: 0.76rem;
+}
+body.lcars .chess-tts-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+body.lcars .chess-tts-toggle > span:first-child {
+  font-family: "Antonio", "Oswald", sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 0.72rem;
+  color: var(--lcars-muted);
+}
+
+body.lcars .chess-mini-btn {
+  padding: 3px 10px;
+  font-size: 0.64rem;
+  background: var(--lcars-plum);
+  color: #ffe4c4;
+}
+
+/* Judge commentary block — amber-bordered, prose card with a pulsing
+   "thinking…" state and a rolling history list underneath. */
+body.lcars .chess-commentary-block {
+  background: #0a0d12;
+  border: 1px solid var(--lcars-amber);
+  border-radius: 10px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  box-shadow: 0 0 14px rgba(255, 153, 0, 0.12);
+}
+body.lcars .chess-commentary-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  justify-content: space-between;
+  font-family: "Antonio", "Oswald", sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  font-size: 0.74rem;
+  color: var(--lcars-amber);
+  border-bottom: 1px solid rgba(255, 153, 0, 0.35);
+  padding-bottom: 4px;
+}
+body.lcars .chess-commentary-meta {
+  color: var(--lcars-muted);
+  font-size: 0.66rem;
+  letter-spacing: 0.06em;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+body.lcars .chess-commentary-header .chess-mini-btn {
+  margin-left: 8px;
+  flex-shrink: 0;
+}
+body.lcars .chess-commentary-body {
+  font-family: "Georgia", "Times New Roman", serif;
+  font-size: 0.95rem;
+  line-height: 1.45;
+  color: var(--lcars-text);
+  min-height: 72px;
+  padding: 4px 2px;
+  font-style: italic;
+}
+body.lcars .chess-commentary-body.thinking {
+  color: var(--lcars-canary);
+  animation: chess-thinking-pulse 1.4s ease-in-out infinite;
+  font-style: normal;
+}
+body.lcars .chess-commentary-body.speaking {
+  color: var(--lcars-amber);
+  text-shadow: 0 0 6px rgba(255, 153, 0, 0.28);
+}
+body.lcars .chess-commentary-body.error {
+  color: var(--lcars-red);
+  font-style: normal;
+  font-family: "JetBrains Mono", "Consolas", monospace;
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+/* ── Captured pieces side-board ─────────────────────────────────────── */
+body.lcars .chess-captures {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+  padding: 6px 8px;
+  background: #03050a;
+  border: 1px solid rgba(153, 102, 204, 0.3);
+  border-radius: 8px;
+}
+body.lcars .chess-capture-row {
+  display: grid;
+  grid-template-columns: 120px 1fr auto;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  min-height: 28px;
+  border-radius: 4px;
+}
+body.lcars #chess-capture-white { border-left: 3px solid var(--lcars-canary); }
+body.lcars #chess-capture-black { border-left: 3px solid var(--lcars-teal); }
+body.lcars .chess-capture-label {
+  font-family: "Antonio", "Oswald", sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 0.68rem;
+  color: var(--lcars-muted);
+}
+body.lcars .chess-capture-pieces {
+  font-size: 1.4rem;
+  line-height: 1;
+  letter-spacing: 0.08em;
+  overflow-x: auto;
+  white-space: nowrap;
+  min-height: 1.4em;
+  padding: 2px 0;
+}
+body.lcars .chess-capture-pieces .piece-w {
+  color: #f5f5f5;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.7);
+}
+body.lcars .chess-capture-pieces .piece-b {
+  color: #9aa3b2;
+  text-shadow: 0 0 3px rgba(255,255,255,0.2);
+}
+body.lcars .chess-capture-pieces .just-taken {
+  animation: chess-capture-pop 900ms ease-out;
+}
+@keyframes chess-capture-pop {
+  0%   { transform: scale(0.2) translateY(-6px); opacity: 0; }
+  55%  { transform: scale(1.4); opacity: 1; }
+  100% { transform: scale(1);   opacity: 1; }
+}
+body.lcars .chess-capture-material {
+  font-family: "JetBrains Mono", "Consolas", monospace;
+  font-size: 0.76rem;
+  color: var(--lcars-canary);
+  min-width: 2.5em;
+  text-align: right;
+}
+body.lcars .chess-capture-material.neg { color: var(--lcars-red); }
+
+/* ── Token usage block ──────────────────────────────────────────────── */
+body.lcars .chess-tokens-block {
+  background: #0a0d12;
+  border: 1px solid rgba(255, 204, 0, 0.3);
+  border-radius: 10px;
+  padding: 8px 12px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+body.lcars .chess-tokens-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  font-family: "Antonio", "Oswald", sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  font-size: 0.72rem;
+  color: var(--lcars-canary);
+  border-bottom: 1px solid rgba(255, 204, 0, 0.28);
+  padding-bottom: 4px;
+}
+body.lcars .chess-tokens-total {
+  color: var(--lcars-amber);
+  font-family: "JetBrains Mono", "Consolas", monospace;
+  font-size: 0.74rem;
+  letter-spacing: 0.04em;
+}
+body.lcars .chess-tokens-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+body.lcars .chess-tokens-row {
+  display: grid;
+  grid-template-columns: 70px 1fr;
+  gap: 8px;
+  align-items: baseline;
+  padding: 2px 0;
+  font-family: "JetBrains Mono", "Consolas", monospace;
+  font-size: 0.76rem;
+}
+body.lcars .chess-tokens-role {
+  font-family: "Antonio", "Oswald", sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 0.72rem;
+  color: var(--lcars-muted);
+}
+body.lcars .chess-tokens-row[data-role="white"] .chess-tokens-role { color: var(--lcars-canary); }
+body.lcars .chess-tokens-row[data-role="black"] .chess-tokens-role { color: var(--lcars-teal); }
+body.lcars .chess-tokens-row[data-role="judge"] .chess-tokens-role { color: var(--lcars-amber); }
+body.lcars .chess-tokens-val {
+  color: var(--lcars-text);
+  text-align: right;
+  letter-spacing: 0.02em;
+}
+body.lcars .chess-commentary-history {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 140px;
+  overflow-y: auto;
+  font-size: 0.74rem;
+  color: var(--lcars-muted);
+  padding: 2px 4px;
+  border-top: 1px dashed rgba(255, 153, 0, 0.22);
+  padding-top: 6px;
+  margin-top: 2px;
+}
+body.lcars .chess-commentary-history:empty { display: none; }
+body.lcars .chess-history-row {
+  display: grid;
+  grid-template-columns: 60px 1fr;
+  gap: 8px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  line-height: 1.35;
+}
+body.lcars .chess-history-row:hover { background: rgba(255, 153, 0, 0.06); }
+body.lcars .chess-history-row .history-round {
+  color: var(--lcars-amber);
+  font-family: "JetBrains Mono", "Consolas", monospace;
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+}
+body.lcars .chess-history-row .history-text {
+  color: var(--lcars-text);
+  font-family: "Georgia", "Times New Roman", serif;
+  font-style: italic;
+  font-size: 0.76rem;
+}
+
+/* Narrow viewports: stack board + panel */
+@media (max-width: 860px) {
+  body.lcars .chess-main-grid {
+    grid-template-columns: 1fr;
+  }
+  body.lcars .chess-setup-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   NES ARENA — in-browser jsnes emulator + coach panel
+   ══════════════════════════════════════════════════════════════════════
+   Scarlet border, 3× pixel-perfect canvas scaling, CRT scanline overlay.
+   Right-side panel holds the coach plan + event log + vault deposits.
+   Red Alert overlay pulses when Grok reports DANGER: in the plan.
+   ════════════════════════════════════════════════════════════════════ */
+
+body.lcars .nes-layout {
+  padding: 18px 24px 40px;
+  max-width: 1320px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+body.lcars .nes-setup-panel,
+body.lcars .nes-main-panel {
+  border: 1px solid var(--lcars-scarlet);
+  border-radius: 14px;
+  background: #05070a;
+  overflow: hidden;
+  box-shadow: 0 0 24px rgba(255, 85, 68, 0.18);
+}
+body.lcars .nes-panel-header {
+  background: linear-gradient(90deg, var(--lcars-scarlet) 0%, #8a2a22 100%);
+  color: var(--lcars-text);
+  padding: 10px 18px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+body.lcars .nes-panel-header h3 {
+  margin: 0;
+  font-family: "Antonio", "Oswald", sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.22em;
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+body.lcars .nes-subtitle {
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  opacity: 0.9;
+}
+
+body.lcars .nes-setup-row {
+  display: grid;
+  grid-template-columns: minmax(220px, 2fr) minmax(160px, 1fr) minmax(180px, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+  padding: 14px 18px 8px;
+}
+body.lcars .nes-setup-row2 {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 0 18px 14px;
+  flex-wrap: wrap;
+}
+body.lcars .nes-setup-row .field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+body.lcars .nes-setup-row .field > span {
+  font-family: "Antonio", "Oswald", sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 0.74rem;
+  color: var(--lcars-muted);
+}
+body.lcars .nes-select {
+  background: #000;
+  color: var(--lcars-text);
+  border: 1px solid var(--lcars-scarlet);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-family: "JetBrains Mono", "Consolas", monospace;
+  font-size: 0.8rem;
+}
+body.lcars .nes-select:focus {
+  outline: none;
+  border-color: var(--lcars-canary);
+  box-shadow: 0 0 0 2px rgba(255, 204, 0, 0.18);
+}
+
+body.lcars .nes-interval {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 8px;
+}
+body.lcars .nes-interval input[type="range"] {
+  width: 160px;
+  accent-color: var(--lcars-scarlet);
+}
+body.lcars .nes-interval-label {
+  color: var(--lcars-canary) !important;
+  font-family: "JetBrains Mono", "Consolas", monospace;
+  min-width: 3em;
+  text-align: right;
+}
+
+body.lcars .nes-keybind-hint {
+  font-size: 0.72rem;
+  color: var(--lcars-muted);
+  letter-spacing: 0.04em;
+  margin-left: auto;
+}
+
+body.lcars .nes-controller-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.6fr) minmax(160px, 1fr) minmax(180px, 1.6fr);
+  gap: 12px;
+  align-items: end;
+  border-top: 1px dashed rgba(255, 85, 68, 0.22);
+  padding-top: 10px;
+  margin-top: 2px;
+}
+body.lcars .nes-controller-row input[type="text"] {
+  font-family: "JetBrains Mono", "Consolas", monospace;
+  font-size: 0.78rem;
+  padding: 6px 10px;
+}
+body.lcars .nes-controller-row .field > span::before {
+  content: "▸ ";
+  color: var(--lcars-scarlet);
+}
+
+/* ── On-screen player-1 controller ───────────────────────────────────
+   Mini NES-style gamepad in the side panel for manual play when Grok
+   can't navigate a menu (name-register screens, save-slot pickers).
+   Four-direction d-pad on the left, A/B on the right, SELECT+START
+   across the bottom.
+   ────────────────────────────────────────────────────────────────── */
+body.lcars .nes-pc-block {
+  background: #0a0d12;
+  border: 1px solid rgba(255, 85, 68, 0.32);
+  border-radius: 10px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+body.lcars .nes-pc-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  font-family: "Antonio", "Oswald", sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  font-size: 0.72rem;
+  color: var(--lcars-scarlet);
+  border-bottom: 1px solid rgba(255, 85, 68, 0.25);
+  padding-bottom: 4px;
+}
+body.lcars .nes-pc-hint {
+  color: var(--lcars-muted);
+  font-size: 0.64rem;
+  letter-spacing: 0.06em;
+  text-transform: none;
+}
+
+body.lcars .nes-pc-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  grid-template-rows: 36px 36px 30px;
+  gap: 5px;
+  max-width: 300px;
+  margin: 0 auto;
+}
+
+body.lcars .nes-pc-btn {
+  border: 1px solid var(--lcars-rust);
+  background: #0a0d12;
+  color: var(--lcars-text);
+  border-radius: 8px;
+  font-family: "Antonio", "Oswald", sans-serif;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  font-size: 1rem;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  transition: transform 80ms ease, background 80ms ease, box-shadow 80ms ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+body.lcars .nes-pc-btn:hover {
+  background: #15191f;
+  border-color: var(--lcars-canary);
+}
+body.lcars .nes-pc-btn.pressed {
+  background: var(--lcars-canary);
+  color: var(--lcars-ink);
+  border-color: var(--lcars-canary);
+  transform: scale(0.94);
+  box-shadow: inset 0 0 8px rgba(0, 0, 0, 0.4);
+}
+
+/* D-pad layout (columns 1-3) */
+body.lcars .nes-pc-up    { grid-column: 2; grid-row: 1; }
+body.lcars .nes-pc-left  { grid-column: 1; grid-row: 2; }
+body.lcars .nes-pc-down  { grid-column: 2; grid-row: 2; }
+body.lcars .nes-pc-right { grid-column: 3; grid-row: 2; }
+body.lcars .nes-pc-up,
+body.lcars .nes-pc-down,
+body.lcars .nes-pc-left,
+body.lcars .nes-pc-right {
+  font-size: 1.2rem;
+  border-color: var(--lcars-muted);
+  background: #15191f;
+}
+
+/* A / B buttons (right side) — NES red */
+body.lcars .nes-pc-b { grid-column: 5; grid-row: 2; }
+body.lcars .nes-pc-a { grid-column: 6; grid-row: 2; }
+body.lcars .nes-pc-a,
+body.lcars .nes-pc-b {
+  border-color: var(--lcars-red);
+  background: rgba(255, 51, 68, 0.12);
+  color: var(--lcars-red);
+}
+body.lcars .nes-pc-a:hover,
+body.lcars .nes-pc-b:hover {
+  background: rgba(255, 51, 68, 0.22);
+  color: var(--lcars-text);
+  border-color: var(--lcars-red);
+}
+body.lcars .nes-pc-a.pressed,
+body.lcars .nes-pc-b.pressed {
+  background: var(--lcars-red);
+  color: var(--lcars-text);
+}
+
+/* Select / Start — small, bottom row spanning the width */
+body.lcars .nes-pc-select { grid-column: 1 / 4; grid-row: 3; }
+body.lcars .nes-pc-start  { grid-column: 4 / 7; grid-row: 3; }
+body.lcars .nes-pc-select,
+body.lcars .nes-pc-start {
+  font-size: 0.68rem;
+  letter-spacing: 0.22em;
+  border-color: var(--lcars-teal);
+  color: var(--lcars-teal);
+  background: rgba(51, 204, 255, 0.08);
+}
+body.lcars .nes-pc-select:hover,
+body.lcars .nes-pc-start:hover {
+  background: rgba(51, 204, 255, 0.18);
+}
+body.lcars .nes-pc-select.pressed,
+body.lcars .nes-pc-start.pressed {
+  background: var(--lcars-teal);
+  color: var(--lcars-ink);
+}
+body.lcars .nes-keybind-hint kbd {
+  background: #0a0d12;
+  border: 1px solid rgba(255, 85, 68, 0.4);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-family: "JetBrains Mono", "Consolas", monospace;
+  font-size: 0.72rem;
+  color: var(--lcars-text);
+  margin: 0 2px;
+}
+
+/* Buttons */
+body.lcars .nes-btn {
+  font-family: "Antonio", "Oswald", sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 7px 16px;
+  border: none;
+  border-radius: 10px;
+  background: var(--lcars-scarlet);
+  color: var(--lcars-text);
+  cursor: pointer;
+  transition: filter 120ms ease, transform 120ms ease;
+}
+body.lcars .nes-btn:hover:not(:disabled) {
+  filter: brightness(1.15);
+  transform: translateY(-1px);
+}
+body.lcars .nes-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none;
+}
+body.lcars .nes-start-btn { background: var(--lcars-canary); color: var(--lcars-ink); }
+body.lcars .nes-mini-btn {
+  padding: 3px 10px;
+  font-size: 0.66rem;
+}
+body.lcars .nes-mini-danger { background: var(--lcars-red); }
+
+/* Main grid — canvas left, side panel right */
+body.lcars .nes-main-grid {
+  display: grid;
+  grid-template-columns: minmax(512px, 768px) minmax(300px, 1fr);
+  gap: 16px;
+  padding: 16px 18px 18px;
+  align-items: start;
+}
+
+/* Screen with 3× integer scaling so pixels stay crisp */
+body.lcars .nes-screen-wrap {
+  position: relative;
+  width: 100%;
+  max-width: 768px;
+  aspect-ratio: 256 / 240;
+  background: #000;
+  border: 2px solid var(--lcars-scarlet);
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 0 32px rgba(255, 85, 68, 0.28);
+  display: flex;
+  flex-direction: column;
+}
+body.lcars .nes-canvas {
+  width: 100%;
+  height: 100%;
+  image-rendering: pixelated;
+  image-rendering: -moz-crisp-edges;
+  background: #000;
+  display: block;
+}
+/* Subtle scanline overlay — pure cosmetic CRT flavor, no JS needed */
+body.lcars .nes-screen-wrap::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+      0deg, rgba(0,0,0,0.18) 0px, rgba(0,0,0,0.18) 1px,
+      transparent 1px, transparent 3px);
+  pointer-events: none;
+  mix-blend-mode: multiply;
+  opacity: 0.55;
+}
+
+body.lcars .nes-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0,0,0,0.82);
+  color: var(--lcars-text);
+  font-family: "Antonio", "Oswald", sans-serif;
+  letter-spacing: 0.12em;
+  text-align: center;
+  padding: 24px;
+  z-index: 3;
+}
+body.lcars .nes-overlay.hidden { display: none; }
+body.lcars .nes-overlay-msg strong {
+  color: var(--lcars-canary);
+}
+
+/* Red Alert — pulsing vignette during DANGER plans */
+body.lcars .nes-red-alert {
+  position: absolute;
+  inset: 0;
+  box-shadow: inset 0 0 60px rgba(255, 68, 68, 0.7);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 300ms ease;
+  z-index: 2;
+}
+body.lcars .nes-red-alert.active {
+  opacity: 1;
+  animation: nes-red-alert-pulse 0.8s ease-in-out infinite;
+}
+@keyframes nes-red-alert-pulse {
+  0%,100% { opacity: 0.55; }
+  50%     { opacity: 1; }
+}
+
+/* HUD bar below canvas (inside the wrap) */
+body.lcars .nes-hud {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  background: linear-gradient(0deg, rgba(0,0,0,0.82) 0%, rgba(0,0,0,0) 100%);
+  z-index: 4;
+  flex-wrap: wrap;
+}
+body.lcars .nes-hud-item {
+  font-family: "Antonio", "Oswald", sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 0.68rem;
+  color: var(--lcars-muted);
+}
+body.lcars .nes-hud-item strong {
+  color: var(--lcars-canary);
+  font-family: "JetBrains Mono", "Consolas", monospace;
+  margin-left: 4px;
+}
+body.lcars .nes-hud .nes-btn { margin-left: auto; }
+body.lcars .nes-hud .nes-btn + .nes-btn { margin-left: 0; }
+
+/* Side panel — coach + events */
+body.lcars .nes-side-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+body.lcars .nes-coach-block,
+body.lcars .nes-events-block {
+  background: #0a0d12;
+  border: 1px solid rgba(255, 85, 68, 0.32);
+  border-radius: 10px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+body.lcars .nes-coach-header,
+body.lcars .nes-events-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  font-family: "Antonio", "Oswald", sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  font-size: 0.72rem;
+  color: var(--lcars-scarlet);
+  border-bottom: 1px solid rgba(255, 85, 68, 0.25);
+  padding-bottom: 4px;
+}
+body.lcars .nes-coach-meta {
+  color: var(--lcars-muted);
+  font-size: 0.66rem;
+  letter-spacing: 0.08em;
+}
+body.lcars .nes-coach-body {
+  font-size: 0.88rem;
+  line-height: 1.45;
+  color: var(--lcars-text);
+  min-height: 80px;
+  padding: 4px 2px;
+}
+body.lcars .nes-coach-body.danger {
+  color: var(--lcars-red);
+  text-shadow: 0 0 6px rgba(255, 51, 68, 0.4);
+}
+body.lcars .nes-coach-body.thinking {
+  color: var(--lcars-canary);
+  animation: nes-thinking-pulse 1.4s ease-in-out infinite;
+}
+@keyframes nes-thinking-pulse {
+  0%, 100% { opacity: 0.55; }
+  50%      { opacity: 1; }
+}
+
+body.lcars .nes-events {
+  max-height: 280px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px 2px;
+}
+body.lcars .nes-events-empty {
+  color: var(--lcars-muted);
+  font-style: italic;
+  padding: 12px 4px;
+  text-align: center;
+  font-size: 0.78rem;
+}
+body.lcars .nes-event-row {
+  display: grid;
+  grid-template-columns: 50px 1fr auto;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-family: "JetBrains Mono", "Consolas", monospace;
+  font-size: 0.76rem;
+  background: rgba(0, 0, 0, 0.3);
+}
+body.lcars .nes-event-row.death  { border-left: 3px solid var(--lcars-red); }
+body.lcars .nes-event-row.score  { border-left: 3px solid var(--lcars-canary); }
+body.lcars .nes-event-row.level  { border-left: 3px solid var(--lcars-green); }
+body.lcars .nes-event-row.powerup { border-left: 3px solid var(--lcars-teal); }
+body.lcars .nes-event-row.note    { border-left: 3px solid var(--lcars-muted); }
+body.lcars .nes-event-row .ev-kind {
+  text-transform: uppercase;
+  font-size: 0.68rem;
+  color: var(--lcars-muted);
+  letter-spacing: 0.08em;
+}
+body.lcars .nes-event-row .ev-summary { color: var(--lcars-text); }
+body.lcars .nes-event-row .ev-frame {
+  color: var(--lcars-muted);
+  font-size: 0.7rem;
+}
+
+@media (max-width: 900px) {
+  body.lcars .nes-main-grid     { grid-template-columns: 1fr; }
+  body.lcars .nes-setup-row     { grid-template-columns: 1fr; }
+}
+
+/* ── NES Theater Mode ────────────────────────────────────────────────
+   A full-screen zoom on the canvas + coach panel, hiding all other
+   chrome (topbar, footer, sidebar, setup, other tabs). Toggled via the
+   📺 button in the HUD; also pair-able with browser fullscreen via
+   document.documentElement.requestFullscreen().
+   ─────────────────────────────────────────────────────────────────── */
+body.lcars.nes-theater-mode {
+  padding: 0 !important;  /* reclaim topbar + footer + MCP hub padding */
+  overflow: hidden;
+}
+body.lcars.nes-theater-mode .topbar,
+body.lcars.nes-theater-mode .lcars-footer,
+body.lcars.nes-theater-mode #mcp-hub,
+body.lcars.nes-theater-mode .nes-setup-panel,
+body.lcars.nes-theater-mode .tab-content:not(#tab-nes),
+body.lcars.nes-theater-mode .lcars-left-rail {
+  display: none !important;
+}
+body.lcars.nes-theater-mode .nes-layout {
+  padding: 0 !important;
+  max-width: 100vw !important;
+  height: 100vh;
+  gap: 0;
+}
+body.lcars.nes-theater-mode .nes-main-panel {
+  height: 100vh;
+  width: 100vw;
+  border-radius: 0;
+  border: none;
+  box-shadow: none;
+}
+body.lcars.nes-theater-mode .nes-main-grid {
+  height: 100vh;
+  grid-template-columns: 1fr minmax(300px, 360px);
+  padding: 12px;
+  gap: 12px;
+}
+body.lcars.nes-theater-mode .nes-screen-wrap {
+  max-width: none;
+  width: 100%;
+  height: 100%;
+  aspect-ratio: auto;        /* let the grid decide the shape */
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+body.lcars.nes-theater-mode .nes-canvas {
+  width: 100%;
+  height: 100%;
+  max-height: calc(100vh - 40px);
+  object-fit: contain;
+  image-rendering: pixelated;
+}
+body.lcars.nes-theater-mode .nes-side-panel {
+  overflow-y: auto;
+  max-height: calc(100vh - 24px);
+}
+/* Emphasize the Theater-exit button so it's easy to find */
+body.lcars.nes-theater-mode #nes-theater-btn {
+  background: var(--lcars-canary);
+  color: var(--lcars-ink);
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   LCARS FOOTER — mirrors the topbar, fills the dead black space at
+   the bottom of the viewport with honest Okudagram decoration.
+   ══════════════════════════════════════════════════════════════════════
+   Layout mirrors the topbar: a left amber pill block, a stretch of
+   live readouts in the middle, technical codes on the right. The
+   amber sweep at the TOP of the footer continues the amber border
+   motif established by the topbar's ::before element.
+   ════════════════════════════════════════════════════════════════════ */
+
+body.lcars .lcars-footer {
+  position: fixed;
+  left: 0;
+  right: var(--lcars-mcp-hub-w);     /* stops at the MCP hub's left edge */
+  bottom: 0;
+  height: var(--lcars-footer-h);
+  background: #000000;
+  z-index: 89;                       /* below topbar (90), above content */
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: stretch;
+  gap: 10px;
+  padding: 0;
+}
+
+/* Amber sweep at the top of the footer — mirrors .topbar::before */
+body.lcars .lcars-footer::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 14px;
+  background: var(--lcars-amber);
+  box-shadow: var(--lcars-glow-amber);
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* Left brand block — elbow + pills that mirror the topbar logo pill */
+body.lcars .lcars-footer-brand {
+  grid-column: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 16px 4px 12px;
+  z-index: 2;
+  background: #000000;
+  min-height: 100%;
+}
+body.lcars .footer-elbow {
+  width: 14px;
+  height: 26px;
+  background: var(--lcars-amber);
+  border-radius: 0 0 14px 0;          /* bottom-right rounded */
+  box-shadow: var(--lcars-glow-amber);
+  align-self: flex-start;
+  margin-top: -14px;                  /* tuck under the sweep */
+}
+body.lcars .footer-pill {
+  font-family: "Antonio", "Oswald", sans-serif;
+  font-weight: 700;
+  font-size: 0.72rem;
+  letter-spacing: 0.16em;
+  padding: 2px 10px;
+  border-radius: 10px;
+  line-height: 18px;
+  color: var(--lcars-ink);
+  box-shadow: 0 0 10px rgba(255, 153, 0, 0.22);
+}
+body.lcars .footer-pill-amber { background: var(--lcars-amber); }
+body.lcars .footer-pill-peach { background: var(--lcars-peach); }
+
+/* Middle readout strip — live session data */
+body.lcars .lcars-footer-readout {
+  grid-column: 2;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 18px 18px 4px;
+  z-index: 2;
+  overflow: hidden;
+  background: #000000;
+  flex-wrap: wrap;
+}
+body.lcars .footer-stat {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-family: "Antonio", "Oswald", sans-serif;
+  white-space: nowrap;
+}
+body.lcars .footer-stat .stat-k {
+  font-size: 0.62rem;
+  letter-spacing: 0.18em;
+  color: var(--lcars-muted);
+  text-transform: uppercase;
+}
+body.lcars .footer-stat strong {
+  font-family: "JetBrains Mono", "Consolas", monospace;
+  font-size: 0.76rem;
+  color: var(--lcars-canary);
+  letter-spacing: 0.05em;
+}
+
+/* Right code block — decorative registry / version numbers */
+body.lcars .lcars-footer-codes {
+  grid-column: 3;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 18px 16px 4px;
+  z-index: 2;
+  background: #000000;
+}
+body.lcars .footer-code {
+  font-family: "JetBrains Mono", "Consolas", monospace;
+  font-size: 0.64rem;
+  padding: 3px 10px;
+  border-radius: 8px;
+  background: #0a0d12;
+  color: var(--lcars-teal);
+  border: 1px solid rgba(51, 204, 255, 0.35);
+  letter-spacing: 0.08em;
+}
+body.lcars .footer-code-amber {
+  color: var(--lcars-amber);
+  border-color: rgba(255, 153, 0, 0.45);
+}
+
+@media (max-width: 900px) {
+  body.lcars .lcars-footer-readout { gap: 8px; padding: 18px 8px 4px; }
+  body.lcars .footer-stat .stat-k  { font-size: 0.56rem; }
+  body.lcars .footer-stat strong   { font-size: 0.7rem; }
+}

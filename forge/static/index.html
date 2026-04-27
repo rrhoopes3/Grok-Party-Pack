@@ -3,14 +3,20 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>The Forge | Agent Runtime Console</title>
+    <title>The Forge | LCARS Agent Runtime Console</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Antonio:wght@400;600;700&family=Oswald:wght@400;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="/static/mcp-hub.css">
+    <link rel="stylesheet" href="/static/lcars.css">
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
-<body>
+<body class="lcars">
     <header class="topbar">
         <div class="brand-block">
-            <div class="logo">THE FORGE</div>
+            <img src="/static/GPP.png" alt="Grok Party Pack" class="gpp-logo" />
+            <div class="logo">THE FORGE <span class="logo-sub">NX-7430</span></div>
         </div>
         <nav class="tab-bar" id="tab-bar">
             <button class="tab-btn active" data-tab="console">Console</button>
@@ -21,13 +27,29 @@
             <button class="tab-btn" data-tab="prophecy">Prophecy</button>
             <button class="tab-btn" data-tab="surgeon">Surgeon</button>
             <button class="tab-btn" data-tab="runtime">Runtime</button>
+            <button class="tab-btn" data-tab="chess">Chess</button>
+            <button class="tab-btn" data-tab="nes">NES</button>
+            <button class="tab-btn" data-tab="keys">Keys</button>
         </nav>
+        <div class="command-center">
+            <div class="command-model-badge">
+                <span class="cc-label">EXEC</span>
+                <strong id="cc-model-name">—</strong>
+            </div>
+            <div class="command-alert">
+                <span class="alert-dot" id="cc-alert-dot"></span>
+                <strong id="cc-alert-level">GREEN</strong>
+            </div>
+        </div>
         <div class="feature-badges" id="feature-badges"></div>
         <div class="status-pill" id="status">Ready</div>
     </header>
 
     <!-- ── TAB: Console (default) ─────────────────────────────────── -->
     <div class="tab-content active" id="tab-console">
+      <div class="console-split">
+        <aside class="lcars-left-rail">
+          <div class="lcars-rail-label">CONTROL SURFACE</div>
         <section class="control-deck">
             <div class="control-row">
                 <label class="toggle-field" title="Restrict file and shell access to a directory">
@@ -84,7 +106,9 @@
                 <button id="reset-cost-btn" class="ghost-btn small-btn" title="Reset spend">Reset</button>
             </div>
         </section>
+        </aside>
 
+        <div class="lcars-viewer">
         <!-- Live run status bar -->
         <div class="live-bar" id="live-bar">
             <span><em>ID</em> <strong id="meta-task-id">-</strong></span>
@@ -203,6 +227,32 @@
                 </section>
 
                 <section class="chat-area" id="chat-area">
+                    <!-- ── Landing hero — mix of minimalist + capability grid.
+                         Hidden when a task is in flight (chat-area.is-task-active).
+                         The brain visual mounts into #intro-brain (canvas / SVG / whatever). -->
+                    <section class="console-intro" id="console-intro">
+                        <div class="intro-visual" id="intro-brain" aria-hidden="true">
+                            <!-- Interactive brain visual mounts here.
+                                 Target: full-bleed inside this box, respects parent size.
+                                 Fallback while empty: subtle animated pulse via ::after. -->
+                        </div>
+                        <div class="intro-copy">
+                            <p class="intro-eyebrow">NX-7430 · COMMAND NEXUS</p>
+                            <h1 class="intro-lede">Type a task. The council plans. The executor builds.</h1>
+
+                            <ul class="intro-caps" role="list">
+                                <li><span class="cap-tag cap-amber">COUNCIL</span>16 Grok agents deliberate and plan</li>
+                                <li><span class="cap-tag cap-teal">EXECUTOR</span>40 tools across 5 providers</li>
+                                <li><span class="cap-tag cap-canary">ROUTING</span>Auto-fallback on quota or outage</li>
+                                <li><span class="cap-tag cap-green">FIREWALL</span>Semantic check on every call</li>
+                                <li><span class="cap-tag cap-lilac">TRUST</span>EMA-calibrated reassignment</li>
+                                <li><span class="cap-tag cap-red">ARENA</span>AI vs AI. The gods score.</li>
+                            </ul>
+
+                            <p class="intro-footnote">Ctrl/Cmd + Enter on the composer to ignite.</p>
+                        </div>
+                    </section>
+
                     <div class="split-panes">
                         <div class="pane-dialogue">
                             <div class="pane-header">Dialogue</div>
@@ -230,6 +280,8 @@
                 </section>
             </section>
         </main>
+        </div><!-- /.lcars-viewer -->
+      </div><!-- /.console-split -->
     </div>
 
     <!-- ── TAB: History ───────────────────────────────────────────── -->
@@ -1110,6 +1162,450 @@
         </div>
     </div>
 
+    <!-- ── TAB: Chess (LLM vs LLM arena) ──────────────────────────────── -->
+    <div class="tab-content" id="tab-chess">
+        <div class="chess-layout">
+            <section class="panel chess-setup-panel">
+                <div class="panel-header chess-panel-header">
+                    <h3>LLM Chess Arena</h3>
+                    <span class="chess-subtitle">Two models play. Moves are legality-checked server-side.</span>
+                </div>
+                <div class="chess-setup-row">
+                    <label class="field">
+                        <span>White ♔</span>
+                        <select id="chess-white-model" class="chess-model-select"></select>
+                    </label>
+                    <label class="field">
+                        <span>Black ♚</span>
+                        <select id="chess-black-model" class="chess-model-select"></select>
+                    </label>
+                    <label class="field">
+                        <span>Judge 🎙</span>
+                        <select id="chess-judge-model" class="chess-model-select"></select>
+                    </label>
+                    <button class="btn-primary chess-btn chess-new-btn" id="chess-new-btn">Start match</button>
+                </div>
+                <div class="chess-setup-row2">
+                    <label class="field chess-interval-field">
+                        <span>Commentary</span>
+                        <!-- value format: "interval:window_plies"
+                             window_plies = 0 → full-history running commentary
+                             window_plies > 0 → recap only the last N plies -->
+                        <select id="chess-commentary-interval" class="chess-model-select">
+                            <option value="1:0">every round · full history</option>
+                            <option value="2:0" selected>every 2 rounds · full history</option>
+                            <option value="3:0">every 3 rounds · full history</option>
+                            <option value="4:0">every 4 rounds · full history</option>
+                            <option value="5:10">every 5 rounds · recap last 5 rounds</option>
+                            <option value="10:20">every 10 rounds · recap last 10 rounds</option>
+                        </select>
+                    </label>
+                    <label class="toggle-field chess-tts-toggle">
+                        <span>TTS voice</span>
+                        <span class="switch">
+                            <input type="checkbox" id="chess-tts-toggle">
+                            <span class="switch-track"></span>
+                        </span>
+                    </label>
+                </div>
+            </section>
+
+            <section class="panel chess-main-panel" id="chess-main-panel">
+                <div class="chess-main-grid">
+                    <div class="chess-board-wrap">
+                        <div class="chess-board" id="chess-board">
+                            <div class="chess-empty">No active match. Configure players above and press "Start match".</div>
+                        </div>
+                        <div class="chess-board-meta">
+                            <span class="chess-side-badge" id="chess-white-badge">— White</span>
+                            <span class="chess-vs">vs</span>
+                            <span class="chess-side-badge" id="chess-black-badge">— Black</span>
+                        </div>
+
+                        <!-- Captured-pieces rows (side-board). Shows black
+                             pieces that white has taken, and vice versa. -->
+                        <div class="chess-captures">
+                            <div class="chess-capture-row" id="chess-capture-white">
+                                <span class="chess-capture-label">White captured</span>
+                                <span class="chess-capture-pieces" id="chess-capture-white-pieces"></span>
+                                <span class="chess-capture-material" id="chess-capture-white-material"></span>
+                            </div>
+                            <div class="chess-capture-row" id="chess-capture-black">
+                                <span class="chess-capture-label">Black captured</span>
+                                <span class="chess-capture-pieces" id="chess-capture-black-pieces"></span>
+                                <span class="chess-capture-material" id="chess-capture-black-material"></span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <aside class="chess-side-panel">
+                        <div class="chess-status-block">
+                            <div class="chess-turn-label">
+                                <span>Turn</span>
+                                <strong id="chess-turn">—</strong>
+                            </div>
+                            <div class="chess-turn-label">
+                                <span>Status</span>
+                                <strong id="chess-status">—</strong>
+                            </div>
+                            <div class="chess-turn-label">
+                                <span>Move #</span>
+                                <strong id="chess-movenum">0</strong>
+                            </div>
+                        </div>
+
+                        <!-- Token accounting — per-side + judge + total. -->
+                        <div class="chess-tokens-block">
+                            <div class="chess-tokens-header">
+                                <span>Token usage</span>
+                                <span class="chess-tokens-total" id="chess-tokens-total">0 tokens · $0.0000</span>
+                            </div>
+                            <div class="chess-tokens-grid">
+                                <div class="chess-tokens-row" data-role="white">
+                                    <span class="chess-tokens-role">♔ White</span>
+                                    <span class="chess-tokens-val" id="chess-tokens-white">0 / 0 · $0.0000</span>
+                                </div>
+                                <div class="chess-tokens-row" data-role="black">
+                                    <span class="chess-tokens-role">♚ Black</span>
+                                    <span class="chess-tokens-val" id="chess-tokens-black">0 / 0 · $0.0000</span>
+                                </div>
+                                <div class="chess-tokens-row" data-role="judge">
+                                    <span class="chess-tokens-role">🎙 Judge</span>
+                                    <span class="chess-tokens-val" id="chess-tokens-judge">0 / 0 · $0.0000</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="chess-controls">
+                            <button class="chess-btn" id="chess-step-btn" disabled>Step (next move)</button>
+                            <button class="chess-btn chess-auto-btn" id="chess-auto-btn" disabled>Auto-play</button>
+                            <button class="chess-btn chess-resign-btn" id="chess-resign-white-btn" disabled>Resign White</button>
+                            <button class="chess-btn chess-resign-btn" id="chess-resign-black-btn" disabled>Resign Black</button>
+                        </div>
+
+                        <div class="chess-status-msg" id="chess-status-msg"></div>
+
+                        <div class="chess-commentary-block">
+                            <div class="chess-commentary-header">
+                                <span>🎙 Judge Commentary</span>
+                                <span class="chess-commentary-meta" id="chess-commentary-meta">—</span>
+                                <button class="chess-btn chess-mini-btn" id="chess-commentary-now-btn" disabled>Call it</button>
+                            </div>
+                            <div class="chess-commentary-body" id="chess-commentary-body">
+                                Commentary will appear here after the first full round.
+                            </div>
+                            <div class="chess-commentary-history" id="chess-commentary-history"></div>
+                        </div>
+
+                        <div class="chess-moves-block">
+                            <div class="chess-moves-header">Move log</div>
+                            <div class="chess-moves" id="chess-moves">
+                                <div class="chess-moves-empty">No moves yet.</div>
+                            </div>
+                        </div>
+                    </aside>
+                </div>
+            </section>
+        </div>
+    </div>
+
+    <!-- ── TAB: NES Arena (jsnes in-browser emulator + Grok coach) ────── -->
+    <div class="tab-content" id="tab-nes">
+        <div class="nes-layout">
+            <section class="panel nes-setup-panel">
+                <div class="panel-header nes-panel-header">
+                    <h3>NES Arena</h3>
+                    <span class="nes-subtitle">jsnes runs in your browser. Grok coaches with screen-aware strategy.</span>
+                </div>
+                <div class="nes-setup-row">
+                    <label class="field">
+                        <span>ROM</span>
+                        <select id="nes-rom-select" class="nes-select">
+                            <option value="">Loading ROM library…</option>
+                        </select>
+                    </label>
+                    <label class="field">
+                        <span>Mode</span>
+                        <select id="nes-mode-select" class="nes-select">
+                            <option value="human">Human (P1 keyboard, no Grok)</option>
+                            <option value="hybrid-coach" selected>Hybrid — Human + Grok coach</option>
+                            <option value="grok">Grok plays P1 (coach + controller)</option>
+                        </select>
+                    </label>
+                    <label class="field">
+                        <span>Coach model</span>
+                        <select id="nes-coach-model" class="nes-select"></select>
+                    </label>
+                    <button class="nes-btn nes-start-btn" id="nes-start-btn">Boot ROM</button>
+                </div>
+                <div class="nes-setup-row2">
+                    <label class="field nes-interval">
+                        <span>Coach every</span>
+                        <input type="range" id="nes-coach-interval" min="1000" max="8000" step="500" value="2500">
+                        <span class="nes-interval-label" id="nes-coach-interval-label">2.5 s</span>
+                    </label>
+                    <div class="nes-keybind-hint">
+                        P1: <kbd>←↑→↓</kbd> D-pad · <kbd>Z</kbd>=B · <kbd>X</kbd>=A · <kbd>Enter</kbd>=Start · <kbd>Shift</kbd>=Select
+                    </div>
+                </div>
+
+                <!-- Controller row — tight-loop button-pusher. Coach sets
+                     strategy; controller translates current frame + plan
+                     into button presses. Three providers available:
+                       • Grok (cloud): uses the executor model via Forge
+                         backend; fastest for API-billing users (~500ms/tick)
+                       • LM Studio (local): direct VLM on localhost; slow
+                         with reasoning models (1-8s/tick) but private
+                       • Off: no auto-pilot, keyboard only
+                     Only fires when Mode ≠ human. -->
+                <div class="nes-setup-row2 nes-controller-row">
+                    <label class="field">
+                        <span>Controller via</span>
+                        <select id="nes-controller-provider" class="nes-select">
+                            <option value="grok" selected>Grok (cloud · fast)</option>
+                            <option value="lmstudio">LM Studio (local)</option>
+                            <option value="off">Off (human only)</option>
+                        </select>
+                    </label>
+                    <label class="field">
+                        <span>Model</span>
+                        <input type="text" id="nes-controller-model" class="nes-select"
+                               value="grok-4-1-fast-non-reasoning"
+                               placeholder="grok-4-1-fast-non-reasoning">
+                    </label>
+                    <label class="field nes-interval">
+                        <span>Button every</span>
+                        <input type="range" id="nes-controller-interval" min="100" max="3000" step="50" value="1000">
+                        <span class="nes-interval-label" id="nes-controller-interval-label">1000 ms</span>
+                    </label>
+                    <label class="field">
+                        <span>LM Studio URL</span>
+                        <input type="text" id="nes-controller-url" class="nes-select"
+                               value="http://localhost:1234/v1"
+                               placeholder="http://localhost:1234/v1">
+                    </label>
+                </div>
+            </section>
+
+            <section class="panel nes-main-panel" id="nes-main-panel">
+                <div class="nes-main-grid">
+                    <div class="nes-screen-wrap">
+                        <canvas id="nes-canvas" width="256" height="240" class="nes-canvas"></canvas>
+                        <div class="nes-overlay" id="nes-overlay">
+                            <div class="nes-overlay-msg" id="nes-overlay-msg">Select a ROM, then press <strong>Boot ROM</strong>.</div>
+                        </div>
+                        <div class="nes-red-alert" id="nes-red-alert"></div>
+                        <div class="nes-hud">
+                            <span class="nes-hud-item">FR <strong id="nes-fps">0</strong></span>
+                            <span class="nes-hud-item">FN <strong id="nes-frame-n">0</strong></span>
+                            <span class="nes-hud-item">CTRL <strong id="nes-ctrl-ms">—</strong></span>
+                            <span class="nes-hud-item">CALLS <strong id="nes-ctrl-calls">0</strong></span>
+                            <span class="nes-hud-item">COST <strong id="nes-ctrl-cost">$0.0000</strong></span>
+                            <span class="nes-hud-item">SCORE <strong id="nes-score">-</strong></span>
+                            <span class="nes-hud-item">LIVES <strong id="nes-lives">-</strong></span>
+                            <button class="nes-btn nes-mini-btn" id="nes-mute-btn" disabled>🔊 Sound</button>
+                            <button class="nes-btn nes-mini-btn" id="nes-theater-btn">📺 Theater</button>
+                            <button class="nes-btn nes-mini-btn" id="nes-ctrl-resume-btn" style="display:none">▶ Resume Ctrl</button>
+                            <button class="nes-btn nes-mini-btn" id="nes-pause-btn" disabled>⏸ Pause</button>
+                            <button class="nes-btn nes-mini-btn" id="nes-reset-btn" disabled>↻ Reset</button>
+                            <button class="nes-btn nes-mini-btn nes-mini-danger" id="nes-stop-btn" disabled>■ Stop</button>
+                        </div>
+                    </div>
+
+                    <aside class="nes-side-panel">
+                        <div class="nes-coach-block">
+                            <div class="nes-coach-header">
+                                <span>Coach plan</span>
+                                <span class="nes-coach-meta" id="nes-coach-meta">—</span>
+                            </div>
+                            <div class="nes-coach-body" id="nes-coach-body">
+                                Boot a ROM to start receiving plans.
+                            </div>
+                            <button class="nes-btn nes-mini-btn" id="nes-coach-now-btn" disabled>Ask coach now</button>
+                        </div>
+
+                        <!-- On-screen player controller — useful for name-
+                             register screens / menus where Grok can't easily
+                             navigate, and for laptops without a gamepad.
+                             Click-and-hold semantics: mousedown presses,
+                             mouseup/mouseleave releases (so you can hold
+                             RIGHT to walk, etc.). -->
+                        <div class="nes-pc-block">
+                            <div class="nes-pc-header">
+                                <span>Manual Controls · P1</span>
+                                <span class="nes-pc-hint">Click and hold · keys still work</span>
+                            </div>
+                            <div class="nes-pc-grid">
+                                <button class="nes-pc-btn nes-pc-up"     data-btn="UP">↑</button>
+                                <button class="nes-pc-btn nes-pc-left"   data-btn="LEFT">←</button>
+                                <button class="nes-pc-btn nes-pc-down"   data-btn="DOWN">↓</button>
+                                <button class="nes-pc-btn nes-pc-right"  data-btn="RIGHT">→</button>
+                                <button class="nes-pc-btn nes-pc-b"      data-btn="B">B</button>
+                                <button class="nes-pc-btn nes-pc-a"      data-btn="A">A</button>
+                                <button class="nes-pc-btn nes-pc-select" data-btn="SELECT">SEL</button>
+                                <button class="nes-pc-btn nes-pc-start"  data-btn="START">START</button>
+                            </div>
+                        </div>
+
+                        <div class="nes-events-block">
+                            <div class="nes-events-header">
+                                <span>Events / Vault log</span>
+                                <button class="nes-btn nes-mini-btn" id="nes-note-btn" disabled>＋ Note</button>
+                            </div>
+                            <div class="nes-events" id="nes-events">
+                                <div class="nes-events-empty">No events yet.</div>
+                            </div>
+                        </div>
+                    </aside>
+                </div>
+            </section>
+        </div>
+    </div>
+
+    <!-- ── TAB: Keys (API secret management, masked) ──────────────────── -->
+    <div class="tab-content" id="tab-keys">
+        <div class="keys-layout">
+            <section class="panel keys-panel">
+                <div class="panel-header keys-panel-header">
+                    <h3>API Keys Vault</h3>
+                    <span class="keys-subtitle">Secrets persist to <code>forge/.env</code>. Raw values never leave the server.</span>
+                </div>
+                <div class="keys-category-bar">
+                    <button class="keys-filter-btn active" data-cat="all">All</button>
+                    <button class="keys-filter-btn" data-cat="llm">LLM</button>
+                    <button class="keys-filter-btn" data-cat="tools">Tools</button>
+                    <button class="keys-filter-btn" data-cat="trading">Trading</button>
+                    <button class="keys-filter-btn" data-cat="infra">Infra</button>
+                </div>
+                <div class="keys-list" id="keys-list">
+                    <div class="keys-loading">Loading providers…</div>
+                </div>
+                <div class="keys-footer">
+                    <button class="btn-secondary" id="keys-refresh-btn">Refresh</button>
+                    <span class="keys-status" id="keys-status"></span>
+                </div>
+            </section>
+        </div>
+    </div>
+
+    <!-- ── LCARS MCP Hub sidebar (vault/graph + external MCP servers) ─── -->
+    <aside id="mcp-hub"></aside>
+
+    <!-- ── LCARS bottom bar — mirrors the topbar, fills dead space ──── -->
+    <footer class="lcars-footer">
+        <div class="lcars-footer-brand">
+            <span class="footer-elbow"></span>
+            <span class="footer-pill footer-pill-amber">GROK PARTY PACK</span>
+            <span class="footer-pill footer-pill-peach">NCC-7430</span>
+        </div>
+        <div class="lcars-footer-readout" id="lcars-footer-readout">
+            <span class="footer-stat"><span class="stat-k">STARDATE</span><strong id="footer-stardate">—</strong></span>
+            <span class="footer-stat"><span class="stat-k">SESSION</span><strong id="footer-session">—</strong></span>
+            <span class="footer-stat"><span class="stat-k">COST</span><strong id="footer-cost">$0.00</strong></span>
+            <span class="footer-stat"><span class="stat-k">UPTIME</span><strong id="footer-uptime">00:00</strong></span>
+        </div>
+        <div class="lcars-footer-codes">
+            <span class="footer-code">47-ALPHA-TANGO</span>
+            <span class="footer-code footer-code-amber">LCARS v4.7</span>
+        </div>
+    </footer>
+
+    <script src="/static/vendor/jsnes.min.js"></script>
     <script src="/static/app.js"></script>
+    <script src="/static/mcp-hub.js"></script>
+
+    <!-- Mirror app state into the LCARS command-center header block.
+         Cheap polling (500ms) so we don't have to intrusively hook app.js. -->
+    <script>
+    (function () {
+      "use strict";
+      const sel      = () => document.getElementById("model-select");
+      const status   = () => document.getElementById("status");
+      const ccModel  = document.getElementById("cc-model-name");
+      const ccAlert  = document.getElementById("cc-alert-level");
+      const ccAlertWrap = document.querySelector(".command-alert");
+
+      const killBtn = () => document.getElementById("kill-btn");
+      const chatArea = () => document.getElementById("chat-area");
+
+      function classify(statusEl) {
+        if (!statusEl) return "GREEN";
+        if (statusEl.classList.contains("error"))   return "RED";
+        if (statusEl.classList.contains("running")) return "YELLOW";
+        return "GREEN";
+      }
+      function sync() {
+        const s = sel();
+        if (s && ccModel && s.options.length) {
+          const txt = s.options[s.selectedIndex]?.text;
+          if (txt) ccModel.textContent = txt;
+        }
+        if (status() && ccAlert && ccAlertWrap) {
+          const lvl = classify(status());
+          ccAlert.textContent = lvl;
+          ccAlertWrap.dataset.level = lvl;
+        }
+        // Collapse the landing hero while a task is in flight. Kill button
+        // visibility is the cleanest proxy for "a task is running" that
+        // doesn't require hooking into app.js's SSE lifecycle directly.
+        const ca = chatArea();
+        const kb = killBtn();
+        if (ca && kb) {
+          const taskActive = !kb.classList.contains("hidden");
+          ca.classList.toggle("is-task-active", taskActive);
+        }
+      }
+      document.addEventListener("DOMContentLoaded", sync);
+      sel()?.addEventListener("change", sync);
+      setInterval(sync, 500);
+      sync();
+    })();
+    </script>
+
+    <!-- LCARS footer live readouts: stardate, session id, running cost,
+         uptime. Purely client-side — stardate is a classic TNG encoding
+         of UTC; session is a hex token generated at page load; cost
+         pulls from the cost-pill the app.js SSE loop updates. -->
+    <script>
+    (function () {
+      "use strict";
+      // Star Trek TNG-era stardate encoding: year-shift base 41000 (2266)
+      // + day-of-year as fractional part ×1000. Mostly decorative but
+      // entirely deterministic.
+      function stardate(d = new Date()) {
+        const yearPart = 41000 + (d.getUTCFullYear() - 2266) * 1000;
+        const start = Date.UTC(d.getUTCFullYear(), 0, 1);
+        const diff  = d.getTime() - start;
+        const frac  = diff / (1000 * 60 * 60 * 24 * 365.25);
+        return (yearPart + frac * 1000).toFixed(1);
+      }
+      const startedAt = Date.now();
+      const sessionId =
+        Math.floor(Math.random() * 0xffffff).toString(16).toUpperCase().padStart(6, "0");
+      const $sd   = document.getElementById("footer-stardate");
+      const $sess = document.getElementById("footer-session");
+      const $cost = document.getElementById("footer-cost");
+      const $up   = document.getElementById("footer-uptime");
+      if ($sess) $sess.textContent = sessionId;
+
+      function tick() {
+        if ($sd) $sd.textContent = stardate();
+        if ($up) {
+          const s = Math.floor((Date.now() - startedAt) / 1000);
+          const h = String(Math.floor(s / 3600)).padStart(2, "0");
+          const m = String(Math.floor((s % 3600) / 60)).padStart(2, "0");
+          const ss = String(s % 60).padStart(2, "0");
+          $up.textContent = s >= 3600 ? `${h}:${m}:${ss}` : `${m}:${ss}`;
+        }
+        if ($cost) {
+          // The app has a session-cost element; copy its text if present.
+          const sc = document.getElementById("session-cost");
+          if (sc && sc.textContent) $cost.textContent = sc.textContent.trim() || "$0.00";
+        }
+      }
+      tick();
+      setInterval(tick, 1000);
+    })();
+    </script>
 </body>
 </html>

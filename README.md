@@ -130,6 +130,57 @@ report = runner.run_suite(SMOKE_EVALS)
 print(report.summary())
 ```
 
+### MCP Client + Blender Pack (now live)
+
+Forge is now a **multi-node MCP agent** — bidirectional. `forge/mcp_server.py` still exposes Forge's 40+ tool registry OUT to MCP clients (Claude Code, Cursor, Windsurf). The new `forge/mcp_client.py` goes the other way — synchronous facade over the async `mcp` SDK that lets Forge tools drive any MCP server spawned over stdio.
+
+**Namespaces**:
+
+| Namespace | Backed by | What you get |
+|---|---|---|
+| `forge:vault` | `forge.vault.AgentVault` | Keyed notes, keyword-searchable |
+| `forge:graph` | `forge.context_engine.KnowledgeGraph` | Nodes + edges, BFS recall |
+| External (e.g. blender-mcp) | subprocess over stdio | Full server tool surface |
+
+**Unified tools** (see `forge/tools/mcp.py`):
+
+```python
+# Namespace-shaped memory: store/recall on internal namespaces
+mcp_store("forge:vault", key="meeting_notes", value="Acme deal moved to stage 3")
+mcp_recall("forge:vault", query="acme", limit=5)
+
+mcp_store("forge:graph", key="company:acme",
+          value='{"kind":"company","label":"Acme","industry":"logistics"}')
+mcp_recall("forge:graph", query="acme")
+
+# Generic dispatch: call any tool on any configured namespace
+mcp_call_tool("blender", "get_scene_info", args_json="{}")
+mcp_call_tool("forge:vault", "store",
+              args_json='{"key":"note","value":"stored via router"}')
+
+# Introspection
+mcp_list_tools("blender")        # enumerate the server's tool surface
+mcp_list_namespaces()            # active namespaces + full external config
+```
+
+**Config-driven external dispatch** (`forge/config.py`):
+
+```python
+MCP_SERVERS = {
+    "blender":    {"command": ["uvx", "blender-mcp"],      "enabled": True,  "auto_start": True,  "timeout": 120.0},
+    "salesforce": {"command": ["uvx", "@salesforce/mcp"],  "enabled": False, "auto_start": False, "timeout": 60.0},
+    # future: cursor, linear, notion, github, …
+}
+```
+
+Each `enabled` flag is env-overridable as `FORGE_MCP_SERVER_<NAME>_ENABLED`. Adding a new external MCP = one dict entry — no new tool file, no new pack. The router handles the rest and falls back gracefully on disabled / missing-command / unknown-namespace paths with actionable error envelopes.
+
+**Auto-sync** (opt-in via `FORGE_MCP_AUTO_SYNC_ENABLED=true`, default on): every successful executor step syncs to `forge:vault` + `forge:graph` so agent memory accumulates as work happens. One-liner hook in `forge/executor.py`, observable via `forge.mcp_client.set_auto_sync(vault, graph)`.
+
+**Blender pack** — driven by [blender-mcp](https://github.com/ahujasid/blender-mcp). Install the addon in Blender, click "Connect to Claude" in the 3D View sidebar (N), then `FORGE_BLENDER_PACK_ENABLED=true`. Six tools: generic `blender_call_tool(name, args_json)` + convenience wrappers for scene info, object info, execute code, viewport screenshot. Pack defaults to `claude-sonnet-4-6` for vision-capable viewport feedback loops.
+
+**Salesforce pack** — routes through [@salesforce/mcp](https://www.npmjs.com/package/@salesforce/mcp) via the router (default on via `FORGE_MCP_SERVER_SALESFORCE_ENABLED=true`). Convenience wrapper `salesforce_mcp_call(tool_name, args_json)` hard-codes the namespace so agents browsing by name find it; generic `mcp_call_tool("salesforce", ...)` also works. The legacy `sf` CLI wrappers (SOQL, describe, record get/update, list orgs) remain available under the `salesforce_cli` tool category if you want the direct local path instead.
+
 ---
 
 ## Quick Start
