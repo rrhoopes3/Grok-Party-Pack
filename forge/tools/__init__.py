@@ -73,4 +73,9 @@ def create_registry() -> ToolRegistry:
     # Deception detection — veracity pipeline (prosodic + cortical + swarm)
     from . import deception as deception_tools
     deception_tools.register(reg)
+    # VRC-48M provenance — media signing and watermark verification
+    from forge.config import PROVENANCE_ENABLED
+    if PROVENANCE_ENABLED:
+        from . import provenance as provenance_tools
+        provenance_tools.register(reg)
     return reg

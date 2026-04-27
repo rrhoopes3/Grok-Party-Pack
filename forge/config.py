@@ -334,6 +334,10 @@ GITHUB_ENABLED = os.getenv("FORGE_GITHUB_ENABLED", "true").lower() == "true"
 # ── Image / Audio Generation ─────────────────────────────────────────────
 IMAGE_GEN_ENABLED = os.getenv("FORGE_IMAGE_GEN_ENABLED", "true").lower() == "true"
 
+# ── VRC-48M Provenance ───────────────────────────────────────────────────
+PROVENANCE_ENABLED = os.getenv("FORGE_PROVENANCE_ENABLED", "true").lower() == "true"
+VRC48M_KEY = os.getenv("FORGE_VRC48M_KEY", "vrc48m-dev-key-change-in-prod")
+
 # ── RAG Pipeline ──────────────────────────────────────────────────────────
 RAG_ENABLED = os.getenv("FORGE_RAG_ENABLED", "true").lower() == "true"
 RAG_DATA_DIR = DATA_DIR / "rag"
