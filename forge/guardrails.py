@@ -145,6 +145,27 @@ def check_credential_leakage(content: str) -> GuardrailResult:
     return GuardrailResult(passed=True, guardrail_name="credential_leakage")
 
 
+def check_media_provenance(tool_name: str, args: dict) -> GuardrailResult:
+    """Warn when image tools process media without VRC-48M provenance."""
+    _MEDIA_TOOLS = {"resize_image", "convert_image"}
+    if tool_name not in _MEDIA_TOOLS:
+        return GuardrailResult(passed=True, guardrail_name="media_provenance")
+
+    input_path = args.get("input_path", "")
+    if not input_path:
+        return GuardrailResult(passed=True, guardrail_name="media_provenance")
+
+    import os as _os
+    if not _os.path.exists(input_path + ".vrc48m.json"):
+        return GuardrailResult(
+            passed=False,
+            guardrail_name="media_provenance",
+            message=f"Media has no VRC-48M provenance sidecar: {input_path}",
+            severity="warning",
+        )
+    return GuardrailResult(passed=True, guardrail_name="media_provenance")
+
+
 def check_output_length(content: str) -> GuardrailResult:
     """Warn if output is suspiciously large (potential data exfiltration)."""
     if len(content) > 100_000:
@@ -181,6 +202,7 @@ class GuardrailEngine:
             self.add_input_guardrail(check_sensitive_paths)
             self.add_output_guardrail(check_credential_leakage)
             self.add_output_guardrail(check_output_length)
+            self.add_input_guardrail(check_media_provenance)
 
     def add_input_guardrail(self, fn: InputGuardrailFn):
         """Register an input guardrail (runs before tool execution)."""

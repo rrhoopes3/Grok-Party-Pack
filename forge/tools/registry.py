@@ -22,6 +22,9 @@ _SANDBOX_PATH_ARGS = {
     "query_sqlite": ["database"],
     "extract_archive": ["archive_path", "output_dir"],
     "zip_files": ["output_path"],
+    "provenance_sign": ["input_path", "output_path"],
+    "provenance_verify": ["input_path"],
+    "provenance_inspect": ["input_path"],
 }
 
 # Tools that should have their cwd overridden in sandbox mode
@@ -63,6 +66,7 @@ TOOL_CATEGORIES = {
     "rag":      {"rag_ingest", "rag_query", "rag_status", "rag_clear"},
     "fake_audio": {"fake_audio_detect", "fake_audio_scan", "fake_audio_neuro_compare"},
     "deception": {"veracity_analyze", "veracity_baseline", "veracity_compare", "veracity_quick"},
+    "provenance": {"provenance_sign", "provenance_verify", "provenance_inspect"},
 }
 
 # Reverse map: tool_name → category

@@ -53,6 +53,8 @@ SAFE_TOOLS = frozenset({
     "get_portfolio", "get_market_quote", "fetch_pcr",
     "analyze_sentiment", "get_options_chain",
     "get_trading_agent_status",
+    # Provenance read-only
+    "provenance_verify", "provenance_inspect",
 })
 
 # Tools that modify state but are generally expected
@@ -69,6 +71,8 @@ CAUTION_TOOLS = frozenset({
     # Trading actions (real money but user-initiated)
     "execute_trade", "set_alert",
     "start_trading_agent", "stop_trading_agent",
+    # Provenance signing (creates files)
+    "provenance_sign",
 })
 
 # Tools that can cause irreversible damage
