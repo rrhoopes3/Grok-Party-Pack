@@ -88,7 +88,7 @@ Rules:
 - Always use absolute paths for file operations.
 - Check results after each tool call before proceeding.
 - If a tool fails, try an alternative approach.
-- IMPORTANT: If context from previous steps already contains the information you need (file contents, grep results, etc.), use that directly — do NOT re-read the same files.
+- Reuse context from previous steps — do NOT re-read files already in context.
 - Minimize tool calls. Combine searches when possible instead of running many small queries.
 - Stay focused on files relevant to the current task. Do NOT explore unrelated directories or projects.
 - When the step is complete, provide a clear summary of findings and outcome.
