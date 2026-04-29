@@ -134,16 +134,53 @@ def _to_anthropic_tools(registry: ToolRegistry, only: set[str] | None = None) ->
     return tools
 
 
-def _to_openai_tools(registry: ToolRegistry, only: set[str] | None = None) -> list[dict]:
-    """Convert registry tools to OpenAI function-calling format."""
+def _strip_param_descriptions(schema: dict) -> dict:
+    """Return a copy of a JSON Schema with description fields removed from properties.
+
+    Keeps the top-level structure (type, required, properties) but drops per-property
+    descriptions. This typically saves 40-60% of the schema token count.
+    """
+    if not isinstance(schema, dict):
+        return schema
+    out = {}
+    for k, v in schema.items():
+        if k == "properties" and isinstance(v, dict):
+            out[k] = {}
+            for prop_name, prop_schema in v.items():
+                stripped = {pk: pv for pk, pv in prop_schema.items() if pk != "description"}
+                out[k][prop_name] = stripped
+        else:
+            out[k] = v
+    return out
+
+
+def _to_openai_tools(
+    registry: ToolRegistry,
+    only: set[str] | None = None,
+    compact: bool = False,
+) -> list[dict]:
+    """Convert registry tools to OpenAI function-calling format.
+
+    When compact=True, strips parameter descriptions from schemas to reduce
+    token count for context-limited local models (LM Studio, Ollama).
+    """
     tools = []
     for t in registry.get_raw_tools(only=only):
+        params = t["parameters"]
+        if compact:
+            params = _strip_param_descriptions(params)
+        # In compact mode, truncate the tool description to one sentence
+        desc = t["description"]
+        if compact and len(desc) > 100:
+            dot = desc.find(". ", 0, 120)
+            if dot > 0:
+                desc = desc[:dot + 1]
         tools.append({
             "type": "function",
             "function": {
                 "name": t["name"],
-                "description": t["description"],
-                "parameters": t["parameters"],
+                "description": desc,
+                "parameters": params,
             },
         })
     return tools
@@ -344,7 +381,7 @@ def run_openai(
         client_kwargs["api_key"] = effective_key
 
     client = OpenAI(**client_kwargs)
-    tools = _to_openai_tools(registry, only=tool_filter)
+    tools = _to_openai_tools(registry, only=tool_filter, compact=bool(base_url))
 
     messages = [
         {"role": "system", "content": system_prompt},

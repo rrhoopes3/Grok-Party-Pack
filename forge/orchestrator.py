@@ -36,7 +36,7 @@ from forge.config import (
 )
 from forge.models import PlanStep, StepResult, TaskResult
 from forge.tools import create_registry
-from forge.tools.registry import resolve_tools_for_step
+from forge.tools.registry import resolve_tools_for_step, infer_tools_for_task
 from forge.providers import detect_provider
 from forge.packs import get_registry as get_pack_registry, CapabilityPack
 from forge.guardrails import GuardrailEngine
@@ -53,6 +53,7 @@ from forge.firewall import SemanticFirewall
 from forge.vault import AgentVault
 from forge import planner, executor
 from forge.config import TOLL_ENABLED, TOLL_DB_PATH
+from forge.instant import try_instant_answer
 
 log = logging.getLogger("forge.orchestrator")
 
@@ -166,6 +167,22 @@ class Orchestrator:
         task_id = self.task_id or str(uuid.uuid4())[:8]
         yield {"type": "status", "content": f"Forge task {task_id} started"}
 
+        # ── Instant-answer short-circuit ─────────────────────────────
+        # Trivial system-info queries (pwd, whoami, date, hostname) bypass
+        # the LLM entirely — zero tokens, sub-100ms.
+        instant = try_instant_answer(task)
+        if instant is not None:
+            yield {"type": "status", "phase": "executing",
+                   "content": "Instant answer — no LLM needed"}
+            yield {"type": "content", "content": instant}
+            return TaskResult(
+                task_id=task_id, task=task, plan_raw="(instant)",
+                steps=[StepResult(step_number=1, title="Instant answer",
+                                  output=instant, tools_used=[], model="none",
+                                  cost=0.0, latency=0.0, error=None)],
+                total_cost=0.0,
+            )
+
         if self.direct_mode:
             return (yield from self._run_direct(task_id, task))
         else:
@@ -225,6 +242,14 @@ class Orchestrator:
         pack_tool_filter = None
         if self._pack:
             pack_tool_filter = resolve_tools_for_step(self._pack.tools)
+
+        # Keyword-based tool inference — avoids sending all 60+ tool schemas
+        # when only a handful are relevant. Only applies when no pack narrows
+        # the scope already.
+        if not pack_tool_filter:
+            pack_tool_filter = infer_tools_for_task(task)
+            if pack_tool_filter:
+                log.info("Direct mode: inferred %d tools from task keywords", len(pack_tool_filter))
 
         # Public mode: restrict to safe tools only
         from forge.config import PUBLIC_MODE
@@ -465,6 +490,11 @@ class Orchestrator:
                 tool_filter = resolve_tools_for_step(step.tools_needed)
                 log.info("Step %d: lazy discovery → %d tools (from %s)",
                          step.step_number, len(tool_filter), step.tools_needed)
+            else:
+                # Planner didn't specify tools — infer from step description
+                tool_filter = infer_tools_for_task(step.description)
+                log.info("Step %d: inferred %d tools from step description",
+                         step.step_number, len(tool_filter) if tool_filter else 0)
 
             # Intersect with pack allowlist if active
             if self._pack:

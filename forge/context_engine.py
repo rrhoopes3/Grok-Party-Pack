@@ -197,8 +197,8 @@ _SIMPLE_SIGNALS = [
     r"\b(simple|quick|small|minor|trivial)\b",
 ]
 
-# Model tiers
-FAST_MODEL = "grok-4.20-0309-reasoning"
+# Model tiers — FAST_MODEL should be genuinely cheaper/faster than POWER_MODEL
+FAST_MODEL = "grok-4-1-fast-non-reasoning"
 POWER_MODEL = "grok-4.20-0309-reasoning"
 
 

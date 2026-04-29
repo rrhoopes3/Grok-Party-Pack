@@ -1,6 +1,7 @@
 from __future__ import annotations
 import json
 import logging
+import re
 from pathlib import Path
 from typing import Callable
 from xai_sdk.chat import tool as xai_tool
@@ -122,6 +123,64 @@ def resolve_tools_for_step(tools_needed: list[str]) -> set[str]:
                 if hint_lower in tool_name or tool_name in hint_lower:
                     resolved.add(tool_name)
     return resolved
+
+
+# ── Task-based tool inference (for direct mode without a planner) ────────
+# Maps keyword patterns → categories to include. Evaluated in order;
+# all matching categories are merged, then CORE_TOOLS are added.
+_TASK_TOOL_HINTS: list[tuple[re.Pattern, list[str]]] = [
+    (re.compile(r"\b(git\b|commit|branch|merge|diff|log|repo)", re.I),
+     ["git"]),
+    (re.compile(r"\b(http|fetch|curl|api|endpoint|url|request|download)\b", re.I),
+     ["http"]),
+    (re.compile(r"\b(browse|screenshot|click|webpage|scrape|web\s*page)\b", re.I),
+     ["browser"]),
+    (re.compile(r"\b(python|script|import\s|def\s|class\s)\b", re.I),
+     ["python"]),
+    (re.compile(r"\b(sql|database|sqlite|query|table)\b", re.I),
+     ["database"]),
+    (re.compile(r"\b(image|resize|convert|png|jpg|jpeg|gif)\b", re.I),
+     ["image"]),
+    (re.compile(r"\b(zip|tar|archive|extract|compress)\b", re.I),
+     ["archive"]),
+    (re.compile(r"\b(trade|buy|sell|portfolio|stock|crypto|ticker|market)\b", re.I),
+     ["trading"]),
+    (re.compile(r"\b(email|dmarc|alias|inbox)\b", re.I),
+     ["email"]),
+    (re.compile(r"\b(github|issue|pull\s*request|pr|ci)\b", re.I),
+     ["github"]),
+    (re.compile(r"\b(blender|3d|mesh|scene)\b", re.I),
+     ["blender"]),
+    (re.compile(r"\b(rag|ingest|vector|embed)\b", re.I),
+     ["rag"]),
+    (re.compile(r"\b(prophecy|predict|forecast)\b", re.I),
+     ["prophecy"]),
+    (re.compile(r"\b(surgeon|obliterat|scan\s+code)\b", re.I),
+     ["surgeon"]),
+    (re.compile(r"\b(salesforce|soql|sfdc)\b", re.I),
+     ["salesforce"]),
+    (re.compile(r"\b(playwright|automate|e2e)\b", re.I),
+     ["playwright"]),
+]
+
+
+def infer_tools_for_task(task: str) -> set[str] | None:
+    """Infer which tools a task needs from keywords — no LLM required.
+
+    Returns a filtered tool set, or None if the task doesn't match any
+    specific category (caller should fall back to all tools).
+    """
+    categories: list[str] = []
+    for pattern, cats in _TASK_TOOL_HINTS:
+        if pattern.search(task):
+            categories.extend(cats)
+
+    if not categories:
+        # Always include shell + filesystem + search — the safe minimum
+        # for generic tasks that don't match a specialty.
+        return set(CORE_TOOLS) | TOOL_CATEGORIES["shell"] | TOOL_CATEGORIES["python"]
+
+    return resolve_tools_for_step(categories)
 
 
 class ToolRegistry:

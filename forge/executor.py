@@ -77,7 +77,7 @@ def _current_timestamp() -> str:
     )
 
 
-EXECUTOR_SYSTEM_TEMPLATE = """You are The Forge Executor — an autonomous agent that completes tasks by using tools.
+EXECUTOR_SYSTEM_BASE = """You are The Forge Executor — an autonomous agent that completes tasks by using tools.
 
 {timestamp}
 
@@ -92,7 +92,9 @@ Rules:
 - Minimize tool calls. Combine searches when possible instead of running many small queries.
 - Stay focused on files relevant to the current task. Do NOT explore unrelated directories or projects.
 - When the step is complete, provide a clear summary of findings and outcome.
-- Do NOT pip install packages — project dependencies are pre-installed. Use run_python directly.
+- Do NOT pip install packages — project dependencies are pre-installed. Use run_python directly."""
+
+EXECUTOR_TRADING_ADDENDUM = """
 
 ## Trading Tools
 
@@ -121,10 +123,26 @@ You have access to live trading tools connected to real brokerage accounts.
 7. **No financial advice.** You are a tool operator, not a financial advisor. Present data and execute instructions — do not recommend trades or predict prices. If the user asks "should I buy X?", present relevant data (quote, PCR, sentiment) and let them decide.
 8. **Paper vs live awareness.** Check whether paper mode is active. If live, remind the user that real money is at stake when they first request a trade in a session."""
 
+# Keep the old name for backward compat (tests that import EXECUTOR_SYSTEM_TEMPLATE)
+EXECUTOR_SYSTEM_TEMPLATE = EXECUTOR_SYSTEM_BASE + EXECUTOR_TRADING_ADDENDUM
 
-def _build_system_prompt() -> str:
-    """Build the executor system prompt with current timestamp."""
-    return EXECUTOR_SYSTEM_TEMPLATE.format(timestamp=_current_timestamp())
+_TRADING_TOOLS = {
+    "fetch_pcr", "analyze_sentiment", "get_options_chain", "set_alert",
+    "get_portfolio", "execute_trade", "get_market_quote",
+    "start_trading_agent", "stop_trading_agent", "get_trading_agent_status",
+}
+
+
+def _build_system_prompt(tool_filter: set[str] | None = None) -> str:
+    """Build the executor system prompt with current timestamp.
+
+    Only includes the trading addendum when trading tools are in the filter
+    (or when no filter is set, meaning all tools are available).
+    """
+    prompt = EXECUTOR_SYSTEM_BASE.format(timestamp=_current_timestamp())
+    if tool_filter is None or tool_filter & _TRADING_TOOLS:
+        prompt += EXECUTOR_TRADING_ADDENDUM
+    return prompt
 
 
 # Backward compat — static reference for tests that import this
@@ -178,11 +196,21 @@ def execute_step(
              use_model, provider, iteration_limit,
              f"{len(tool_filter)} filtered" if tool_filter else "all")
 
-    # Build the system prompt with live timestamp
-    system_prompt = system_prompt_override if system_prompt_override else _build_system_prompt()
+    # Build the system prompt with live timestamp (conditionally includes trading rules)
+    system_prompt = system_prompt_override if system_prompt_override else _build_system_prompt(tool_filter)
 
     # Build the full prompt (shared across all providers)
     prompt = f"{system_prompt}\n\n"
+
+    # Inject environment context so the model doesn't need tool calls for basics
+    import os as _os
+    cwd = sandbox_path or _os.getcwd()
+    prompt += (
+        f"Environment:\n"
+        f"  Working directory: {cwd}\n"
+        f"  Platform: {_os.name}\n\n"
+    )
+
     if sandbox_path:
         prompt += f"SANDBOX MODE ACTIVE: All file operations are restricted to {sandbox_path}. Do not attempt to access paths outside this directory.\n\n"
     if context:
