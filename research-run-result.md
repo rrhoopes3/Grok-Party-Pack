@@ -1,15 +1,14 @@
-## Round 1 — 2026-04-29 10:02
-**Change:** Shortened the "IMPORTANT" context-reuse rule in `forge/executor.py` from 173 chars to 78 chars
+## Round 1 — 2026-04-29 11:05
+**Change:** Trimmed trading addendum from 2480 chars to 719 chars (removed verbose tool list descriptions, condensed 8 rules to concise bullets)
 **Before:**
-- Prompt chars: 1125
-- Tools JSON bytes: 2338
-- Tool count: 8
-- Trading addendum: no
+- Prompt chars: 3470
+- Tools JSON bytes: N/A (empty registry)
+- Tool count: N/A
+- Trading addendum: yes
 **After:**
-- Prompt chars: 1030
-- Tools JSON bytes: 2338
-- Tool count: 8
-- Trading addendum: no
-**Delta:** -95 chars prompt (-8.4%), 0 bytes tools (0%)
-**Observation:** The longest single rule line in EXECUTOR_SYSTEM_BASE was the biggest low-hanging fruit; trimming verbose phrasing saves ~100 chars without losing meaning.
-**Top 3 longest descriptions:** render_widget: 2335 chars, fake_audio_detect: 888 chars, fake_audio_neuro_compare: 813 chars
+- Prompt chars: 1675
+- Tools JSON bytes: N/A
+- Tool count: N/A
+- Trading addendum: yes
+**Delta:** -1795 chars (-51.7%)
+**Observation:** The trading addendum was the single largest overhead at 2480 chars; trimming it cut total prompt in half.

@@ -43,6 +43,13 @@ print(f"Tool count: {len(tools)}")
 print(f"Trading addendum: {'Trading Tools' in prompt}")
 print(f"Repo root used: {REPO_ROOT}")
 Strict Execution Rules (MUST FOLLOW)
+## Critical Behavior Rules (Very Important)
+
+- You must make **exactly ONE edit per round**. After the edit, immediately run the measurement script, write the results, commit, and move to the next round.
+- Do **NOT** re-read files unless the measurement script fails.
+- Limit yourself to a maximum of **6 tool calls per round**.
+- Be decisive. Do not over-analyze. Your goal is speed + measurable reduction.
+- If you start looping or re-reading the same files, force yourself to make the edit immediately.
 
 You MUST run the exact measurement script above before and after every change.
 You are only allowed ONE single-line text reduction per round. No refactoring, no moving code, no changing logic or function names.
@@ -109,5 +116,6 @@ One sentence on what remains to be done that you couldn't tackle in this session
 
 Begin now.
 First action: Run the measurement script and report the baseline numbers.
-text---
 
+Stop after **5 rounds maximum** or when **Prompt chars < 900 AND Tools JSON bytes < 5000**, whichever comes first. Do not continue past 5 rounds even if you think you can do more.
+If you notice you are re-reading the same files repeatedly, stop and immediately make the next surgical edit instead.
