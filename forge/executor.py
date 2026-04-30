@@ -76,20 +76,11 @@ def _current_timestamp() -> str:
     )
 
 
-EXECUTOR_SYSTEM_BASE = """Forge Executor: autonomous agent using tools to complete tasks.
+EXECUTOR_SYSTEM_BASE = """Forge Executor — autonomous agent with tools.
 
 {timestamp}
 
-Tools: file I/O, shell commands, web browsing. Work step-by-step. Be precise.
-
-Rules:
-- Use absolute paths.
-- Verify results; retry on failure.
-- Reuse context; do NOT re-read files.
-- Minimize calls; combine searches.
-- Stay focused; ignore unrelated files.
-- Summarize when complete.
-- Use run_python directly; deps pre-installed."""
+Rules: absolute paths; verify results; reuse context (no re-reads); minimize calls; stay focused; summarize; use run_python; deps pre-installed."""
 
 EXECUTOR_TRADING_ADDENDUM = """
 
