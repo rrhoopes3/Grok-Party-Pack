@@ -967,13 +967,27 @@ def chess_list():
 
 @app.route("/api/chess", methods=["POST"])
 def chess_new():
-    """Create a match. Body: {white_model, black_model, starting_fen?,
-    judge_model?, commentary_interval?}."""
+    """Create a match.
+    AI vs AI: {white_model, black_model, ...}
+    Human vs AI: {human_side: "white"|"black", ai_model: "...", judge_model?, ...}
+    """
     body = request.get_json(silent=True) or {}
-    white = (body.get("white_model") or "").strip()
-    black = (body.get("black_model") or "").strip()
-    if not white or not black:
-        return jsonify({"error": "white_model and black_model are required"}), 400
+
+    human_side = body.get("human_side")
+    if human_side:
+        ai_model = (body.get("ai_model") or "").strip()
+        if not ai_model:
+            return jsonify({"error": "ai_model is required when human_side is set"}), 400
+        if human_side == "white":
+            white, black = "human", ai_model
+        else:
+            white, black = ai_model, "human"
+    else:
+        white = (body.get("white_model") or "").strip()
+        black = (body.get("black_model") or "").strip()
+        if not white or not black:
+            return jsonify({"error": "white_model and black_model are required"}), 400
+
     try:
         match = _chess.new_match(
             white_model=white,
@@ -982,6 +996,7 @@ def chess_new():
             judge_model=(body.get("judge_model") or "grok-4.20-0309-reasoning").strip(),
             commentary_interval=int(body.get("commentary_interval") or 2),
             commentary_window_plies=int(body.get("commentary_window_plies") or 0),
+            human_side=human_side,
         )
     except Exception as e:
         log.exception("chess_new failed")

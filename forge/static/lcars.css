@@ -2830,6 +2830,37 @@ body.lcars .footer-code-amber {
   border-color: rgba(255, 153, 0, 0.45);
 }
 
+/* ── Pack Readiness Panel (quality UI enhancement) ───────────────────── */
+body.lcars .pack-readiness {
+  margin-top: 4px;
+  padding: 5px 7px;
+  background: var(--lcars-panel-2);
+  border: 1px solid var(--lcars-border-dim);
+  border-radius: 2px;
+  font-size: 0.68rem;
+  line-height: 1.2;
+  max-width: 100%;
+}
+body.lcars .pack-readiness .readiness-summary {
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  margin-bottom: 2px;
+  color: var(--lcars-canary);
+}
+body.lcars .pack-readiness .check {
+  display: flex;
+  gap: 4px;
+  align-items: flex-start;
+  color: var(--lcars-muted);
+  margin: 1px 0;
+}
+body.lcars .pack-readiness .check.ready     { color: var(--lcars-green); }
+body.lcars .pack-readiness .check.degraded  { color: var(--lcars-canary); }
+body.lcars .pack-readiness .check.unavailable { color: var(--lcars-red); font-weight: 600; }
+body.lcars .pack-readiness .check .msg {
+  opacity: 0.9;
+}
+
 @media (max-width: 900px) {
   body.lcars .lcars-footer-readout { gap: 8px; padding: 18px 8px 4px; }
   body.lcars .footer-stat .stat-k  { font-size: 0.56rem; }

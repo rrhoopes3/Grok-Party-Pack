@@ -70,6 +70,11 @@ EXECUTOR_MODELS = {
         "cost_in": 2.00, "cost_out": 6.00,
         "supports_tools": True,
     },
+    "grok-4.3-latest": {
+        "label": "Grok 4.3", "provider": "xAI",
+        "cost_in": 1.25, "cost_out": 2.50,
+        "supports_tools": True,
+    },
     "grok-code-fast-1": {
         "label": "Grok Code Fast", "provider": "xAI",
         "cost_in": 0.20, "cost_out": 1.50,

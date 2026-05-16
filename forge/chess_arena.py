@@ -345,6 +345,12 @@ class ChessMatch:
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     last_move_at: Optional[str] = None
     resigned_by: Optional[str] = None   # "white" | "black" | None
+
+    # Human play support (new for AI vs Human mode)
+    # If set to "white" or "black", that side is controlled by the human in the UI.
+    # The corresponding *_model can be ignored or set to "human".
+    human_side: Optional[str] = None  # None = AI vs AI, "white" or "black" = Human vs AI
+
     lock: threading.Lock = field(default_factory=threading.Lock)
 
     # ── Judge (arena-style TTS commentary) ────────────────────────────
@@ -386,6 +392,8 @@ class ChessMatch:
 
     @property
     def current_model(self) -> str:
+        if self.human_side and self.turn == self.human_side:
+            return "human"
         return self.white_model if self.board.turn == chess.WHITE else self.black_model
 
     @property
@@ -458,6 +466,7 @@ def serialize_match(m: ChessMatch) -> dict:
         "reason": m.end_reason,
         "white_model": m.white_model,
         "black_model": m.black_model,
+        "human_side": m.human_side,  # "white" | "black" | None
         "current_model": m.current_model if not m.is_over else None,
         "in_check": m.board.is_check(),
         "halfmove_count": len(m.moves),
@@ -588,7 +597,11 @@ def new_match(
     judge_model: str = "grok-4.20-0309-reasoning",
     commentary_interval: int = 2,
     commentary_window_plies: int = 0,
+    human_side: Optional[str] = None,   # "white" | "black" | None (for AI vs Human)
 ) -> ChessMatch:
+    if human_side and human_side not in ("white", "black"):
+        raise ValueError("human_side must be 'white', 'black', or None")
+
     with _REGISTRY_LOCK:
         board = chess.Board(starting_fen) if starting_fen else chess.Board()
         m = ChessMatch(
@@ -599,6 +612,7 @@ def new_match(
             judge_model=judge_model,
             commentary_interval=max(1, int(commentary_interval)),
             commentary_window_plies=max(0, int(commentary_window_plies)),
+            human_side=human_side,
         )
         _MATCHES[m.id] = m
         _evict_if_needed()

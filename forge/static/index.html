@@ -86,6 +86,7 @@
                     <select id="pack-select" title="Capability pack — pre-configured tool set, model, guardrails, and budget">
                         <option value="">Auto (all tools)</option>
                     </select>
+                    <div id="pack-readiness-panel" class="pack-readiness" style="display:none;"></div>
                 </label>
 
                 <label class="field">
@@ -227,32 +228,6 @@
                 </section>
 
                 <section class="chat-area" id="chat-area">
-                    <!-- ── Landing hero — mix of minimalist + capability grid.
-                         Hidden when a task is in flight (chat-area.is-task-active).
-                         The brain visual mounts into #intro-brain (canvas / SVG / whatever). -->
-                    <section class="console-intro" id="console-intro">
-                        <div class="intro-visual" id="intro-brain" aria-hidden="true">
-                            <!-- Interactive brain visual mounts here.
-                                 Target: full-bleed inside this box, respects parent size.
-                                 Fallback while empty: subtle animated pulse via ::after. -->
-                        </div>
-                        <div class="intro-copy">
-                            <p class="intro-eyebrow">NX-7430 · COMMAND NEXUS</p>
-                            <h1 class="intro-lede">Type a task. The council plans. The executor builds.</h1>
-
-                            <ul class="intro-caps" role="list">
-                                <li><span class="cap-tag cap-amber">COUNCIL</span>16 Grok agents deliberate and plan</li>
-                                <li><span class="cap-tag cap-teal">EXECUTOR</span>40 tools across 5 providers</li>
-                                <li><span class="cap-tag cap-canary">ROUTING</span>Auto-fallback on quota or outage</li>
-                                <li><span class="cap-tag cap-green">FIREWALL</span>Semantic check on every call</li>
-                                <li><span class="cap-tag cap-lilac">TRUST</span>EMA-calibrated reassignment</li>
-                                <li><span class="cap-tag cap-red">ARENA</span>AI vs AI. The gods score.</li>
-                            </ul>
-
-                            <p class="intro-footnote">Ctrl/Cmd + Enter on the composer to ignite.</p>
-                        </div>
-                    </section>
-
                     <div class="split-panes">
                         <div class="pane-dialogue">
                             <div class="pane-header">Dialogue</div>
@@ -1170,6 +1145,15 @@
                     <h3>LLM Chess Arena</h3>
                     <span class="chess-subtitle">Two models play. Moves are legality-checked server-side.</span>
                 </div>
+                <div class="chess-mode-row" style="margin-bottom: 8px;">
+                    <label style="display:flex; align-items:center; gap:8px; font-size:0.85rem;">
+                        <span>Mode</span>
+                        <select id="chess-mode" style="width:auto; font-size:0.8rem;">
+                            <option value="ai_vs_ai" selected>AI Arena (LLM vs LLM)</option>
+                            <option value="human_vs_ai">Human vs AI — Play against the model</option>
+                        </select>
+                    </label>
+                </div>
                 <div class="chess-setup-row">
                     <label class="field">
                         <span>White ♔</span>
@@ -1511,6 +1495,10 @@
     </footer>
 
     <script src="/static/vendor/jsnes.min.js"></script>
+    <!-- Quality Refactor — New Modular LCARS Architecture -->
+    <script src="/static/js/core.js"></script>
+    <script src="/static/js/packs.js"></script>
+    <script src="/static/js/history.js"></script>
     <script src="/static/app.js"></script>
     <script src="/static/mcp-hub.js"></script>
 
