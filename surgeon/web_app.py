@@ -16,7 +16,7 @@ from flask import Flask, jsonify, request, render_template_string
 
 # Make sure we can import the local package when run directly
 import sys
-sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from surgeon import check_dependencies, scan_model, operate, list_operations, load_operation
 

@@ -6,7 +6,7 @@ relics into dramatic "episodes," news bulletins, and late-night call-in shows.
 Run:
     python relic-radio/web_app.py
 
-http://localhost:5007
+http://localhost:5017
 
 This is the sound of the relics talking to each other.
 
@@ -19,10 +19,10 @@ Maximum "I am listening to the gods argue about my last tool call" energy.
 from __future__ import annotations
 
 import json
+import os
 import random
 from datetime import datetime
 from pathlib import Path
-from typing import Any
 
 from flask import Flask, jsonify, render_template_string, request
 
@@ -228,7 +228,7 @@ def api_log():
     return jsonify([generate_episode() for _ in range(4)])
 
 if __name__ == "__main__":
-    port = int(os.getenv("RELIC_RADIO_PORT", 5007))
+    port = int(os.getenv("RELIC_RADIO_PORT", 5017))
     print("╔════════════════════════════════════════════════════════════╗")
     print("║  RELIC RADIO — 96.6 THE FORGE                              ║")
     print(f"║  http://localhost:{port}                                    ║")

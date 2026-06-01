@@ -64,9 +64,9 @@ print(record.quality_metrics)
 ### CLI (very minimal for now)
 
 ```bash
-python -m surgeon check
-python -m surgeon scan meta-llama/Llama-3.1-8B-Instruct --device cuda
-python -m surgeon operate meta-llama/Llama-3.1-8B-Instruct --method advanced --device cuda
+python -m surgeon.cli check
+python -m surgeon.cli scan meta-llama/Llama-3.1-8B-Instruct --device cuda
+python -m surgeon.cli operate meta-llama/Llama-3.1-8B-Instruct --method advanced --device cuda
 ```
 
 (The CLI is intentionally tiny in v1. The real power is the Python API + the web UI below.)

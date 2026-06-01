@@ -10,7 +10,7 @@ It turns the output of the other relics into dramatic radio episodes, call-in sh
 python relic-radio/web_app.py
 ```
 
-http://localhost:5007
+http://localhost:5017
 
 Big beautiful fake radio player. Hit "PLAY RANDOM EPISODE" or "REQUEST A DISPATCH" on any topic you want the gods and presidents to weigh in on.
 

@@ -32,7 +32,7 @@ http://localhost:5004
 **Related relics:**
 - `chaos-broadcast/` (port 5005) — currently stealing your grudges for the news.
 - `relic-museum/` (port 5006) — the official museum now putting your propaganda in glass cases.
-- `relic-radio/` (port 5007) — the station that has started reading your match reports as late-night drama.
+- `relic-radio/` (port 5017) — the station that has started reading your match reports as late-night drama.
 - `grudgewatch/` (port 5007) — the official Grudgewatch Desk now calling your matches live with god + president commentators. Your ELO swings are now broadcast drama. The League has never felt more alive.
 
 - Pick any two fighters (gods or presidential guests)

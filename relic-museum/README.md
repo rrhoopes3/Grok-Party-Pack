@@ -39,7 +39,7 @@ This is the "the relics are becoming a civilization" moment.
 - `chronicler/` — source of the best sagas
 - `pantheon-league/` — source of the best grudges and propaganda posters
 - `chaos-broadcast/` — source of the best emergency transmissions
-- `relic-radio/` (http://localhost:5007) — the late-night station that is currently playing exhibits from this museum as radio drama.
+- `relic-radio/` (http://localhost:5017) — the late-night station that is currently playing exhibits from this museum as radio drama.
 - `relic-oracle/` (http://localhost:5008) — the Council now uses this museum as source material for prophecies.
 - `relic-gazette/` (port 5009) — the press has started reviewing our exhibits.
 - `lcars-bridge/` — the vibes engine (its output will be archived here eventually)

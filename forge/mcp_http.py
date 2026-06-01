@@ -16,6 +16,7 @@ In Grok Custom Connector, add the header:
 
 from __future__ import annotations
 
+import hmac
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -54,7 +55,7 @@ def _is_authorized(scope: Scope) -> bool:
 
     if auth_header.startswith("Bearer "):
         token = auth_header.split(" ", 1)[1]
-        return token == API_KEY
+        return hmac.compare_digest(token, API_KEY)
 
     return False
 
@@ -150,8 +151,11 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Forge MCP HTTP Server")
     parser.add_argument("--port", type=int, default=8080)
-    parser.add_argument("--host", type=str, default="0.0.0.0")
+    parser.add_argument("--host", type=str, default="127.0.0.1")
     parser.add_argument("--sandbox", type=str, default="")
     args = parser.parse_args()
+
+    if args.host not in ("127.0.0.1", "localhost") and not API_KEY:
+        raise SystemExit("ERROR: FORGE_MCP_API_KEY must be set when binding to non-localhost (for safety)")
 
     uvicorn.run("forge.mcp_http:app", host=args.host, port=args.port, reload=False)
