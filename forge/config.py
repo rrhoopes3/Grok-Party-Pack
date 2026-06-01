@@ -302,16 +302,6 @@ TRIBE_DEVICE = os.getenv("FORGE_TRIBE_DEVICE", "auto")
 TRIBE_CACHE_DIR = DATA_DIR / "tribe_cache"
 TRIBE_CACHE_DIR.mkdir(exist_ok=True)
 
-# ── Surgeon (OBLITERATUS Integration) ─────────────────────────────────────
-SURGEON_ENABLED = os.getenv("FORGE_SURGEON_ENABLED", "true").lower() == "true"
-SURGEON_DATA_DIR = DATA_DIR / "surgeon"
-SURGEON_DATA_DIR.mkdir(exist_ok=True)
-SURGEON_MODELS_DIR = SURGEON_DATA_DIR / "models"
-SURGEON_MODELS_DIR.mkdir(exist_ok=True)
-SURGEON_DEFAULT_METHOD = os.getenv("FORGE_SURGEON_DEFAULT_METHOD", "advanced")
-SURGEON_DEFAULT_DEVICE = os.getenv("FORGE_SURGEON_DEFAULT_DEVICE", "auto")
-SURGEON_DEFAULT_DTYPE = os.getenv("FORGE_SURGEON_DEFAULT_DTYPE", "float16")
-
 # ── Arena ──────────────────────────────────────────────────────────────────
 ARENA_MASTER_MODEL = PLANNER_MODEL       # 16-agent Pantheon for commentary/judging
 ARENA_DEFAULT_FIGHTER_MODEL = "grok-4.20-0309-reasoning"

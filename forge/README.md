@@ -18,7 +18,6 @@ It also ships with:
 - **Presidential Council** &mdash; A CLI think tank where 16 US Presidents debate modern problems.
 - **Toll Protocol** &mdash; An agent economy layer with wallets, micropayments, HTTP 402 gating, and Solana USDC settlement.
 - **Prophecy Engine** &mdash; Swarm-intelligence prediction simulations where AI "prophets" debate and evolve positions.
-- **Surgeon** &mdash; Model surgery toolkit wrapping OBLITERATUS for probing and modifying LLM weights.
 - **TRIBE v2** &mdash; Neural engagement scoring via Meta AI's fMRI foundation model.
 - **Trading** &mdash; Autonomous trading with Robinhood, Tradier, Polymarket, and yfinance.
 - **Generative UI** &mdash; Dynamic widget rendering (Chart.js, D3, Three.js, Mermaid) via sandboxed iframes.
@@ -170,7 +169,6 @@ The executor has access to these client-side tools:
 | **Generative UI** | `render_widget` |
 | **Trading** | `fetch_pcr`, `analyze_sentiment`, `get_options_chain`, `set_alert`, `get_portfolio`, `execute_trade`, `get_market_quote`, `start_trading_agent`, `stop_trading_agent`, `get_trading_agent_status` |
 | **Prophecy** | `prophecy_create`, `prophecy_run`, `prophecy_report`, `prophecy_full`, `prophecy_status`, `prophecy_interview`, `prophecy_list`, `prophecy_inject` |
-| **Surgeon** | `surgeon_check`, `surgeon_methods`, `surgeon_scan`, `surgeon_operate`, `surgeon_analyze`, `surgeon_compare`, `surgeon_status`, `surgeon_list` |
 | **TRIBE** | `tribe_neuro_score`, `tribe_compare`, `tribe_roi_breakdown` |
 | **GitHub** | `github_list_issues`, `github_get_issue`, `github_create_issue`, `github_create_pr`, `github_pr_review`, `github_ci_status`, `github_list_repos`, `github_search_code` |
 | **Image/Audio Gen** | `generate_image` (DALL-E 3), `generate_speech` (TTS), `transcribe_audio` (Whisper) |
@@ -312,33 +310,16 @@ FORGE_PROPHECY_DEFAULT_ROUNDS=8
 
 ---
 
-## Surgeon &mdash; Model Surgery
+## Surgeon (OBLITERATUS) — Extracted
 
-Wraps [OBLITERATUS](https://github.com/Projects/OBLITERATUS)'s abliteration pipeline as Forge-native tools. Probe, analyze, and surgically modify LLM weights to remove refusal behaviors while preserving capabilities.
+Model surgery / abliteration tooling was previously part of The Forge but has been extracted into its own focused standalone app (`/surgeon/`) at the repo root.
 
-```python
-from forge.surgeon import scan_model, operate
+This was done so that normal users of the Party Pack no longer need to deal with the heavy, non-pip-installable OBLITERATUS dependency and large ML stack just to use the rest of the system.
 
-# Scan a model's refusal geometry (read-only)
-scan = scan_model("meta-llama/Llama-3.1-8B-Instruct")
-print(scan.strong_layers)
-
-# Run full abliteration
-record = operate("meta-llama/Llama-3.1-8B-Instruct", method="advanced")
-print(record.output_path, record.quality_metrics)
-```
-
-**Tools:** `surgeon_check`, `surgeon_methods`, `surgeon_scan`, `surgeon_operate`, `surgeon_analyze`, `surgeon_compare`, `surgeon_status`, `surgeon_list`
-
-**Config:**
-```env
-FORGE_SURGEON_ENABLED=true         # default
-FORGE_SURGEON_DEFAULT_METHOD=advanced
-FORGE_SURGEON_DEFAULT_DEVICE=auto
-FORGE_SURGEON_DEFAULT_DTYPE=float16
-```
+If you want the model surgery tools, go to the `surgeon/` directory.
 
 ---
+
 
 ## TRIBE v2 &mdash; Neural Engagement Scoring
 
@@ -776,7 +757,6 @@ forge/
     escalation.py              # Escalate-to-human tool
     trading.py                 # Trading tools (PCR, sentiment, options, execution)
     prophecy.py                # Prophecy Engine tools
-    surgeon.py                 # Surgeon / OBLITERATUS tools
     tribe.py                   # TRIBE v2 neural engagement scoring
     fake_audio.py              # Deepfake audio detection (6 backends)
     deception.py               # Veracity / deception detection pipeline
@@ -851,7 +831,6 @@ forge/
     runs/                      # Execution run logs
     vaults/                    # Agent memory vaults
     prophecy/                  # Prophecy simulation data
-    surgeon/                   # Surgeon operation data
     trading/                   # Trading portfolio data
     tribe_cache/               # TRIBE v2 model cache
 ```
@@ -878,7 +857,7 @@ FORGE_WORKING_DIR=                 # sandbox working directory
 | `FORGE_MARKETPLACE_ENABLED` | `true` | Agent marketplace API |
 | `FORGE_TRADING_ENABLED` | `true` | Trading tools |
 | `FORGE_PROPHECY_ENABLED` | `true` | Prophecy Engine |
-| `FORGE_SURGEON_ENABLED` | `true` | Surgeon / OBLITERATUS |
+| `FORGE_SURGEON_ENABLED` | *(removed)* | Extracted to standalone `/surgeon/` app |
 | `FORGE_TRIBE_ENABLED` | `false` | TRIBE v2 neural scoring |
 | `FORGE_GENERATIVE_UI_ENABLED` | `true` | Widget rendering |
 | `FORGE_EMAIL_AGENT_ENABLED` | `false` | Email agent |

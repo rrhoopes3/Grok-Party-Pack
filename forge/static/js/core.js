@@ -442,14 +442,13 @@ function bindBaseEvents() {
                 if (typeof nesPopulateCoachModels === "function") nesPopulateCoachModels();
                 if (typeof nesRefreshEvents === "function") nesRefreshEvents();
             }
-            // prophecy + surgeon are still in the monolith for now
             if (tab === "prophecy" && typeof loadProphecyList === "function") loadProphecyList();
-            if (tab === "surgeon" && typeof loadSurgeonOps === "function") loadSurgeonOps();
+            // surgeon tab was extracted to its own standalone app (/surgeon/)
         });
     }
 
-    // Many more specific binds (prophecy, surgeon, chess, nes, keys)
-    // are still attached inside bindEvents() in the shrinking app.js.
+    // Many more specific binds (prophecy, chess, nes, keys, etc.)
+    // are still attached inside bindEvents() in app.js.
     // They will be migrated module-by-module.
 }
 

@@ -1,7 +1,9 @@
 """Surgeon — Data types for model surgery operations.
 
+Standalone version extracted from Grok Party Pack / The Forge.
 Tracks abliteration operations, scan results, and quality metrics.
 """
+
 from __future__ import annotations
 
 import json

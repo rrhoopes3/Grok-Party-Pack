@@ -2,7 +2,7 @@ from .registry import ToolRegistry
 from . import (
     filesystem, shell, browser, http, python_repl,
     git_ops, search, clipboard, image, database, archive,
-    email, escalation, prophecy, surgeon, salesforce, blender, mcp,
+    email, escalation, prophecy, salesforce, blender, mcp,
     playwright, music, nes,
 )
 
@@ -25,8 +25,6 @@ def create_registry() -> ToolRegistry:
     escalation.register(reg)
     # Prophecy Engine — swarm-intelligence prediction simulations
     prophecy.register(reg)
-    # Surgeon — model surgery via OBLITERATUS
-    surgeon.register(reg)
     # Salesforce — personal productivity via sf CLI
     salesforce.register(reg)
     # Blender — 3D scene manipulation via blender-mcp (MCP client)

@@ -41,7 +41,7 @@ from forge.config import (
     ARCRELAY_API_URL, EMAIL_AGENT_MODEL, EXECUTOR_MODEL, PLANNER_MODEL,
     PLANNER_AGENT_COUNT, EXECUTOR_MAX_ITERATIONS,
     USER_CORRECTION_ENABLED, GENERATIVE_UI_ENABLED, TRADING_ENABLED,
-    PROPHECY_ENABLED, SURGEON_ENABLED, ARENA_SWARM_ENABLED,
+    PROPHECY_ENABLED, ARENA_SWARM_ENABLED,
     AUTH_ENABLED, SCHEDULER_ENABLED, CONVERSATIONS_ENABLED,
     OBSERVABILITY_ENABLED, PUBLIC_MODE,
     MCP_ENABLED, MCP_AUTO_SYNC_ENABLED, BLENDER_PACK_ENABLED,
@@ -193,13 +193,6 @@ def register_modules(flask_app: Flask) -> dict:
         flask_app.register_blueprint(prophecy_bp)
         log.info("Prophecy Engine enabled")
         enabled["prophecy"] = True
-
-    # ── Surgeon (OBLITERATUS) ───────────────────────────────────────────
-    if SURGEON_ENABLED:
-        from forge.surgeon.endpoints import surgeon_bp
-        flask_app.register_blueprint(surgeon_bp)
-        log.info("Surgeon module enabled")
-        enabled["surgeon"] = True
 
     # ── MCP Client (multi-node: internal forge:vault / forge:graph + external) ─
     if MCP_ENABLED:
@@ -719,7 +712,6 @@ def get_config():
             "generative_ui": GENERATIVE_UI_ENABLED,
             "trading": TRADING_ENABLED,
             "prophecy": PROPHECY_ENABLED,
-            "surgeon": SURGEON_ENABLED,
             "arena_swarm": ARENA_SWARM_ENABLED,
             "public_mode": PUBLIC_MODE,
             "mcp": MCP_ENABLED,

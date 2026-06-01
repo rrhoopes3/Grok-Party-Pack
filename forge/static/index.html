@@ -25,7 +25,6 @@
             <button class="tab-btn" data-tab="safety">Safety</button>
             <button class="tab-btn" data-tab="trading">Trading</button>
             <button class="tab-btn" data-tab="prophecy">Prophecy</button>
-            <button class="tab-btn" data-tab="surgeon">Surgeon</button>
             <button class="tab-btn" data-tab="runtime">Runtime</button>
             <button class="tab-btn" data-tab="chess">Chess</button>
             <button class="tab-btn" data-tab="nes">NES</button>
@@ -994,100 +993,6 @@
                         <button id="prophecy-interview-btn" class="accent-btn">Ask</button>
                     </div>
                     <div id="prophecy-interview-response" class="prophecy-interview-response"></div>
-                </div>
-            </section>
-        </div>
-    </div>
-
-    <!-- ── TAB: Surgeon (OBLITERATUS) ──────────────────────────────── -->
-    <div class="tab-content" id="tab-surgeon">
-        <div class="tab-layout-split">
-            <!-- Left: Controls -->
-            <section class="panel">
-                <div class="panel-header">
-                    <h3>Surgeon</h3>
-                    <span class="badge badge-warning">OBLITERATUS</span>
-                </div>
-
-                <!-- Dependency check -->
-                <div id="surgeon-deps" class="surgeon-deps">
-                    <button id="surgeon-check-btn" class="accent-btn">Check Dependencies</button>
-                    <div id="surgeon-deps-result"></div>
-                </div>
-
-                <!-- Model input -->
-                <div class="surgeon-form">
-                    <label>
-                        <span>Model (HuggingFace ID)</span>
-                        <input type="text" id="surgeon-model" placeholder="meta-llama/Llama-3.1-8B-Instruct">
-                    </label>
-                    <div class="surgeon-config-row">
-                        <label>
-                            <span>Method</span>
-                            <select id="surgeon-method">
-                                <option value="advanced">Advanced (recommended)</option>
-                                <option value="basic">Basic</option>
-                                <option value="surgical">Surgical</option>
-                                <option value="gradient_based">Gradient-Based</option>
-                                <option value="iterative">Iterative</option>
-                            </select>
-                        </label>
-                        <label>
-                            <span>Device</span>
-                            <select id="surgeon-device">
-                                <option value="auto">Auto</option>
-                                <option value="cuda">CUDA</option>
-                                <option value="cpu">CPU</option>
-                            </select>
-                        </label>
-                        <label>
-                            <span>Dtype</span>
-                            <select id="surgeon-dtype">
-                                <option value="float16">float16</option>
-                                <option value="bfloat16">bfloat16</option>
-                                <option value="float32">float32</option>
-                            </select>
-                        </label>
-                    </div>
-                    <div class="surgeon-actions">
-                        <button id="surgeon-scan-btn" class="ghost-btn">Scan Only</button>
-                        <button id="surgeon-operate-btn" class="accent-btn">Operate</button>
-                    </div>
-                </div>
-
-                <!-- Methods reference -->
-                <div class="panel-header" style="margin-top: 1.5rem;">
-                    <h3>Methods</h3>
-                    <button id="surgeon-methods-btn" class="ghost-btn ghost-btn-sm">Load</button>
-                </div>
-                <div id="surgeon-methods-list" class="surgeon-methods-list"></div>
-            </section>
-
-            <!-- Right: Results -->
-            <section class="panel">
-                <div class="panel-header">
-                    <h3>Operations</h3>
-                    <button id="surgeon-ops-refresh-btn" class="ghost-btn ghost-btn-sm">Refresh</button>
-                </div>
-                <div id="surgeon-ops-list" class="surgeon-ops-list">
-                    <div class="empty-state">No operations yet. Scan or operate on a model to begin.</div>
-                </div>
-
-                <!-- Active operation / scan result -->
-                <div id="surgeon-result" class="surgeon-result hidden">
-                    <div class="panel-header">
-                        <h3 id="surgeon-result-title">Result</h3>
-                    </div>
-                    <div id="surgeon-result-content"></div>
-                </div>
-
-                <!-- Live operation logs -->
-                <div id="surgeon-live-logs" class="surgeon-live-logs hidden">
-                    <div class="panel-header">
-                        <h3>Live Logs</h3>
-                        <span id="surgeon-live-status" class="badge">Running</span>
-                    </div>
-                    <pre id="surgeon-log-output" class="log-output"></pre>
                 </div>
             </section>
         </div>
