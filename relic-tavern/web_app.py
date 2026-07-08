@@ -22,12 +22,20 @@ from __future__ import annotations
 import json
 import os
 import random
+import sys
 from datetime import datetime
 from pathlib import Path
 
-from flask import Flask, jsonify, render_template_string
+# Repo root on sys.path so relics.bootstrap is importable when run as a script
+_ROOT = Path(__file__).resolve().parent.parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
 
-app = Flask(__name__)
+from flask import jsonify, render_template_string
+
+from relics.bootstrap import create_relic_app, load_json_safe, run_relic
+
+app = create_relic_app(__name__)
 
 TAVERN_HOME = Path.home() / ".relic-tavern"
 TAVERN_HOME.mkdir(parents=True, exist_ok=True)
@@ -48,18 +56,6 @@ DRINKS = [
     "Hermes' Expresso Martini", "Ares' Blood & Sand", "Hades' Last Word"
 ]
 
-def load_json_safe(path: Path) -> list[dict]:
-    if not path.exists():
-        return []
-    try:
-        data = json.loads(path.read_text())
-        if isinstance(data, dict):
-            if "history" in data: return data["history"]
-            if "editions" in data: return data["editions"]
-            return [data]
-        return data if isinstance(data, list) else []
-    except Exception:
-        return []
 
 def get_todays_drama() -> list[str]:
     """Harvest fresh gossip from the other relics."""
@@ -228,11 +224,14 @@ def api_open():
 def api_history():
     return jsonify(load_recent_nights())
 
+
 if __name__ == "__main__":
-    port = int(os.getenv("RELIC_TAVERN_PORT", 5012))
-    print("╔════════════════════════════════════════════════════════════╗")
-    print("║  THE AFTERMATH — THE RELICS GO TO GET DRUNK                ║")
-    print(f"║  http://localhost:{port}                                    ║")
-    print("║  All grudges are settled here. All lies are told here.     ║")
-    print("╚════════════════════════════════════════════════════════════╝")
-    app.run(host="0.0.0.0", port=port, debug=True)
+    run_relic(
+        app,
+        default_port=5012,
+        env_var="RELIC_TAVERN_PORT",
+        banner=[
+            "Relic: relic-tavern",
+            "http://localhost:{port}",
+        ],
+    )

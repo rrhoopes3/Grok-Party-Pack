@@ -21,12 +21,20 @@ from __future__ import annotations
 import json
 import os
 import random
+import sys
 from datetime import datetime
 from pathlib import Path
 
-from flask import Flask, jsonify, render_template_string, request
+# Repo root on sys.path so relics.bootstrap is importable when run as a script
+_ROOT = Path(__file__).resolve().parent.parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
 
-app = Flask(__name__)
+from flask import jsonify, render_template_string
+
+from relics.bootstrap import create_relic_app, load_json_safe, run_relic
+
+app = create_relic_app(__name__)
 
 RADIO_HOME = Path.home() / ".relic-radio"
 RADIO_HOME.mkdir(parents=True, exist_ok=True)
@@ -41,18 +49,6 @@ RELICT_PATHS = {
 GODS = ["ZEUS", "ATHENA", "HEPHAESTUS", "HERMES", "ARES", "HADES"]
 PRESIDENTS = ["JACKSON", "LINCOLN", "TR", "REAGAN"]
 
-def load_json_safe(path: Path) -> list[dict]:
-    if not path.exists():
-        return []
-    try:
-        data = json.loads(path.read_text())
-        if isinstance(data, dict) and "history" in data:
-            return data["history"]
-        if isinstance(data, list):
-            return data
-        return []
-    except Exception:
-        return []
 
 def get_recent_drama() -> list[str]:
     """Steal flavor from the other relics."""
@@ -227,11 +223,14 @@ def api_log():
     # In a real version we'd persist, but this keeps the relic light
     return jsonify([generate_episode() for _ in range(4)])
 
+
 if __name__ == "__main__":
-    port = int(os.getenv("RELIC_RADIO_PORT", 5017))
-    print("╔════════════════════════════════════════════════════════════╗")
-    print("║  RELIC RADIO — 96.6 THE FORGE                              ║")
-    print(f"║  http://localhost:{port}                                    ║")
-    print("║  All relics. All the time.                                 ║")
-    print("╚════════════════════════════════════════════════════════════╝")
-    app.run(host="0.0.0.0", port=port, debug=True)
+    run_relic(
+        app,
+        default_port=5017,
+        env_var="RELIC_RADIO_PORT",
+        banner=[
+            "Relic: relic-radio",
+            "http://localhost:{port}",
+        ],
+    )

@@ -23,12 +23,20 @@ from __future__ import annotations
 import json
 import os
 import random
+import sys
 from datetime import datetime
 from pathlib import Path
 
-from flask import Flask, jsonify, render_template_string
+# Repo root on sys.path so relics.bootstrap is importable when run as a script
+_ROOT = Path(__file__).resolve().parent.parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
 
-app = Flask(__name__)
+from flask import jsonify, render_template_string
+
+from relics.bootstrap import create_relic_app, load_json_safe, run_relic
+
+app = create_relic_app(__name__)
 
 BOARD_HOME = Path.home() / ".relic-bulletin-board"
 BOARD_HOME.mkdir(parents=True, exist_ok=True)
@@ -46,20 +54,6 @@ RELICT_PATHS = {
 GODS = ["ZEUS", "ATHENA", "HEPHAESTUS", "HERMES", "ARES", "HADES"]
 PRESIDENTS = ["JACKSON", "LINCOLN", "TR", "REAGAN"]
 
-def load_json_safe(path: Path) -> list[dict]:
-    if not path.exists():
-        return []
-    try:
-        data = json.loads(path.read_text())
-        if isinstance(data, dict):
-            if "history" in data: return data["history"]
-            if "editions" in data: return data["editions"]
-            if "nights" in data: return data["nights"]
-            if "mail" in data: return data["mail"]
-            return [data]
-        return data if isinstance(data, list) else []
-    except Exception:
-        return []
 
 def get_random_flavor() -> str:
     """Steal real drama for notices."""
@@ -210,11 +204,14 @@ def api_pin():
 def api_notices():
     return jsonify(load_recent_notices())
 
+
 if __name__ == "__main__":
-    port = int(os.getenv("RELIC_BULLETIN_BOARD_PORT", 5014))
-    print("╔════════════════════════════════════════════════════════════╗")
-    print("║  THE RELIC BULLETIN BOARD — PIN YOUR CHAOS HERE            ║")
-    print(f"║  http://localhost:{port}                                    ║")
-    print("║  All notices are canon. All pins are stolen.               ║")
-    print("╚════════════════════════════════════════════════════════════╝")
-    app.run(host="0.0.0.0", port=port, debug=True)
+    run_relic(
+        app,
+        default_port=5014,
+        env_var="RELIC_BULLETIN_BOARD_PORT",
+        banner=[
+            "Relic: relic-bulletin-board",
+            "http://localhost:{port}",
+        ],
+    )

@@ -22,12 +22,20 @@ from __future__ import annotations
 import json
 import os
 import random
+import sys
 from datetime import datetime
 from pathlib import Path
 
-from flask import Flask, jsonify, render_template_string, request
+# Repo root on sys.path so relics.bootstrap is importable when run as a script
+_ROOT = Path(__file__).resolve().parent.parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
 
-app = Flask(__name__)
+from flask import jsonify, render_template_string
+
+from relics.bootstrap import create_relic_app, load_json_safe, run_relic
+
+app = create_relic_app(__name__)
 
 TAROT_HOME = Path.home() / ".relic-tarot"
 TAROT_HOME.mkdir(parents=True, exist_ok=True)
@@ -60,21 +68,6 @@ BASE_CARDS = [
     {"name": "The Market", "upright": "Values will fluctuate wildly based on grudges.", "reversed": "Someone is manipulating the exchange."},
 ]
 
-def load_json_safe(path: Path) -> list[dict]:
-    if not path.exists():
-        return []
-    try:
-        data = json.loads(path.read_text())
-        if isinstance(data, dict):
-            if "history" in data: return data["history"]
-            if "editions" in data: return data["editions"]
-            if "nights" in data: return data["nights"]
-            if "mail" in data: return data["mail"]
-            if "notices" in data: return data["notices"]
-            return [data]
-        return data if isinstance(data, list) else []
-    except Exception:
-        return []
 
 def get_current_state_flavor() -> str:
     """Pull real current drama to flavor the reading."""
@@ -251,11 +244,14 @@ def api_draw():
 def api_history():
     return jsonify(load_recent_readings())
 
+
 if __name__ == "__main__":
-    port = int(os.getenv("RELIC_TAROT_PORT", 5015))
-    print("╔════════════════════════════════════════════════════════════╗")
-    print("║  THE RELIC TAROT — THE CARDS KNOW YOUR GRUDGES             ║")
-    print(f"║  http://localhost:{port}                                    ║")
-    print("║  All readings are canon. The future is already suffering.  ║")
-    print("╚════════════════════════════════════════════════════════════╝")
-    app.run(host="0.0.0.0", port=port, debug=True)
+    run_relic(
+        app,
+        default_port=5015,
+        env_var="RELIC_TAROT_PORT",
+        banner=[
+            "Relic: relic-tarot",
+            "http://localhost:{port}",
+        ],
+    )

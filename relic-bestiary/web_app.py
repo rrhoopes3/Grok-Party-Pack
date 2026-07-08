@@ -22,12 +22,20 @@ from __future__ import annotations
 import json
 import os
 import random
+import sys
 from datetime import datetime
 from pathlib import Path
 
-from flask import Flask, jsonify, render_template_string
+# Repo root on sys.path so relics.bootstrap is importable when run as a script
+_ROOT = Path(__file__).resolve().parent.parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
 
-app = Flask(__name__)
+from flask import jsonify, render_template_string
+
+from relics.bootstrap import create_relic_app, load_json_safe, run_relic
+
+app = create_relic_app(__name__)
 
 BESTIARY_HOME = Path.home() / ".relic-bestiary"
 BESTIARY_HOME.mkdir(parents=True, exist_ok=True)
@@ -86,22 +94,6 @@ CRYPTID_TEMPLATES = [
     },
 ]
 
-def load_json_safe(path: Path) -> list[dict]:
-    if not path.exists():
-        return []
-    try:
-        data = json.loads(path.read_text())
-        if isinstance(data, dict):
-            if "history" in data: return data["history"]
-            if "editions" in data: return data["editions"]
-            if "nights" in data: return data["nights"]
-            if "mail" in data: return data["mail"]
-            if "notices" in data: return data["notices"]
-            if "readings" in data: return data["readings"]
-            return [data]
-        return data if isinstance(data, list) else []
-    except Exception:
-        return []
 
 def get_current_chaos_level() -> dict:
     """Analyze the current state of the relics to influence new discoveries."""
@@ -257,11 +249,14 @@ def api_discover():
 def api_entries():
     return jsonify(load_recent_entries())
 
+
 if __name__ == "__main__":
-    port = int(os.getenv("RELIC_BESTIARY_PORT", 5016))
-    print("╔════════════════════════════════════════════════════════════╗")
-    print("║  THE RELIC BESTIARY — WE CATEGORIZE THE CHAOS              ║")
-    print(f"║  http://localhost:{port}                                    ║")
-    print("║  All cryptids are canon. All memes are dangerous.          ║")
-    print("╚════════════════════════════════════════════════════════════╝")
-    app.run(host="0.0.0.0", port=port, debug=True)
+    run_relic(
+        app,
+        default_port=5016,
+        env_var="RELIC_BESTIARY_PORT",
+        banner=[
+            "Relic: relic-bestiary",
+            "http://localhost:{port}",
+        ],
+    )

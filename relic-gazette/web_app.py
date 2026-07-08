@@ -21,12 +21,20 @@ from __future__ import annotations
 import json
 import os
 import random
+import sys
 from datetime import datetime
 from pathlib import Path
 
-from flask import Flask, jsonify, render_template_string
+# Repo root on sys.path so relics.bootstrap is importable when run as a script
+_ROOT = Path(__file__).resolve().parent.parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
 
-app = Flask(__name__)
+from flask import jsonify, render_template_string
+
+from relics.bootstrap import create_relic_app, load_json_safe, run_relic
+
+app = create_relic_app(__name__)
 
 GAZETTE_HOME = Path.home() / ".relic-gazette"
 GAZETTE_HOME.mkdir(parents=True, exist_ok=True)
@@ -44,20 +52,6 @@ RELICT_PATHS = {
 GODS = ["ZEUS", "ATHENA", "HEPHAESTUS", "HERMES", "ARES", "HADES"]
 PRESIDENTS = ["JACKSON", "LINCOLN", "TR", "REAGAN"]
 
-def load_json_safe(path: Path) -> list[dict]:
-    if not path.exists():
-        return []
-    try:
-        data = json.loads(path.read_text())
-        if isinstance(data, dict):
-            if "history" in data:
-                return data["history"]
-            if "prophecies" in data:  # for oracle
-                return data["prophecies"]
-            return [data]
-        return data if isinstance(data, list) else []
-    except Exception:
-        return []
 
 def get_recent_material() -> dict[str, list[str]]:
     """Harvest fresh drama from the other relics."""
@@ -253,11 +247,14 @@ def api_edition():
 def api_archives():
     return jsonify(load_archive()[-10:][::-1])
 
+
 if __name__ == "__main__":
-    port = int(os.getenv("RELIC_GAZETTE_PORT", 5009))
-    print("╔════════════════════════════════════════════════════════════╗")
-    print("║  THE RELIC GAZETTE — THE PRESS HAS ARRIVED                 ║")
-    print(f"║  http://localhost:{port}                                    ║")
-    print("║  All the news that fits the chaos.                         ║")
-    print("╚════════════════════════════════════════════════════════════╝")
-    app.run(host="0.0.0.0", port=port, debug=True)
+    run_relic(
+        app,
+        default_port=5009,
+        env_var="RELIC_GAZETTE_PORT",
+        banner=[
+            "Relic: relic-gazette",
+            "http://localhost:{port}",
+        ],
+    )

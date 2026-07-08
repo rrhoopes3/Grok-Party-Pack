@@ -135,6 +135,131 @@ class Orchestrator:
             self._vault_cache[agent_id] = AgentVault(agent_id)
         return self._vault_cache[agent_id]
 
+    # ── Shared pipeline stages (direct + planned) ─────────────────────
+
+    def _assemble_context(
+        self,
+        task: str,
+        *,
+        vault_agent_id: str = "default",
+        log_label: str = "executor",
+    ) -> str:
+        """Build task context from session memory, knowledge graph, and vault.
+
+        Used by both direct mode and planned mode (planner enrichment).
+        """
+        parts: list[str] = []
+        memory_context = recall_relevant(task)
+        if memory_context:
+            parts.append(memory_context)
+        graph_context = self._knowledge_graph.recall_graph_context(task)
+        if graph_context:
+            parts.append(graph_context)
+        vault = self._get_vault(vault_agent_id or "default")
+        vault_context = vault.recall_vault_context(task)
+        if vault_context:
+            parts.append(vault_context)
+            log.info(
+                "Injected vault context into %s (%d chars)",
+                log_label,
+                len(vault_context),
+            )
+        return "\n".join(parts)
+
+    def _resolve_tool_filter(
+        self,
+        *,
+        tools_needed: list[str] | None = None,
+        infer_from: str = "",
+        step_number: int | None = None,
+    ) -> set[str] | None:
+        """Resolve tools: planner hints / keyword inference ∩ pack ∩ public-mode.
+
+        Shared by direct mode and each planned step so neither path can drift.
+        """
+        tool_filter: set[str] | None = None
+        if tools_needed:
+            tool_filter = resolve_tools_for_step(tools_needed)
+            if step_number is not None:
+                log.info(
+                    "Step %d: lazy discovery → %d tools (from %s)",
+                    step_number,
+                    len(tool_filter),
+                    tools_needed,
+                )
+        elif infer_from:
+            tool_filter = infer_tools_for_task(infer_from)
+            if tool_filter:
+                if step_number is not None:
+                    log.info(
+                        "Step %d: inferred %d tools from step description",
+                        step_number,
+                        len(tool_filter),
+                    )
+                else:
+                    log.info(
+                        "Direct mode: inferred %d tools from task keywords",
+                        len(tool_filter),
+                    )
+
+        if self._pack:
+            pack_tools = resolve_tools_for_step(self._pack.tools)
+            if tool_filter:
+                tool_filter = tool_filter & pack_tools
+            else:
+                tool_filter = pack_tools
+
+        from forge.config import PUBLIC_MODE
+        if PUBLIC_MODE:
+            from forge.public_mode import SAFE_TOOLS
+            if tool_filter:
+                tool_filter = tool_filter & SAFE_TOOLS
+            else:
+                tool_filter = set(SAFE_TOOLS)
+
+        return tool_filter
+
+    def _record_task_outcomes(
+        self,
+        task: str,
+        tools_used: list[str],
+        step_outputs: list[str],
+        *,
+        outcome_summary: str,
+        success: bool,
+        latency_seconds: float,
+        step_count: int,
+        vault_agent_id: str = "default",
+        directives=None,
+        judge_scores=None,
+    ) -> None:
+        """Persist learnings to session memory, knowledge graph, and vault.
+
+        Called from both direct-mode success and planned-mode completion.
+        """
+        if not success:
+            return
+        key_paths = extract_key_paths(step_outputs)
+        remember_task(task, tools_used, key_paths, outcome_summary)
+        self._knowledge_graph.record_task_knowledge(
+            task, tools_used, key_paths, outcome_summary,
+        )
+        vault = self._get_vault(vault_agent_id or "default")
+        kwargs = dict(
+            task=task,
+            tools_used=tools_used,
+            key_paths=key_paths,
+            outcome=outcome_summary,
+            success=True,
+            latency_seconds=latency_seconds,
+            step_count=step_count,
+        )
+        if directives is not None:
+            kwargs["directives"] = directives
+        if judge_scores is not None:
+            kwargs["judge_scores"] = judge_scores
+        vault.process_6rs(**kwargs)
+
     @property
     def client(self):
         """Lazy xAI Client — only created when actually needed (xAI model selected)."""
@@ -198,21 +323,10 @@ class Orchestrator:
         # Kernel: allocate token budget for task
         self._kernel.tokens.allocate_task(task_id)
 
-        # Session memory + knowledge graph: recall relevant learnings
-        memory_context = recall_relevant(task)
-        graph_context = self._knowledge_graph.recall_graph_context(task)
-        context = ""
-        if memory_context:
-            context += memory_context
-        if graph_context:
-            context += "\n" + graph_context
-
-        # Vault recall: persistent knowledge from previous sessions (Ars Contexta)
-        vault = self._get_vault(routed_model or resolved_model or "default")
-        vault_context = vault.recall_vault_context(task)
-        if vault_context:
-            context += "\n" + vault_context
-            log.info("Injected vault context into direct executor (%d chars)", len(vault_context))
+        vault_id = routed_model or resolved_model or "default"
+        context = self._assemble_context(
+            task, vault_agent_id=vault_id, log_label="direct executor",
+        )
 
         if routed_model != resolved_model:
             yield {"type": "status", "phase": "executing",
@@ -238,27 +352,10 @@ class Orchestrator:
         # Only create xAI client if the executor model needs it
         xai_client = self.client if self._needs_xai_client(effective_model) else None
 
-        # Pack-based tool filtering for direct mode
-        pack_tool_filter = None
-        if self._pack:
-            pack_tool_filter = resolve_tools_for_step(self._pack.tools)
-
-        # Keyword-based tool inference — avoids sending all 60+ tool schemas
-        # when only a handful are relevant. Only applies when no pack narrows
-        # the scope already.
-        if not pack_tool_filter:
-            pack_tool_filter = infer_tools_for_task(task)
-            if pack_tool_filter:
-                log.info("Direct mode: inferred %d tools from task keywords", len(pack_tool_filter))
-
-        # Public mode: restrict to safe tools only
-        from forge.config import PUBLIC_MODE
-        if PUBLIC_MODE:
-            from forge.public_mode import SAFE_TOOLS
-            if pack_tool_filter:
-                pack_tool_filter = pack_tool_filter & SAFE_TOOLS
-            else:
-                pack_tool_filter = set(SAFE_TOOLS)
+        # When a pack is active it owns the allowlist (no keyword inference).
+        pack_tool_filter = self._resolve_tool_filter(
+            infer_from="" if self._pack else task,
+        )
 
         gen = executor.execute_step(
             client=xai_client,
@@ -328,17 +425,16 @@ class Orchestrator:
             latency_seconds=round(latency, 2),
         )
 
-        # Session memory + knowledge graph: remember what we learned
         if status == "success":
-            key_paths = extract_key_paths([step_output])
-            remember_task(task, tools_used, key_paths, step_output[:300])
-            self._knowledge_graph.record_task_knowledge(
-                task, tools_used, key_paths, step_output[:300],
-            )
-            vault.process_6rs(
-                task=task, tools_used=tools_used, key_paths=key_paths,
-                outcome=step_output[:300], success=True,
-                latency_seconds=latency, step_count=1,
+            self._record_task_outcomes(
+                task,
+                tools_used,
+                [step_output],
+                outcome_summary=step_output[:300],
+                success=True,
+                latency_seconds=latency,
+                step_count=1,
+                vault_agent_id=effective_model or vault_id,
             )
 
         # Guardrail summary
@@ -393,23 +489,12 @@ class Orchestrator:
             background_judge = BackgroundJudge(model=JUDGE_MODEL)
 
         # ── Phase 1: Plan (always xAI — multi-agent Pantheon) ────────────
-        # Inject session memory + knowledge graph into planner context
-        memory_hint = recall_relevant(task)
-        graph_hint = self._knowledge_graph.recall_graph_context(task)
-        enriched_task = task
-        if memory_hint:
-            enriched_task = f"{task}\n\n{memory_hint}"
-            log.info("Injected session memory into planner (%d chars)", len(memory_hint))
-        if graph_hint:
-            enriched_task = f"{enriched_task}\n\n{graph_hint}"
-            log.info("Injected knowledge graph into planner (%d chars)", len(graph_hint))
-
-        # Vault recall: persistent knowledge from previous sessions (Ars Contexta)
-        vault = self._get_vault(resolved_model or "default")
-        vault_hint = vault.recall_vault_context(task)
-        if vault_hint:
-            enriched_task = f"{enriched_task}\n\n{vault_hint}"
-            log.info("Injected vault context into planner (%d chars)", len(vault_hint))
+        planner_context = self._assemble_context(
+            task,
+            vault_agent_id=resolved_model or "default",
+            log_label="planner",
+        )
+        enriched_task = f"{task}\n\n{planner_context}" if planner_context else task
 
         if resolved_model != self.executor_model and self.executor_model == "auto":
             yield {"type": "status", "phase": "planning",
@@ -484,34 +569,12 @@ class Orchestrator:
             # ── Accountability Hop ─────────────────────────────────────
             step_hop = chain.add_hop("orchestrator", step_model or "executor", contract.contract_id)
 
-            # ── Lazy Tool Discovery ──────────────────────────────────────
-            tool_filter = None
-            if step.tools_needed:
-                tool_filter = resolve_tools_for_step(step.tools_needed)
-                log.info("Step %d: lazy discovery → %d tools (from %s)",
-                         step.step_number, len(tool_filter), step.tools_needed)
-            else:
-                # Planner didn't specify tools — infer from step description
-                tool_filter = infer_tools_for_task(step.description)
-                log.info("Step %d: inferred %d tools from step description",
-                         step.step_number, len(tool_filter) if tool_filter else 0)
-
-            # Intersect with pack allowlist if active
-            if self._pack:
-                pack_tools = resolve_tools_for_step(self._pack.tools)
-                if tool_filter:
-                    tool_filter = tool_filter & pack_tools
-                else:
-                    tool_filter = pack_tools
-
-            # Public mode: restrict to safe tools only
-            from forge.config import PUBLIC_MODE
-            if PUBLIC_MODE:
-                from forge.public_mode import SAFE_TOOLS
-                if tool_filter:
-                    tool_filter = tool_filter & SAFE_TOOLS
-                else:
-                    tool_filter = set(SAFE_TOOLS)
+            # ── Lazy Tool Discovery (shared with direct mode) ──────────
+            tool_filter = self._resolve_tool_filter(
+                tools_needed=step.tools_needed or None,
+                infer_from=step.description if not step.tools_needed else "",
+                step_number=step.step_number,
+            )
 
             yield {
                 "type": "step_start",
@@ -604,21 +667,19 @@ class Orchestrator:
             if reassigned_count > 0:
                 summary += f" ({reassigned_count} reassigned)"
 
-            # Session memory + knowledge graph: remember what we learned
             if success_count > 0:
-                key_paths = extract_key_paths(all_step_outputs)
                 outcome = "; ".join(
                     f"Step {r.step_number}: {r.status}" for r in results
                 )
-                remember_task(task, all_tools_used, key_paths, outcome)
-                self._knowledge_graph.record_task_knowledge(
-                    task, all_tools_used, key_paths, outcome,
-                )
-                vault.process_6rs(
-                    task=task, tools_used=all_tools_used, key_paths=key_paths,
-                    outcome=outcome, success=(success_count > 0),
+                self._record_task_outcomes(
+                    task,
+                    all_tools_used,
+                    all_step_outputs,
+                    outcome_summary=outcome,
+                    success=True,
                     latency_seconds=sum(r.latency_seconds for r in results),
                     step_count=len(results),
+                    vault_agent_id=resolved_model or "default",
                     directives=directives,
                     judge_scores=judge_scores,
                 )

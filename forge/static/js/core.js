@@ -160,8 +160,13 @@ function defaultRunState(mode = "Planner") {
 }
 
 function resetRunState(mode = modeFromControls()) {
+    state.currentTaskCostUsd = 0;
+    state.runtimeEvents = [];
     state.run = defaultRunState(mode);
+    if (typeof renderCostMetrics === "function") renderCostMetrics();
     applyRunState();
+    if (typeof renderRuntimeEvents === "function") renderRuntimeEvents();
+    if (typeof renderAccountabilityChain === "function") renderAccountabilityChain(null);
 }
 
 function applyRunState() {
@@ -264,8 +269,25 @@ function toneMoneyElement(element, value, limit) {
 
 function formatTimestamp(value) {
     if (!value) return "—";
-    const d = new Date(value * 1000);
-    return d.toLocaleString();
+    // Accept unix seconds, ms, or ISO strings
+    let d;
+    if (typeof value === "number") {
+        d = new Date(value < 1e12 ? value * 1000 : value);
+    } else {
+        d = new Date(value);
+        if (Number.isNaN(d.getTime()) && /^\d+(\.\d+)?$/.test(String(value))) {
+            const n = Number(value);
+            d = new Date(n < 1e12 ? n * 1000 : n);
+        }
+    }
+    if (Number.isNaN(d.getTime())) return String(value);
+    return d.toLocaleString([], {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+    });
 }
 
 function formatCompact(n) {
@@ -298,9 +320,27 @@ function escapeHtml(value) {
 // Small quality improvement: better error surfacing.
 // ─────────────────────────────────────────────────────────────────────────────
 async function fetchJson(url, options = {}) {
+    options = options || {};
+    // Inject BYOK API keys from localStorage (public demo mode)
+    const byokMap = {
+        forge_key_xai: "X-Forge-XAI-Key",
+        forge_key_openai: "X-Forge-OpenAI-Key",
+        forge_key_anthropic: "X-Forge-Anthropic-Key",
+        forge_key_github: "X-Forge-GitHub-Token",
+    };
+    const byokHeaders = {};
+    for (const [storageKey, headerName] of Object.entries(byokMap)) {
+        const val = localStorage.getItem(storageKey);
+        if (val) byokHeaders[headerName] = val;
+    }
+
     const res = await fetch(url, {
-        headers: { "Content-Type": "application/json", ...(options.headers || {}) },
         ...options,
+        headers: {
+            "Content-Type": "application/json",
+            ...byokHeaders,
+            ...(options.headers || {}),
+        },
     });
 
     if (!res.ok) {
@@ -447,9 +487,12 @@ function bindBaseEvents() {
         });
     }
 
-    // Many more specific binds (prophecy, chess, nes, keys, etc.)
-    // are still attached inside bindEvents() in app.js.
-    // They will be migrated module-by-module.
+    // Domain module bind hooks (each no-ops if the module is absent)
+    if (typeof bindKeysUi === "function") bindKeysUi();
+    if (typeof bindChessUi === "function") bindChessUi();
+    if (typeof bindNesUi === "function") bindNesUi();
+    if (typeof bindProphecyUi === "function") bindProphecyUi();
+    if (typeof bindTradingUi === "function") bindTradingUi();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

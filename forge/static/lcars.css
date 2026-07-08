@@ -1,27 +1,20 @@
 /*
- * LCARS v2 — Forge Command Nexus
- * ===============================
+ * LCARS v2 — Forge Command Nexus (AUTHORITATIVE design system)
+ * =============================================================
  *
- * Primary visual language for The Forge. Loaded AFTER style.css, this
- * stylesheet owns the look: palette, typography, borders, LCARS chrome
- * (elbows, pill buttons, colored pane headers, command bar).
+ * Primary visual language for The Forge. Owns the look: palette,
+ * typography, borders, LCARS chrome (elbows, pill buttons, colored pane
+ * headers, command bar). Loaded after the thin style.css remnant.
  *
  * Design language: Okudagram LCARS tuned for QD-OLED emissive displays.
- * True-black backgrounds (OLED pixels off → infinite contrast), high-
- * saturation LCARS palette, solid flat color blocks, condensed uppercase
- * typography. No glassmorphism, no scanlines, no CRT tricks — those
- * fight with LCARS's flat-block grammar.
+ * True-black backgrounds, high-saturation LCARS palette, solid flat
+ * color blocks, condensed uppercase typography.
  *
- * Layout additions (new HTML coming in next pass):
- *   body.lcars > .lcars-frame                — left LCARS frame (decorative)
- *   body.lcars > .topbar                     — full-width LCARS header
- *   body.lcars > .lcars-shell                — 3-col: left rail / viewer / MCP hub
- *     .lcars-left-rail                       — control surface (sandbox, model, agents, pack)
- *     .lcars-viewer                          — main content (tabs render here)
- *     #mcp-hub                               — tactical station (right)
+ * style.css is a thin remnant only — layout rules for a few panels
+ * (trading/arena/crypto) that this file does not cover. Do not rebuild
+ * a second full theme in style.css.
  *
- * Everything is scoped under body.lcars so toggling the lcars class off
- * falls back to the old style.css theme cleanly.
+ * Everything is scoped under body.lcars.
  */
 
 /* ── Palette ─────────────────────────────────────────────────────────── */

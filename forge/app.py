@@ -64,7 +64,6 @@ _email_agent = None
 _scheduler = None
 _auth = None
 
-
 def _mcp_api_summary() -> dict:
     """Serialize MCP router state for /api/config."""
     if not MCP_ENABLED:
@@ -81,7 +80,6 @@ def _mcp_api_summary() -> dict:
     except Exception as e:
         return {"enabled": True, "error": f"{type(e).__name__}: {e}"}
 
-
 # ── MCP health cache ────────────────────────────────────────────────────
 #
 # Live-pinging external MCP servers spawns a subprocess and takes 1-3s per
@@ -93,7 +91,6 @@ def _mcp_api_summary() -> dict:
 _MCP_STATUS_CACHE_TTL = 5.0
 _mcp_status_cache: dict = {}
 _mcp_status_cache_lock = threading.Lock()
-
 
 def _ping_mcp_server(server_name: str, cfg: dict) -> dict:
     """Spawn the MCP server, list tools, return a health snapshot dict.
@@ -149,7 +146,6 @@ def _ping_mcp_server(server_name: str, cfg: dict) -> dict:
             "last_error": f"{type(e).__name__}: {e}",
             "last_checked_at": time.time(),
         }
-
 
 def register_modules(flask_app: Flask) -> dict:
     """Conditionally register all blueprints + side-effect setups on `flask_app`.
@@ -268,8 +264,18 @@ def register_modules(flask_app: Flask) -> dict:
         log.info("Public demo mode enabled (BYOK, restricted tools)")
         enabled["public_mode"] = True
 
-    return enabled
+    # ── Domain blueprints (keys / chess / NES) ─────────────────────────
+    from forge.keys_api import keys_bp
+    from forge.chess_http import chess_bp
+    from forge.nes_http import nes_bp
+    flask_app.register_blueprint(keys_bp)
+    flask_app.register_blueprint(chess_bp)
+    flask_app.register_blueprint(nes_bp)
+    enabled["keys"] = True
+    enabled["chess"] = True
+    enabled["nes"] = True
 
+    return enabled
 
 _modules_enabled = register_modules(app)
 
@@ -295,7 +301,6 @@ task_costs: dict[str, float] = {}  # task_id → accumulated cost
 # trap.
 session_toll_usd: float = 0.0
 session_toll_lock = threading.Lock()
-
 
 def run_task(task_id: str, task: str, q: Queue, cancel_event: threading.Event,
              sandbox_path: str = "", direct_mode: bool = False, agent_count: int = 16,
@@ -368,18 +373,15 @@ def run_task(task_id: str, task: str, q: Queue, cancel_event: threading.Event,
         task_costs.pop(task_id, None)
         q.put(None)  # sentinel
 
-
 # ── Routes ──────────────────────────────────────────────────────────────────
 
 @app.route("/")
 def index():
     return send_from_directory("static", "index.html")
 
-
 @app.route("/favicon.ico")
 def favicon():
     return Response(status=204)
-
 
 @app.route("/api/task", methods=["POST"])
 def submit_task():
@@ -455,7 +457,6 @@ def submit_task():
     log.info("Task %s submitted: %s", task_id, task[:80])
     return jsonify({"task_id": task_id})
 
-
 @app.route("/api/kill/<task_id>", methods=["POST"])
 def kill_task(task_id):
     cancel_event = task_cancel_events.get(task_id)
@@ -471,7 +472,6 @@ def kill_task(task_id):
         correction_detector.record_kill(task_id)
 
     return jsonify({"status": "kill_signal_sent", "task_id": task_id})
-
 
 @app.route("/api/stream/<task_id>")
 def stream(task_id):
@@ -498,7 +498,6 @@ def stream(task_id):
         "Cache-Control": "no-cache",
         "X-Accel-Buffering": "no",
     })
-
 
 @app.route("/api/arena", methods=["POST"])
 def submit_arena():
@@ -529,7 +528,6 @@ def submit_arena():
 
     log.info("Arena %s launched: Red=%s Blue=%s Scenario=%s", task_id, red_model or "default", blue_model or "default", scenario)
     return jsonify({"task_id": task_id})
-
 
 def run_arena(task_id: str, q: Queue, cancel_event: threading.Event,
               red_model: str = "", blue_model: str = "", scenario: str = "classic",
@@ -563,7 +561,6 @@ def run_arena(task_id: str, q: Queue, cancel_event: threading.Event,
     finally:
         q.put(None)
 
-
 @app.route("/api/arena/scenarios")
 def get_arena_scenarios():
     """Return all arena scenarios for frontend dropdown."""
@@ -579,11 +576,9 @@ def get_arena_scenarios():
         }
     return jsonify(result)
 
-
 @app.route("/api/history")
 def history():
     return jsonify(get_recent_tasks())
-
 
 @app.route("/api/runs/<task_id>")
 def get_run(task_id):
@@ -594,7 +589,6 @@ def get_run(task_id):
     meta = load_run_meta(task_id)
     return jsonify({"task_id": task_id, "meta": meta, "events": events})
 
-
 @app.route("/api/runs/<task_id>/artifacts")
 def get_artifacts(task_id):
     """Return artifacts (widgets, etc.) from a run."""
@@ -602,13 +596,11 @@ def get_artifacts(task_id):
     artifacts = get_run_artifacts(task_id, kind=kind)
     return jsonify(artifacts)
 
-
 @app.route("/api/memory")
 def session_memory():
     """Return current session memory (learnings from past tasks)."""
     from forge.context_engine import _load_memories
     return jsonify(_load_memories())
-
 
 @app.route("/api/memory/clear", methods=["POST"])
 def clear_memory():
@@ -618,7 +610,6 @@ def clear_memory():
         MEMORY_FILE.unlink()
     return jsonify({"status": "cleared"})
 
-
 # ── Capability Packs ─────────────────────────────────────────────────────────
 
 @app.route("/api/packs")
@@ -626,7 +617,6 @@ def list_packs():
     """Return all capability packs with readiness status."""
     registry = get_pack_registry()
     return jsonify(registry.to_dict())
-
 
 @app.route("/api/packs/<name>")
 def get_pack(name):
@@ -636,7 +626,6 @@ def get_pack(name):
     if not pack:
         return jsonify({"error": f"Unknown pack: {name}"}), 404
     return jsonify(pack.to_dict())
-
 
 @app.route("/api/packs/<name>/eval", methods=["POST"])
 def run_pack_eval(name):
@@ -668,7 +657,6 @@ def run_pack_eval(name):
     report = runner.run_pack_eval(name)
     return jsonify(report.summary())
 
-
 # ── Models & Cost Endpoints ─────────────────────────────────────────────────
 
 @app.route("/api/models")
@@ -684,7 +672,6 @@ def get_models():
             "cost_out": info["cost_out"],
         })
     return jsonify(models)
-
 
 @app.route("/api/config")
 def get_config():
@@ -726,7 +713,6 @@ def get_config():
         },
     })
 
-
 @app.route("/api/health")
 def get_health():
     """Snapshot of harness liveness + provider/module status.
@@ -741,7 +727,6 @@ def get_health():
         "tasks_by_status": task_state.counts_by_status(),
         "orphans_interrupted_on_startup": _orphans_interrupted,
     })
-
 
 @app.route("/api/mcp/status")
 def get_mcp_status():
@@ -815,7 +800,6 @@ def get_mcp_status():
         "servers": out,
     })
 
-
 @app.route("/api/mcp/namespaces")
 def get_mcp_namespaces():
     """Full sidebar render payload: internal + external namespaces.
@@ -876,7 +860,6 @@ def get_mcp_namespaces():
         "external": external,
     })
 
-
 @app.route("/api/cost")
 def get_cost():
     """Return current session cost and limits."""
@@ -888,7 +871,6 @@ def get_cost():
             "session_limit": COST_LIMIT_PER_SESSION,
         })
 
-
 @app.route("/api/cost/reset", methods=["POST"])
 def reset_cost():
     """Reset session cost counter."""
@@ -897,649 +879,6 @@ def reset_cost():
         session_cost_usd = 0.0
         session_toll_usd = 0.0
     return jsonify({"status": "reset", "session_cost": 0.0, "session_toll": 0.0})
-
-
-# ── API keys vault ──────────────────────────────────────────────────────
-# Per-provider secret management. Values are persisted to forge/.env and
-# hot-patched into the running process. The raw key value is never returned
-# over HTTP — only `{set, last4, length, masked}` via forge.secrets_vault.
-
-from forge import secrets_vault as _vault
-
-
-@app.route("/api/keys")
-def keys_list():
-    """Return the full provider list with masked status."""
-    return jsonify({"providers": _vault.list_keys()})
-
-
-@app.route("/api/keys/<provider_id>", methods=["POST"])
-def keys_set(provider_id: str):
-    """Set a provider's key. Body: {value: "..."}. Empty value clears it."""
-    if _vault.get_provider(provider_id) is None:
-        return jsonify({"error": f"Unknown provider: {provider_id!r}"}), 404
-    body = request.get_json(silent=True) or {}
-    value = body.get("value", "")
-    if not isinstance(value, str):
-        return jsonify({"error": "value must be a string"}), 400
-    try:
-        record = _vault.set_key(provider_id, value)
-    except Exception as e:
-        log.exception("keys_set failed for %s", provider_id)
-        return jsonify({"error": f"{type(e).__name__}: {e}"}), 500
-    return jsonify(record)
-
-
-@app.route("/api/keys/<provider_id>", methods=["DELETE"])
-def keys_clear(provider_id: str):
-    """Clear a provider's key."""
-    if _vault.get_provider(provider_id) is None:
-        return jsonify({"error": f"Unknown provider: {provider_id!r}"}), 404
-    try:
-        record = _vault.clear_key(provider_id)
-    except Exception as e:
-        log.exception("keys_clear failed for %s", provider_id)
-        return jsonify({"error": f"{type(e).__name__}: {e}"}), 500
-    return jsonify(record)
-
-
-# ── Chess Arena ─────────────────────────────────────────────────────────
-# Two-model chess matches. State lives in memory — matches survive tab
-# refresh but not server restart. Move legality is enforced server-side by
-# python-chess; the LLM only proposes.
-
-from forge import chess_arena as _chess
-
-
-@app.route("/api/chess", methods=["GET"])
-def chess_list():
-    """List known matches (active + finished, newest first, capped)."""
-    return jsonify({"matches": _chess.list_matches()})
-
-
-@app.route("/api/chess", methods=["POST"])
-def chess_new():
-    """Create a match.
-    AI vs AI: {white_model, black_model, ...}
-    Human vs AI: {human_side: "white"|"black", ai_model: "...", judge_model?, ...}
-    """
-    body = request.get_json(silent=True) or {}
-
-    human_side = body.get("human_side")
-    if human_side:
-        ai_model = (body.get("ai_model") or "").strip()
-        if not ai_model:
-            return jsonify({"error": "ai_model is required when human_side is set"}), 400
-        if human_side == "white":
-            white, black = "human", ai_model
-        else:
-            white, black = ai_model, "human"
-    else:
-        white = (body.get("white_model") or "").strip()
-        black = (body.get("black_model") or "").strip()
-        if not white or not black:
-            return jsonify({"error": "white_model and black_model are required"}), 400
-
-    try:
-        match = _chess.new_match(
-            white_model=white,
-            black_model=black,
-            starting_fen=body.get("starting_fen", "") or "",
-            judge_model=(body.get("judge_model") or "grok-4.20-0309-reasoning").strip(),
-            commentary_interval=int(body.get("commentary_interval") or 2),
-            commentary_window_plies=int(body.get("commentary_window_plies") or 0),
-            human_side=human_side,
-        )
-    except Exception as e:
-        log.exception("chess_new failed")
-        return jsonify({"error": f"{type(e).__name__}: {e}"}), 400
-    return jsonify(_chess.serialize_match(match))
-
-
-@app.route("/api/chess/<match_id>", methods=["GET"])
-def chess_get(match_id: str):
-    m = _chess.get_match(match_id)
-    if m is None:
-        return jsonify({"error": f"Unknown match: {match_id!r}"}), 404
-    return jsonify(_chess.serialize_match(m))
-
-
-@app.route("/api/chess/<match_id>/step", methods=["POST"])
-def chess_step(match_id: str):
-    """Ask the current side's LLM for a move and apply it. If this step
-    lands on a commentary beat (every Nth full-move pair, or game-over),
-    the judge model is also called and its output included as
-    `new_commentary` in the response so the UI can render + TTS it."""
-    m = _chess.get_match(match_id)
-    if m is None:
-        return jsonify({"error": f"Unknown match: {match_id!r}"}), 404
-    try:
-        m = _chess.make_move(match_id)
-    except RuntimeError as e:
-        # Missing API key / upstream failure — surface as 502 so UI can show it
-        return jsonify({"error": str(e), **_chess.serialize_match(_chess.get_match(match_id))}), 502
-    except Exception as e:
-        log.exception("chess_step failed for %s", match_id)
-        return jsonify({"error": f"{type(e).__name__}: {e}"}), 500
-
-    # Fire the judge if this beat calls for it. A judge failure never
-    # blocks the move response — we surface it as `commentary_error` so
-    # the UI can render the actual cause (missing key, multi-agent model,
-    # upstream 4xx, etc.) rather than silently staring at "no commentary".
-    new_commentary = None
-    commentary_error = None
-    try:
-        rec = _chess.maybe_generate_commentary(match_id)
-        if rec is not None:
-            new_commentary = {
-                "after_move_n": rec.after_move_n,
-                "round_num": rec.round_num,
-                "text": rec.text,
-                "model": rec.model,
-                "ms": rec.ms,
-                "emitted_at": rec.emitted_at,
-            }
-    except RuntimeError as e:
-        commentary_error = str(e)
-        log.warning("chess %s commentary: %s", match_id, e)
-    except Exception as e:
-        commentary_error = f"{type(e).__name__}: {e}"
-        log.exception("chess commentary failed for %s (non-fatal)", match_id)
-
-    payload = _chess.serialize_match(m)
-    if new_commentary:
-        payload["new_commentary"] = new_commentary
-    if commentary_error:
-        payload["commentary_error"] = commentary_error
-    return jsonify(payload)
-
-
-@app.route("/api/chess/<match_id>/commentary", methods=["POST"])
-def chess_commentary(match_id: str):
-    """Manually fire a commentary beat (ignoring the interval). Useful
-    for the UI "Call it" button. Returns 502 with the actual upstream
-    error on judge-call failure so the UI can show a useful message."""
-    if _chess.get_match(match_id) is None:
-        return jsonify({"error": f"Unknown match: {match_id!r}"}), 404
-    try:
-        rec = _chess.generate_commentary(match_id)
-    except RuntimeError as e:
-        return jsonify({"error": str(e)}), 502
-    except Exception as e:
-        log.exception("chess_commentary failed for %s", match_id)
-        return jsonify({"error": f"{type(e).__name__}: {e}"}), 500
-    if rec is None:
-        return jsonify({"error": f"Unknown match: {match_id!r}"}), 404
-    return jsonify({
-        "after_move_n": rec.after_move_n,
-        "round_num": rec.round_num,
-        "text": rec.text,
-        "model": rec.model,
-        "ms": rec.ms,
-        "emitted_at": rec.emitted_at,
-    })
-
-
-@app.route("/api/chess/<match_id>/resign", methods=["POST"])
-def chess_resign(match_id: str):
-    """Resign for a side. Body: {side: 'white'|'black'}."""
-    body = request.get_json(silent=True) or {}
-    side = body.get("side", "")
-    try:
-        m = _chess.resign(match_id, side)
-    except ValueError as e:
-        return jsonify({"error": str(e)}), 400
-    if m is None:
-        return jsonify({"error": f"Unknown match: {match_id!r}"}), 404
-    return jsonify(_chess.serialize_match(m))
-
-
-@app.route("/api/chess/<match_id>", methods=["DELETE"])
-def chess_delete(match_id: str):
-    """Delete a match from the in-memory registry."""
-    if not _chess.delete_match(match_id):
-        return jsonify({"error": f"Unknown match: {match_id!r}"}), 404
-    return jsonify({"deleted": match_id})
-
-
-# ── NES Arena ───────────────────────────────────────────────────────────
-# Browser runs jsnes (the emulator); Python handles ROM indexing, coach
-# model calls, and vault deposits. Sessions are metadata-only shadows of
-# the in-browser state.
-
-from forge import nes_arena as _nes
-from forge.config import (
-    NES_COACH_MODEL, NES_CONTROLLER_MODEL, NES_COACH_INTERVAL_MS,
-)
-import base64 as _b64
-
-
-@app.route("/api/nes/roms", methods=["GET"])
-def nes_roms():
-    return jsonify({"roms": _nes.list_roms()})
-
-
-@app.route("/api/nes/rom/<slug>", methods=["GET"])
-def nes_rom_bytes(slug: str):
-    """Return ROM bytes as base64 JSON so the browser can hand them to jsnes."""
-    data = _nes.get_rom_bytes(slug)
-    if data is None:
-        return jsonify({"error": f"Unknown ROM: {slug!r}"}), 404
-    rom = _nes.rom_by_slug(slug)
-    return jsonify({
-        "slug": slug,
-        "title": rom["title"] if rom else slug,
-        "filename": rom["filename"] if rom else f"{slug}.nes",
-        "size_bytes": len(data),
-        "data_b64": _b64.b64encode(data).decode("ascii"),
-    })
-
-
-@app.route("/api/nes/sessions", methods=["GET"])
-def nes_sessions_list():
-    return jsonify({"sessions": _nes.list_sessions()})
-
-
-@app.route("/api/nes/sessions", methods=["POST"])
-def nes_sessions_new():
-    """Body: { rom_slug, mode, coach_model?, controller_model?, coach_interval_ms? }"""
-    body = request.get_json(silent=True) or {}
-    slug = (body.get("rom_slug") or "").strip()
-    mode = (body.get("mode") or "hybrid-coach").strip()
-    if not slug:
-        return jsonify({"error": "rom_slug is required"}), 400
-    rom = _nes.rom_by_slug(slug)
-    if rom is None:
-        return jsonify({"error": f"Unknown ROM: {slug!r}"}), 404
-    s = _nes.create_session(
-        rom_slug=slug,
-        rom_title=rom["title"],
-        mode=mode,
-        coach_model=body.get("coach_model") or NES_COACH_MODEL,
-        controller_model=body.get("controller_model") or NES_CONTROLLER_MODEL,
-        coach_interval_ms=int(body.get("coach_interval_ms") or NES_COACH_INTERVAL_MS),
-    )
-    return jsonify(s.summary())
-
-
-@app.route("/api/nes/sessions/<session_id>", methods=["GET"])
-def nes_sessions_get(session_id: str):
-    s = _nes.get_session(session_id)
-    if s is None:
-        return jsonify({"error": f"Unknown session: {session_id!r}"}), 404
-    return jsonify(s.summary())
-
-
-@app.route("/api/nes/sessions/<session_id>", methods=["DELETE"])
-def nes_sessions_delete(session_id: str):
-    if not _nes.delete_session(session_id):
-        return jsonify({"error": f"Unknown session: {session_id!r}"}), 404
-    return jsonify({"deleted": session_id})
-
-
-@app.route("/api/nes/sessions/<session_id>/tick", methods=["POST"])
-def nes_sessions_tick(session_id: str):
-    """Browser heartbeat: frame screenshot + observed game state."""
-    s = _nes.get_session(session_id)
-    if s is None:
-        return jsonify({"error": f"Unknown session: {session_id!r}"}), 404
-    body = request.get_json(silent=True) or {}
-    s.ingest_tick(
-        frame_b64=body.get("frame_b64", ""),
-        frame_n=int(body.get("frame_n", 0) or 0),
-        state=body.get("state", {}) or {},
-    )
-    return jsonify({"ok": True, "frame_n": s.last_frame_n})
-
-
-@app.route("/api/nes/sessions/<session_id>/coach", methods=["POST"])
-def nes_sessions_coach(session_id: str):
-    """Ask the coach model for a plan. Reuses the session's last frame unless
-    the body overrides it."""
-    s = _nes.get_session(session_id)
-    if s is None:
-        return jsonify({"error": f"Unknown session: {session_id!r}"}), 404
-    body = request.get_json(silent=True) or {}
-    frame_b64 = body.get("frame_b64") or s.last_frame_b64
-    plan_history_texts = [p.text for p in s.plan_history]
-
-    try:
-        result = _nes.coach_advise(
-            model=body.get("model") or s.coach_model,
-            rom_title=s.rom_title,
-            mode=s.mode,
-            frame_b64=frame_b64,
-            plan_history=plan_history_texts,
-            score=s.last_score,
-            lives=s.last_lives,
-            level=s.last_level,
-            extra_context=body.get("extra_context", ""),
-        )
-    except RuntimeError as e:
-        return jsonify({"error": str(e)}), 502
-    except Exception as e:
-        log.exception("nes coach failed for %s", session_id)
-        return jsonify({"error": f"{type(e).__name__}: {e}"}), 500
-
-    from forge.nes_arena.session import CoachPlan
-    plan = CoachPlan(
-        text=result["plan"],
-        emitted_at=__import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(),
-        model=result["model"],
-        ms=result["ms"],
-        frame_n=s.last_frame_n,
-        raw_response=result["raw"],
-    )
-    s.set_plan(plan)
-    return jsonify({
-        "plan": plan.text,
-        "model": plan.model,
-        "ms": plan.ms,
-        "used_vision": result.get("used_vision", False),
-        "frame_n": plan.frame_n,
-    })
-
-
-@app.route("/api/nes/sessions/<session_id>/event", methods=["POST"])
-def nes_sessions_event(session_id: str):
-    """Record an in-game event (death, level, powerup) + vault deposit."""
-    s = _nes.get_session(session_id)
-    if s is None:
-        return jsonify({"error": f"Unknown session: {session_id!r}"}), 404
-    body = request.get_json(silent=True) or {}
-    kind = (body.get("kind") or "note").strip()
-    summary = (body.get("summary") or "").strip()
-    frame_n = int(body.get("frame_n", s.last_frame_n) or 0)
-    extra = body.get("extra", {}) or {}
-    if not summary:
-        return jsonify({"error": "summary is required"}), 400
-
-    from forge.nes_arena.session import NESEvent
-    s.add_event(NESEvent(kind=kind, frame_n=frame_n, summary=summary, extra=extra))
-
-    vault_status = _nes.log_event(
-        session_id=session_id,
-        rom_slug=s.rom_slug,
-        rom_title=s.rom_title,
-        kind=kind,
-        summary=summary,
-        frame_n=frame_n,
-        extra=extra,
-    )
-    return jsonify({"ok": True, **vault_status})
-
-
-@app.route("/api/nes/sessions/<session_id>/controller", methods=["POST"])
-def nes_controller_grok(session_id: str):
-    """Fast controller via Forge's provider stack (Grok/Claude/GPT).
-
-    Use when LM Studio is too slow (or absent). Body:
-      { "frame_b64": "data:image/png;base64,...",
-        "coach_plan": "go right",
-        "recent_actions": "[...]",
-        "model": "grok-4-1-fast-non-reasoning" }
-
-    Returns {"buttons":[...],"hold_ms":N,"ms":latency,"raw":"..."}.
-    Vision-capable models get the frame; others get a text-only prompt
-    that degrades gracefully (still usable for menu nav).
-    """
-    s = _nes.get_session(session_id)
-    if s is None:
-        return jsonify({"error": f"Unknown session: {session_id!r}"}), 404
-    body = request.get_json(silent=True) or {}
-    model = (body.get("model") or s.controller_model or "grok-4-1-fast-non-reasoning").strip()
-    frame_b64 = body.get("frame_b64") or s.last_frame_b64
-    coach_plan = (body.get("coach_plan") or "").strip()[:300]
-    recent = (body.get("recent_actions") or "").strip()[:200]
-
-    # Reuse the NES coach's provider-agnostic LLM caller — it already
-    # handles vision vs text, Anthropic/OpenAI/Grok routing, and
-    # max_completion_tokens / temperature quirks.
-    from forge.nes_arena.coach import (
-        _call_openai_compat, _call_anthropic, _provider_for, _supports_vision,
-    )
-    from forge.config import (
-        XAI_API_KEY as _XAI, ANTHROPIC_API_KEY as _ANT, OPENAI_API_KEY as _OAI,
-        LMSTUDIO_BASE_URL as _LM, OLLAMA_BASE_URL as _OLL,
-    )
-
-    system = (
-        "You are the fast controller for an NES game. You receive one "
-        "frame and a strategic plan. Output EXACTLY one JSON object, no "
-        "prose, no markdown, no thinking:\n"
-        '  {"buttons":["LEFT"|"RIGHT"|"UP"|"DOWN"|"A"|"B"|"START"|"SELECT"],'
-        '"hold_ms":INTEGER_50_TO_400}\n'
-        "Empty buttons = do nothing this tick. Jump=A. Run=B+RIGHT.\n\n"
-        "CRITICAL — START BUTTON RULES:\n"
-        "• In actual gameplay (Mario running, Link exploring, etc.), "
-        "START *pauses the game*. NEVER press START during gameplay.\n"
-        "• Only press START when the screen shows a title/menu image: "
-        "logo + 'PRESS START' text + no HUD. If you see score, lives, "
-        "or a character, it's gameplay — do NOT press START.\n"
-        "• If you just pressed START on the prior tick, do NOT press it "
-        "again. The menu has already advanced.\n\n"
-        "React to what you see. Prefer movement + jumps over menu buttons."
-    )
-    user_prompt = (
-        f"Coach plan: {coach_plan or '(none — act on screen cues)'}\n"
-        f"Your last actions: {recent or '(none)'}\n"
-        f"Output JSON only."
-    )
-
-    import time as _t, re as _re
-    started = _t.monotonic()
-    use_vision = bool(frame_b64) and _supports_vision(model)
-    image = frame_b64 if use_vision else None
-
-    # Route through the openai SDK directly here (not via coach helpers)
-    # so we can pull the raw usage block back out for cost accounting —
-    # the coach helpers drop it on the floor since the coach has its own
-    # cost tracking on the session object.
-    from openai import OpenAI
-    import anthropic
-
-    try:
-        provider = _provider_for(model)
-        usage_in = 0
-        usage_out = 0
-        if provider == "anthropic":
-            client = anthropic.Anthropic(api_key=_ANT)
-            content: list = []
-            if image:
-                import re as _r2
-                m = _r2.match(r"^data:([^;]+);base64,(.+)$", image)
-                mime, b64 = (m.group(1), m.group(2)) if m else ("image/png", image)
-                content.append({"type": "image",
-                    "source": {"type": "base64", "media_type": mime, "data": b64}})
-            content.append({"type": "text", "text": user_prompt})
-            resp = client.messages.create(
-                model=model, max_tokens=200, system=system,
-                messages=[{"role": "user", "content": content}],
-            )
-            raw = resp.content[0].text
-            u = getattr(resp, "usage", None)
-            if u:
-                usage_in = int(getattr(u, "input_tokens", 0) or 0)
-                usage_out = int(getattr(u, "output_tokens", 0) or 0)
-        else:
-            if provider == "openai":
-                base_url, api_key = None, _OAI or ""
-            elif provider == "lmstudio":
-                base_url = _LM; api_key = "lm-studio"
-                model = model.removeprefix("lmstudio:") or "default"
-            elif provider == "ollama":
-                base_url = _OLL; api_key = "ollama"
-                model = model.removeprefix("ollama:") or "default"
-            else:  # xai
-                base_url = "https://api.x.ai/v1"; api_key = _XAI or ""
-            client = OpenAI(api_key=api_key or "none", base_url=base_url)
-            if image:
-                m2 = _re.match(r"^data:([^;]+);base64,(.+)$", image)
-                mime, b64 = (m2.group(1), m2.group(2)) if m2 else ("image/png", image)
-                user_content = [
-                    {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}},
-                    {"type": "text", "text": user_prompt},
-                ]
-            else:
-                user_content = user_prompt
-            messages = [{"role": "system", "content": system},
-                        {"role": "user", "content": user_content}]
-            # Reasoning models use max_completion_tokens; everything else max_tokens
-            call_kwargs = {"model": model, "messages": messages}
-            m_lower = model.lower()
-            if m_lower.startswith(("o1-", "o3-", "o4-", "gpt-5")):
-                call_kwargs["max_completion_tokens"] = 200
-            else:
-                call_kwargs["max_tokens"] = 200
-            if not m_lower.startswith(("claude-opus-4-7", "claude-opus-4-6",
-                    "claude-sonnet-4-6", "claude-opus-4-5", "claude-sonnet-4-5",
-                    "claude-haiku-4-5", "o1-", "o3-", "o4-", "gpt-5")):
-                call_kwargs["temperature"] = 0.4
-            resp = client.chat.completions.create(**call_kwargs)
-            raw = resp.choices[0].message.content or ""
-            u = getattr(resp, "usage", None)
-            if u:
-                usage_in = int(getattr(u, "prompt_tokens", 0) or 0)
-                usage_out = int(getattr(u, "completion_tokens", 0) or 0)
-    except Exception as e:
-        log.exception("nes controller (grok path) failed for %s", session_id)
-        return jsonify({"error": f"{type(e).__name__}: {e}"}), 502
-
-    # Cost lookup — same pricing source the chess tab uses.
-    from forge.config import EXECUTOR_MODELS as _EM
-    info = _EM.get(model, {})
-    cost_usd = (usage_in * float(info.get("cost_in", 0) or 0)
-                + usage_out * float(info.get("cost_out", 0) or 0)) / 1_000_000.0
-    s.add_cost(cost_usd)   # rolls up on the session for MCP tool visibility
-
-    ms = int((_t.monotonic() - started) * 1000)
-
-    # Permissive JSON extraction — model might wrap in fences / prose.
-    text = (raw or "").strip()
-    if not text:
-        return jsonify({"buttons": [], "hold_ms": 120, "ms": ms,
-                        "raw": "", "warning": "empty reply"}), 200
-    fence = _re.search(r"```(?:json)?\s*\n?([\s\S]*?)\n?```", text)
-    body_text = fence.group(1) if fence else text
-    obj_match = _re.search(r"\{[\s\S]*?\}", body_text)
-    buttons: list = []
-    hold_ms = 120
-    if obj_match:
-        try:
-            import json as _json
-            parsed = _json.loads(obj_match.group(0))
-            raw_buttons = parsed.get("buttons") or []
-            if isinstance(raw_buttons, list):
-                valid = {"LEFT","RIGHT","UP","DOWN","A","B","START","SELECT"}
-                buttons = [str(b).upper().strip() for b in raw_buttons
-                           if str(b).upper().strip() in valid]
-            try:
-                hold_ms = max(40, min(400, int(parsed.get("hold_ms", 120))))
-            except Exception:
-                pass
-        except Exception:
-            pass
-
-    return jsonify({
-        "buttons": buttons, "hold_ms": hold_ms, "ms": ms,
-        "model": model, "used_vision": use_vision, "raw": text[:300],
-        "usage": {
-            "input_tokens": usage_in,
-            "output_tokens": usage_out,
-            "cost_usd": round(cost_usd, 6),
-            "session_total_cost_usd": round(s.cost_usd, 6),
-            "session_api_calls": s.api_calls,
-        },
-    })
-
-
-@app.route("/api/lmstudio/models", methods=["GET"])
-def lmstudio_models():
-    """Proxy LM Studio's /v1/models so the UI can populate dropdowns
-    with the user's actually-loaded-right-now models instead of a stale
-    hard-coded list. Returns {models: [...]} on success, {error} on
-    reach failure. ~3s timeout — we'd rather fail fast than block a
-    page load when LM Studio isn't running."""
-    import json as _json, urllib.request, urllib.error
-    from forge.config import LMSTUDIO_BASE_URL as _LM
-    base = (_LM or "http://localhost:1234/v1").rstrip("/")
-    try:
-        with urllib.request.urlopen(base + "/models", timeout=3) as resp:
-            data = _json.loads(resp.read().decode("utf-8"))
-    except urllib.error.URLError as e:
-        return jsonify({
-            "error": f"LM Studio unreachable at {base}: {e.reason}",
-            "models": [],
-        }), 502
-    except Exception as e:
-        return jsonify({"error": f"{type(e).__name__}: {e}", "models": []}), 500
-
-    # LM Studio returns {"data":[{"id":"qwen/qwen3.5-9b", "object":"model", ...}, ...]}.
-    # Filter out embedding models — they can't do chat.
-    raw = data.get("data") or []
-    out = []
-    for m in raw:
-        mid = m.get("id") or ""
-        if not mid: continue
-        if "embed" in mid.lower(): continue
-        out.append({"id": mid, "label": mid})
-    return jsonify({"base_url": base, "models": out})
-
-
-@app.route("/api/nes/controller", methods=["POST"])
-def nes_controller_proxy():
-    """Same-origin proxy for the NES controller loop's LM Studio calls.
-
-    Why this exists: the browser can't POST `application/json` to a
-    different-origin localhost service without a CORS preflight, and
-    LM Studio's OPTIONS handler is broken — it tries to treat OPTIONS
-    as a chat completion and 400s with "'messages' field is required".
-    Proxying through the Forge backend (same origin as the page) skips
-    preflight entirely.
-
-    Body:
-      {
-        "target_url": "http://localhost:1234/v1",
-        "body": { model, messages, max_tokens, ... }
-      }
-    Returns LM Studio's response verbatim (body + status) so the
-    browser can parse it as if it had called directly.
-    """
-    import json as _json
-    import urllib.request
-    import urllib.error
-
-    payload = request.get_json(silent=True) or {}
-    target = (payload.get("target_url") or "").strip().rstrip("/")
-    inner = payload.get("body") or {}
-    if not target:
-        return jsonify({"error": "target_url required"}), 400
-    if not isinstance(inner, dict) or not inner.get("messages"):
-        return jsonify({"error": "body.messages required"}), 400
-
-    url = target + "/chat/completions"
-    data = _json.dumps(inner).encode("utf-8")
-    req = urllib.request.Request(url, data=data, method="POST")
-    req.add_header("Content-Type", "application/json")
-    try:
-        with urllib.request.urlopen(req, timeout=60) as resp:
-            body = resp.read()
-            return Response(body, status=resp.status, content_type="application/json")
-    except urllib.error.HTTPError as e:
-        try:
-            body = e.read()
-            return Response(body, status=e.code, content_type="application/json")
-        except Exception:
-            return jsonify({"error": f"HTTP {e.code} from {target}"}), 502
-    except urllib.error.URLError as e:
-        return jsonify({
-            "error": f"Could not reach LM Studio at {target}: {e.reason}",
-            "hint": "Is LM Studio running and is the model loaded?",
-        }), 502
-    except Exception as e:
-        log.exception("nes_controller_proxy failed")
-        return jsonify({"error": f"{type(e).__name__}: {e}"}), 500
-
 
 def track_cost(msg: dict, task_id: str = ""):
     """Update session and per-task cost from token usage messages."""
@@ -1550,7 +889,6 @@ def track_cost(msg: dict, task_id: str = ""):
             session_cost_usd += cost
         if task_id and task_id in task_costs:
             task_costs[task_id] += cost
-
 
 def _check_cost_limit(task_id: str, cancel_event: threading.Event, q: Queue) -> bool:
     """Check if cost limits have been exceeded. Returns True if task should stop."""
@@ -1579,7 +917,6 @@ def _check_cost_limit(task_id: str, cancel_event: threading.Event, q: Queue) -> 
         return True
 
     return False
-
 
 # ── Solana Watcher ────────────────────────────────────────────────────────
 
@@ -1610,9 +947,7 @@ def _start_solana_watcher():
     watcher.start()
     log.info("Solana USDC watcher started (network=%s)", SOLANA_NETWORK)
 
-
 _start_solana_watcher()
-
 
 def track_toll(msg: dict):
     """Track toll deductions from SSE messages."""
@@ -1620,7 +955,6 @@ def track_toll(msg: dict):
     if msg.get("type") == "toll_deducted":
         with session_toll_lock:
             session_toll_usd += msg.get("toll_usd", 0.0)
-
 
 # ── Main ────────────────────────────────────────────────────────────────────
 

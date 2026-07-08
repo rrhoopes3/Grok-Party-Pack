@@ -29,12 +29,20 @@ from __future__ import annotations
 import json
 import os
 import random
+import sys
 from datetime import datetime
 from pathlib import Path
 
-from flask import Flask, jsonify, render_template_string
+# Repo root on sys.path so relics.bootstrap is importable when run as a script
+_ROOT = Path(__file__).resolve().parent.parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
 
-app = Flask(__name__)
+from flask import jsonify, render_template_string
+
+from relics.bootstrap import create_relic_app, load_json_safe, run_relic
+
+app = create_relic_app(__name__)
 
 MUSEUM_HOME = Path.home() / ".relic-museum"
 MUSEUM_HOME.mkdir(parents=True, exist_ok=True)
@@ -63,19 +71,6 @@ CURATOR_QUOTES = {
     "REAGAN": ["There you go again... making excellent relics."],
 }
 
-def load_json_safe(path: Path) -> list[dict]:
-    if not path.exists():
-        return []
-    try:
-        data = json.loads(path.read_text())
-        if isinstance(data, dict):
-            # Handle league state shape
-            if "history" in data:
-                return data["history"]
-            return [data]
-        return data if isinstance(data, list) else []
-    except Exception:
-        return []
 
 def gather_exhibits() -> list[dict]:
     exhibits = []
@@ -230,11 +225,14 @@ def api_exhibits():
         ex["curator_comment"] = get_random_curator_comment(ex)
     return jsonify(exhibits)
 
+
 if __name__ == "__main__":
-    port = int(os.getenv("RELIC_MUSEUM_PORT", 5006))
-    print("╔════════════════════════════════════════════════════════════╗")
-    print("║  THE RELIC MUSEUM — OFFICIAL PARTY PACK ARCHIVE            ║")
-    print(f"║  http://localhost:{port}                                    ║")
-    print("║  Where the chaos becomes canon.                            ║")
-    print("╚════════════════════════════════════════════════════════════╝")
-    app.run(host="0.0.0.0", port=port, debug=True)
+    run_relic(
+        app,
+        default_port=5006,
+        env_var="RELIC_MUSEUM_PORT",
+        banner=[
+            "Relic: relic-museum",
+            "http://localhost:{port}",
+        ],
+    )
