@@ -27,9 +27,12 @@ const chessState = {
 const NES_FRAME_MS = 1000 / 60.0988;
 
 // Unicode figurines, keyed by python-chess's single-letter piece symbols.
+// Both sides use the FILLED (black) codepoints \u2014 the hollow "white" glyphs
+// render as outlines and made the sides near-identical at pawn size. Side
+// color comes from the .white/.black CSS class, not the codepoint.
 const CHESS_GLYPHS = {
-    "K": "\u2654", "Q": "\u2655", "R": "\u2656",
-    "B": "\u2657", "N": "\u2658", "P": "\u2659",
+    "K": "\u265A", "Q": "\u265B", "R": "\u265C",
+    "B": "\u265D", "N": "\u265E", "P": "\u265F",
     "k": "\u265A", "q": "\u265B", "r": "\u265C",
     "b": "\u265D", "n": "\u265E", "p": "\u265F",
 };
@@ -334,9 +337,10 @@ function renderChessMoves(moves) {
 // Standard chess material values — used to compute the net advantage
 // shown next to each captured row. Kings don't get a value (uncapturable).
 const CHESS_PIECE_VALUES = { p: 1, n: 3, b: 3, r: 5, q: 9 };
+// Filled codepoints for both sides \u2014 same reasoning as CHESS_GLYPHS.
 const CHESS_PIECE_GLYPH = {
-    "K": "\u2654", "Q": "\u2655", "R": "\u2656",
-    "B": "\u2657", "N": "\u2658", "P": "\u2659",
+    "K": "\u265A", "Q": "\u265B", "R": "\u265C",
+    "B": "\u265D", "N": "\u265E", "P": "\u265F",
     "k": "\u265A", "q": "\u265B", "r": "\u265C",
     "b": "\u265D", "n": "\u265E", "p": "\u265F",
 };

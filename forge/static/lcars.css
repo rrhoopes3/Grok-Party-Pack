@@ -1871,27 +1871,17 @@ body.lcars .chess-square.in-check {
   background: linear-gradient(145deg, #e8a090 0%, #c06050 100%);
 }
 
-/* White pieces: pure cream + strong black rim (reads on brown) */
+/* Solid figurines — both sides use filled glyphs (see chess.js), so the
+   side is just a blatant fill: pure white vs pure black. White keeps one
+   hairline edge so it doesn't wash out on the cream squares. */
 body.lcars .chess-piece.white {
-  color: #fffaf0;
-  text-shadow:
-    -1.5px -1.5px 0 #1a1208,
-     1.5px -1.5px 0 #1a1208,
-    -1.5px  1.5px 0 #1a1208,
-     1.5px  1.5px 0 #1a1208,
-     0 2px 3px rgba(0, 0, 0, 0.55);
-  -webkit-text-stroke: 0.6px #1a1208;
+  color: #ffffff;
+  -webkit-text-stroke: 0.75px #3a3020;
+  text-shadow: 0 2px 3px rgba(0, 0, 0, 0.45);
 }
-/* Black pieces: near-black + cream rim (reads on both cream and brown) */
 body.lcars .chess-piece.black {
-  color: #1a1208;
-  text-shadow:
-    -1.5px -1.5px 0 #fff8e7,
-     1.5px -1.5px 0 #fff8e7,
-    -1.5px  1.5px 0 #fff8e7,
-     1.5px  1.5px 0 #fff8e7,
-     0 2px 3px rgba(0, 0, 0, 0.35);
-  -webkit-text-stroke: 0.55px #fff8e7;
+  color: #000000;
+  text-shadow: 0 2px 3px rgba(0, 0, 0, 0.35);
 }
 
 /* Rank/file labels in corners */
@@ -2233,22 +2223,14 @@ body.lcars .chess-capture-pieces {
   min-height: 1.4em;
   padding: 2px 0;
 }
+/* Capture row sits on the dark panel: white reads bare; black needs a
+   soft light halo or the silhouette vanishes into the background. */
 body.lcars .chess-capture-pieces .piece-w {
-  color: #f2f5f8;
-  text-shadow:
-    -1px -1px 0 #0a0c10,
-     1px -1px 0 #0a0c10,
-    -1px  1px 0 #0a0c10,
-     1px  1px 0 #0a0c10;
+  color: #ffffff;
 }
 body.lcars .chess-capture-pieces .piece-b {
-  color: #0e1116;
-  text-shadow:
-    -1px -1px 0 #d4e0eb,
-     1px -1px 0 #d4e0eb,
-    -1px  1px 0 #d4e0eb,
-     1px  1px 0 #d4e0eb;
-  -webkit-text-stroke: 0.4px rgba(212, 224, 235, 0.5);
+  color: #000000;
+  text-shadow: 0 0 3px rgba(212, 224, 235, 0.9);
 }
 body.lcars .chess-capture-pieces .just-taken {
   animation: chess-capture-pop 900ms ease-out;
