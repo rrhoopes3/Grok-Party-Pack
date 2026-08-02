@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en" data-bc-theme="void">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="description" content="BattleChess — a Three.js battle-chess viewer for the Forge LLM Chess Arena. Starfleet versus the Imperium of Man.">
+<title>BATTLECHESS // Starfleet vs Imperium</title>
+
+<!--
+  ============================================================================
+  BattleChess — page shell
+  ============================================================================
+
+  ELEMENT ID CONTRACT (stable; main.js / scene.js / hud.js query these)
+  ---------------------------------------------------------------------------
+  STATIC — present in this file at first paint:
+
+    #bc-canvas          <canvas>  WebGL render target. Pass to
+                                  new THREE.WebGLRenderer({ canvas }).
+                                  Sized by CSS to the full viewport; scene.js
+                                  owns drawing-buffer size.
+    #bc-stage           <div>     positioning context for canvas + overlays.
+    #bc-hud             <div>     HUD overlay root. Pass as `root` to
+                                  createHUD({ root, api, onCommand }).
+                                  Starts EMPTY — hud.js builds its own DOM.
+                                  pointer-events:none; only real controls
+                                  re-enable pointer events.
+    #bc-loading         <div>     Full-screen loading veil. Visible on first
+                                  paint, before any module has parsed.
+    #bc-loading-bar     <i>       Progress fill; `style.width` 0%..100%.
+    #bc-loading-pct     <span>    Numeric percentage text ("42%").
+    #bc-loading-label   <span>    Free-text stage label ("LOADING GEOMETRY").
+    #bc-error           <div>     Error / no-WebGL fallback. `hidden` by default.
+    #bc-error-title     <h2>
+    #bc-error-message   <p>
+    #bc-error-detail    <pre>     Stack / diagnostic text. `hidden` when empty.
+    #bc-error-reload    <button>  Reloads the page.
+
+  DYNAMIC — created by hud.js inside #bc-hud (documented here so the
+  integrator can style/inspect without guessing):
+
+    #bc-status          status line (turn / check / result / ply count)
+    #bc-roster-white    Starfleet roster panel      (top-left)
+    #bc-roster-black    Imperium roster panel       (top-right)
+    #bc-log             move log panel              (bottom-left)
+    #bc-log-body        scrolling <ol> of plies
+    #bc-commentary      judge commentary panel      (bottom-right)
+    #bc-commentary-body scrolling commentary feed
+    #bc-dock            control dock                (bottom-center)
+    #bc-btn-play, #bc-btn-step, #bc-btn-new, #bc-btn-skip
+    #bc-speed, #bc-camera, #bc-quality  (segmented button groups)
+    #bc-match-select    optional match picker (hidden if api can't list)
+
+  BOOT BRIDGE
+  ---------------------------------------------------------------------------
+  `window.BattleChessBoot` exists before any module runs, so main.js can drive
+  the loading veil during import/GLB fetch even before createHUD() is called:
+
+    BattleChessBoot.setProgress(pct /*0..100*/, label /*string?*/)
+    BattleChessBoot.done()                 -> fade the veil out
+    BattleChessBoot.fail(message, detail?) -> show the error panel
+    BattleChessBoot.hasWebGL              -> boolean, probed at first paint
+
+  hud.js delegates setLoading()/showError() to this object when present, so
+  both paths drive the same DOM and never fight.
+
+  NON-NEGOTIABLES HONOURED HERE
+  ---------------------------------------------------------------------------
+  * No network at runtime: no CDN, no remote fonts, no analytics.
+  * ES modules only, resolved through the importmap below.
+  * No build step — open this file from the Flask static server and it runs.
+  ============================================================================
+-->
+
+<link rel="stylesheet" href="./css/battlechess.css">
+
+<!-- Minimal critical style so there is never a white flash before the
+     stylesheet resolves. Everything else lives in battlechess.css. -->
+<style>
+  html, body { margin: 0; background: #05060a; color: #cfe6f5; }
+  #bc-loading { position: fixed; inset: 0; background: #05060a; z-index: 90; }
+  [hidden] { display: none !important; }
+</style>
+
+<script type="importmap">
+{"imports": {
+  "three": "./vendor/three.module.js",
+  "three/addons/": "./vendor/addons/"
+}}
+</script>
+</head>
+
+<body class="bc">
+
+<div id="bc-stage" class="bc-stage">
+  <canvas id="bc-canvas" class="bc-canvas" aria-label="BattleChess 3D board"></canvas>
+
+  <!-- HUD overlay root. hud.js owns everything inside. -->
+  <div id="bc-hud" class="bc-hud" role="region" aria-label="Match heads-up display"></div>
+</div>
+
+<!-- ── Loading veil ───────────────────────────────────────────────────── -->
+<div id="bc-loading" class="bc-loading" role="status" aria-live="polite">
+  <div class="bc-loading__frame">
+    <div class="bc-loading__sigils" aria-hidden="true">
+      <span class="bc-sigil bc-sigil--fed"></span>
+      <span class="bc-sigil__vs">VS</span>
+      <span class="bc-sigil bc-sigil--imp"></span>
+    </div>
+
+    <h1 class="bc-loading__title">BATTLE<em>CHESS</em></h1>
+    <p class="bc-loading__sub">STARFLEET COMMAND &nbsp;//&nbsp; IMPERIUM OF MAN</p>
+
+    <div class="bc-loading__meter">
+      <div class="bc-loading__track"><i id="bc-loading-bar" class="bc-loading__fill" style="width:0%"></i></div>
+      <span id="bc-loading-pct" class="bc-loading__pct">0%</span>
+    </div>
+
+    <p class="bc-loading__stage">
+      <span class="bc-loading__caret" aria-hidden="true">&gt;</span>
+      <span id="bc-loading-label" class="bc-loading__label">INITIALISING RENDER CORE</span>
+    </p>
+  </div>
+  <div class="bc-loading__scan" aria-hidden="true"></div>
+</div>
+
+<!-- ── Error / no-WebGL fallback ──────────────────────────────────────── -->
+<div id="bc-error" class="bc-error" role="alertdialog" aria-labelledby="bc-error-title" hidden>
+  <div class="bc-error__frame">
+    <div class="bc-error__bar" aria-hidden="true"></div>
+    <h2 id="bc-error-title" class="bc-error__title">SYSTEMS OFFLINE</h2>
+    <p id="bc-error-message" class="bc-error__msg">An unexpected fault halted the render core.</p>
+    <pre id="bc-error-detail" class="bc-error__detail" hidden></pre>
+    <div class="bc-error__actions">
+      <button id="bc-error-reload" type="button" class="bc-btn bc-btn--danger">RE-INITIALISE</button>
+    </div>
+    <p class="bc-error__hint">
+      BattleChess needs a WebGL&nbsp;2 capable browser with hardware acceleration enabled.
+      Nothing is fetched from the network — three.js and the models are served locally.
+    </p>
+  </div>
+</div>
+
+<noscript>
+  <div class="bc-noscript">
+    <h2>JAVASCRIPT REQUIRED</h2>
+    <p>BattleChess is a real-time WebGL viewer. Enable JavaScript to bring the board online.</p>
+  </div>
+</noscript>
+
+<!-- ── Boot bridge (classic script: runs before any module) ────────────── -->
+<script>
+(function () {
+  'use strict';
+
+  var doc  = document;
+  var veil = doc.getElementById('bc-loading');
+  var bar  = doc.getElementById('bc-loading-bar');
+  var pct  = doc.getElementById('bc-loading-pct');
+  var lbl  = doc.getElementById('bc-loading-label');
+  var err  = doc.getElementById('bc-error');
+  var errT = doc.getElementById('bc-error-title');
+  var errM = doc.getElementById('bc-error-message');
+  var errD = doc.getElementById('bc-error-detail');
+
+  var finished = false;
+  var fadeTimer = 0;
+  var watchdog = 0;
+
+  function clamp(n) { return n < 0 ? 0 : (n > 100 ? 100 : n); }
+
+  function setProgress(value, label) {
+    if (typeof label === 'string' && label && lbl) lbl.textContent = label;
+    if (value === null || value === undefined || value === false) return;
+    var n = clamp(Number(value) || 0);
+    if (bar) bar.style.width = n.toFixed(1) + '%';
+    if (pct) pct.textContent = Math.round(n) + '%';
+    if (veil && veil.hidden) { veil.hidden = false; veil.classList.remove('is-gone'); finished = false; }
+    if (n >= 100) done();
+  }
+
+  function done() {
+    if (finished || !veil) return;
+    finished = true;
+    if (watchdog) { clearTimeout(watchdog); watchdog = 0; }
+    if (bar) bar.style.width = '100%';
+    if (pct) pct.textContent = '100%';
+    veil.classList.add('is-gone');
+    clearTimeout(fadeTimer);
+    fadeTimer = setTimeout(function () { veil.hidden = true; }, 700);
+  }
+
+  function fail(message, detail) {
+    finished = true;
+    if (watchdog) { clearTimeout(watchdog); watchdog = 0; }
+    if (veil) { veil.classList.add('is-gone'); veil.hidden = true; }
+    if (!err) return;
+    if (errM) errM.textContent = String(message || 'An unexpected fault halted the render core.');
+    if (errD) {
+      var text = detail == null ? '' : String(detail);
+      errD.textContent = text;
+      errD.hidden = !text;
+    }
+    err.hidden = false;
+    doc.body.classList.add('bc-has-error');
+  }
+
+  function probeWebGL() {
+    try {
+      var c = doc.createElement('canvas');
+      var gl = c.getContext('webgl2') || c.getContext('webgl') ||
+               c.getContext('experimental-webgl');
+      if (!gl) return false;
+      var lose = gl.getExtension && gl.getExtension('WEBGL_lose_context');
+      if (lose && lose.loseContext) { try { lose.loseContext(); } catch (e) {} }
+      return true;
+    } catch (e) { return false; }
+  }
+
+  var hasWebGL = probeWebGL();
+
+  window.BattleChessBoot = {
+    hasWebGL: hasWebGL,
+    setProgress: setProgress,
+    done: done,
+    fail: fail,
+    get finished() { return finished; }
+  };
+
+  if (!hasWebGL) {
+    if (errT) errT.textContent = 'NO WEBGL CONTEXT';
+    fail('This browser could not create a WebGL context, so the board cannot be rendered.',
+         'Try a current build of Chrome, Edge, Firefox or Safari, and confirm that ' +
+         'hardware acceleration is switched on in the browser settings.');
+  }
+
+  /* Resource load failures (a missing module file, a bad path) surface as
+     capture-phase error events on the element. Those are always fatal. */
+  window.addEventListener('error', function (event) {
+    var t = event && event.target;
+    if (!t || t === window) return;
+    var tag = t.tagName;
+    if (tag !== 'SCRIPT' && tag !== 'LINK' && tag !== 'IMG') return;
+    if (tag === 'IMG') return;
+    if (errT) errT.textContent = 'MODULE LOAD FAILURE';
+    fail('A required file could not be loaded. Check that the file exists and that ' +
+         'the page is being served over HTTP — opening index.html straight from disk ' +
+         'blocks ES module imports.',
+         'Failed resource: ' + (t.src || t.href || tag) +
+         '\nPage origin:     ' + window.location.origin);
+  }, true);
+
+  /* Soft watchdog: never hard-fails, just tells the operator something stalled. */
+  watchdog = setTimeout(function () {
+    if (finished || !lbl) return;
+    lbl.textContent = 'STILL LOADING — CHECK THE CONSOLE FOR IMPORT ERRORS';
+    if (veil) veil.classList.add('is-stalled');
+  }, 20000);
+
+  var reload = doc.getElementById('bc-error-reload');
+  if (reload) reload.addEventListener('click', function () { window.location.reload(); });
+})();
+</script>
+
+<script type="module" src="./js/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,241 @@
+{
+  "meta": {
+    "white": "Paul Morphy",
+    "black": "Duke of Brunswick & Count Isouard",
+    "event": "The Opera Game \u2014 Paris, 1858",
+    "note": "Played in a box at the Italian Opera House during a performance of Norma. Morphy develops every piece with tempo, sacrifices a knight, a bishop and finally the queen, and mates on move 17."
+  },
+  "moves": [
+    {
+      "n": 1,
+      "side": "white",
+      "san": "e4",
+      "uci": "e2e4",
+      "fen_after": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1"
+    },
+    {
+      "n": 2,
+      "side": "black",
+      "san": "e5",
+      "uci": "e7e5",
+      "fen_after": "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2"
+    },
+    {
+      "n": 3,
+      "side": "white",
+      "san": "Nf3",
+      "uci": "g1f3",
+      "fen_after": "rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2"
+    },
+    {
+      "n": 4,
+      "side": "black",
+      "san": "d6",
+      "uci": "d7d6",
+      "fen_after": "rnbqkbnr/ppp2ppp/3p4/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 0 3"
+    },
+    {
+      "n": 5,
+      "side": "white",
+      "san": "d4",
+      "uci": "d2d4",
+      "fen_after": "rnbqkbnr/ppp2ppp/3p4/4p3/3PP3/5N2/PPP2PPP/RNBQKB1R b KQkq - 0 3"
+    },
+    {
+      "n": 6,
+      "side": "black",
+      "san": "Bg4",
+      "uci": "c8g4",
+      "fen_after": "rn1qkbnr/ppp2ppp/3p4/4p3/3PP1b1/5N2/PPP2PPP/RNBQKB1R w KQkq - 1 4"
+    },
+    {
+      "n": 7,
+      "side": "white",
+      "san": "dxe5",
+      "uci": "d4e5",
+      "fen_after": "rn1qkbnr/ppp2ppp/3p4/4P3/4P1b1/5N2/PPP2PPP/RNBQKB1R b KQkq - 0 4"
+    },
+    {
+      "n": 8,
+      "side": "black",
+      "san": "Bxf3",
+      "uci": "g4f3",
+      "fen_after": "rn1qkbnr/ppp2ppp/3p4/4P3/4P3/5b2/PPP2PPP/RNBQKB1R w KQkq - 0 5"
+    },
+    {
+      "n": 9,
+      "side": "white",
+      "san": "Qxf3",
+      "uci": "d1f3",
+      "fen_after": "rn1qkbnr/ppp2ppp/3p4/4P3/4P3/5Q2/PPP2PPP/RNB1KB1R b KQkq - 0 5"
+    },
+    {
+      "n": 10,
+      "side": "black",
+      "san": "dxe5",
+      "uci": "d6e5",
+      "fen_after": "rn1qkbnr/ppp2ppp/8/4p3/4P3/5Q2/PPP2PPP/RNB1KB1R w KQkq - 0 6"
+    },
+    {
+      "n": 11,
+      "side": "white",
+      "san": "Bc4",
+      "uci": "f1c4",
+      "fen_after": "rn1qkbnr/ppp2ppp/8/4p3/2B1P3/5Q2/PPP2PPP/RNB1K2R b KQkq - 1 6"
+    },
+    {
+      "n": 12,
+      "side": "black",
+      "san": "Nf6",
+      "uci": "g8f6",
+      "fen_after": "rn1qkb1r/ppp2ppp/5n2/4p3/2B1P3/5Q2/PPP2PPP/RNB1K2R w KQkq - 2 7"
+    },
+    {
+      "n": 13,
+      "side": "white",
+      "san": "Qb3",
+      "uci": "f3b3",
+      "fen_after": "rn1qkb1r/ppp2ppp/5n2/4p3/2B1P3/1Q6/PPP2PPP/RNB1K2R b KQkq - 3 7"
+    },
+    {
+      "n": 14,
+      "side": "black",
+      "san": "Qe7",
+      "uci": "d8e7",
+      "fen_after": "rn2kb1r/ppp1qppp/5n2/4p3/2B1P3/1Q6/PPP2PPP/RNB1K2R w KQkq - 4 8"
+    },
+    {
+      "n": 15,
+      "side": "white",
+      "san": "Nc3",
+      "uci": "b1c3",
+      "fen_after": "rn2kb1r/ppp1qppp/5n2/4p3/2B1P3/1QN5/PPP2PPP/R1B1K2R b KQkq - 5 8"
+    },
+    {
+      "n": 16,
+      "side": "black",
+      "san": "c6",
+      "uci": "c7c6",
+      "fen_after": "rn2kb1r/pp2qppp/2p2n2/4p3/2B1P3/1QN5/PPP2PPP/R1B1K2R w KQkq - 0 9"
+    },
+    {
+      "n": 17,
+      "side": "white",
+      "san": "Bg5",
+      "uci": "c1g5",
+      "fen_after": "rn2kb1r/pp2qppp/2p2n2/4p1B1/2B1P3/1QN5/PPP2PPP/R3K2R b KQkq - 1 9"
+    },
+    {
+      "n": 18,
+      "side": "black",
+      "san": "b5",
+      "uci": "b7b5",
+      "fen_after": "rn2kb1r/p3qppp/2p2n2/1p2p1B1/2B1P3/1QN5/PPP2PPP/R3K2R w KQkq - 0 10"
+    },
+    {
+      "n": 19,
+      "side": "white",
+      "san": "Nxb5",
+      "uci": "c3b5",
+      "fen_after": "rn2kb1r/p3qppp/2p2n2/1N2p1B1/2B1P3/1Q6/PPP2PPP/R3K2R b KQkq - 0 10"
+    },
+    {
+      "n": 20,
+      "side": "black",
+      "san": "cxb5",
+      "uci": "c6b5",
+      "fen_after": "rn2kb1r/p3qppp/5n2/1p2p1B1/2B1P3/1Q6/PPP2PPP/R3K2R w KQkq - 0 11"
+    },
+    {
+      "n": 21,
+      "side": "white",
+      "san": "Bxb5+",
+      "uci": "c4b5",
+      "fen_after": "rn2kb1r/p3qppp/5n2/1B2p1B1/4P3/1Q6/PPP2PPP/R3K2R b KQkq - 0 11"
+    },
+    {
+      "n": 22,
+      "side": "black",
+      "san": "Nbd7",
+      "uci": "b8d7",
+      "fen_after": "r3kb1r/p2nqppp/5n2/1B2p1B1/4P3/1Q6/PPP2PPP/R3K2R w KQkq - 1 12"
+    },
+    {
+      "n": 23,
+      "side": "white",
+      "san": "O-O-O",
+      "uci": "e1c1",
+      "fen_after": "r3kb1r/p2nqppp/5n2/1B2p1B1/4P3/1Q6/PPP2PPP/2KR3R b kq - 2 12"
+    },
+    {
+      "n": 24,
+      "side": "black",
+      "san": "Rd8",
+      "uci": "a8d8",
+      "fen_after": "3rkb1r/p2nqppp/5n2/1B2p1B1/4P3/1Q6/PPP2PPP/2KR3R w k - 3 13"
+    },
+    {
+      "n": 25,
+      "side": "white",
+      "san": "Rxd7",
+      "uci": "d1d7",
+      "fen_after": "3rkb1r/p2Rqppp/5n2/1B2p1B1/4P3/1Q6/PPP2PPP/2K4R b k - 0 13"
+    },
+    {
+      "n": 26,
+      "side": "black",
+      "san": "Rxd7",
+      "uci": "d8d7",
+      "fen_after": "4kb1r/p2rqppp/5n2/1B2p1B1/4P3/1Q6/PPP2PPP/2K4R w k - 0 14"
+    },
+    {
+      "n": 27,
+      "side": "white",
+      "san": "Rd1",
+      "uci": "h1d1",
+      "fen_after": "4kb1r/p2rqppp/5n2/1B2p1B1/4P3/1Q6/PPP2PPP/2KR4 b k - 1 14"
+    },
+    {
+      "n": 28,
+      "side": "black",
+      "san": "Qe6",
+      "uci": "e7e6",
+      "fen_after": "4kb1r/p2r1ppp/4qn2/1B2p1B1/4P3/1Q6/PPP2PPP/2KR4 w k - 2 15"
+    },
+    {
+      "n": 29,
+      "side": "white",
+      "san": "Bxd7+",
+      "uci": "b5d7",
+      "fen_after": "4kb1r/p2B1ppp/4qn2/4p1B1/4P3/1Q6/PPP2PPP/2KR4 b k - 0 15"
+    },
+    {
+      "n": 30,
+      "side": "black",
+      "san": "Nxd7",
+      "uci": "f6d7",
+      "fen_after": "4kb1r/p2n1ppp/4q3/4p1B1/4P3/1Q6/PPP2PPP/2KR4 w k - 0 16"
+    },
+    {
+      "n": 31,
+      "side": "white",
+      "san": "Qb8+",
+      "uci": "b3b8",
+      "fen_after": "1Q2kb1r/p2n1ppp/4q3/4p1B1/4P3/8/PPP2PPP/2KR4 b k - 1 16"
+    },
+    {
+      "n": 32,
+      "side": "black",
+      "san": "Nxb8",
+      "uci": "d7b8",
+      "fen_after": "1n2kb1r/p4ppp/4q3/4p1B1/4P3/8/PPP2PPP/2KR4 w k - 0 17"
+    },
+    {
+      "n": 33,
+      "side": "white",
+      "san": "Rd8#",
+      "uci": "d1d8",
+      "fen_after": "1n1Rkb1r/p4ppp/4q3/4p1B1/4P3/8/PPP2PPP/2K5 b k - 1 17"
+    }
+  ]
+}
