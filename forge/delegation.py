@@ -487,41 +487,74 @@ class AssessmentVerdict:
 FALLBACK_CHAINS: dict[str, list[str]] = {
     # The non-reasoning Grok variant is a fast tool-capable executor that
     # acts as the first-line fallback for the reasoning Grok.
+    "grok-4.5": [
+        "grok-4.3",
+        "grok-4.20-0309-reasoning",
+        "claude-sonnet-5",
+        "gpt-5.6-terra",
+    ],
+    "grok-4.3": [
+        "grok-4.5",
+        "grok-4.20-0309-reasoning",
+        "claude-sonnet-5",
+        "gpt-5.6-terra",
+    ],
     "grok-4.20-0309-reasoning": [
         "grok-4.20-0309-non-reasoning",
         "grok-4-1-fast-reasoning",
-        "claude-sonnet-4-20250514",
-        "gpt-4o",
+        "claude-sonnet-5",
+        "gpt-5.6-terra",
     ],
     "grok-4.20-0309-non-reasoning": [
         "grok-4.20-0309-reasoning",
         "grok-4-1-fast-reasoning",
-        "claude-sonnet-4-20250514",
-        "gpt-4o",
+        "claude-sonnet-5",
+        "gpt-5.6-terra",
     ],
     "grok-4-1-fast-reasoning": [
         "grok-4.20-0309-reasoning",
-        "claude-sonnet-4-20250514",
-        "gpt-4o",
+        "claude-sonnet-5",
+        "gpt-5.6-luna",
     ],
-    "claude-sonnet-4-20250514": [
-        "grok-4.20-0309-reasoning",
-        "gpt-4o",
-        "claude-haiku-4-20250414",
+    "claude-opus-5": [
+        "claude-sonnet-5",
+        "grok-4.5",
+        "gpt-5.6-sol",
+    ],
+    "claude-sonnet-5": [
+        "grok-4.5",
+        "gpt-5.6-terra",
+        "claude-haiku-4-5-20251001",
+    ],
+    "claude-sonnet-4-6": [
+        "claude-sonnet-5",
+        "grok-4.5",
+        "gpt-5.6-terra",
+    ],
+    "gpt-5.6-sol": [
+        "gpt-5.6-terra",
+        "grok-4.5",
+        "claude-sonnet-5",
+    ],
+    "gpt-5.6-terra": [
+        "gpt-5.6-luna",
+        "grok-4.5",
+        "claude-sonnet-5",
     ],
     "gpt-4o": [
+        "gpt-5.6-terra",
         "grok-4.20-0309-reasoning",
-        "claude-sonnet-4-20250514",
+        "claude-sonnet-5",
         "gpt-4o-mini",
     ],
 }
 
 # Default fallback for models not in the chain map
 DEFAULT_FALLBACK_CHAIN = [
+    "grok-4.5",
     "grok-4.20-0309-reasoning",
-    "grok-4.20-0309-non-reasoning",
-    "claude-sonnet-4-20250514",
-    "gpt-4o",
+    "claude-sonnet-5",
+    "gpt-5.6-terra",
 ]
 
 

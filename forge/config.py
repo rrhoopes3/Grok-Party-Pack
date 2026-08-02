@@ -30,19 +30,47 @@ PLANNER_MAX_REASONING_TOKENS = int(os.getenv("FORGE_PLANNER_MAX_REASONING_TOKENS
 # Available executor models with pricing (cost per 1M tokens) and capability
 # flags. `supports_tools=False` means the model cannot perform client-side
 # tool calls — the executor refuses to dispatch tool steps to such models.
+# Verified against live vendor APIs + official pricing pages (2026-08-01).
 EXECUTOR_MODELS = {
     "auto": {
         "label": "Auto (smart routing)", "provider": "auto",
         "cost_in": 0, "cost_out": 0,  # varies by routed model
         "supports_tools": True,
     },
-    # xAI
-    # "grok-build" exists on xAI but requires OAuth2 (IDE-only). API keys get
-    # PERMISSION_DENIED. Left out of the registry — the dropdown would
-    # mislead users into picking a model that can't be driven from Forge.
-    # If xAI opens it up for API keys, re-add:
-    #   "grok-build": {"label": "Grok Build", "provider": "xAI",
-    #                   "cost_in": ?, "cost_out": ?, "supports_tools": True}
+    # ── xAI ─────────────────────────────────────────────────────────────
+    # Flagship first; fast/code tiers retained (still accept API keys).
+    "grok-4.5": {
+        "label": "Grok 4.5", "provider": "xAI",
+        "cost_in": 2.00, "cost_out": 6.00,
+        "supports_tools": True,
+    },
+    "grok-4.3": {
+        "label": "Grok 4.3", "provider": "xAI",
+        "cost_in": 1.25, "cost_out": 2.50,
+        "supports_tools": True,
+    },
+    "grok-4.20-0309-reasoning": {
+        "label": "Grok 4.20 Reasoning", "provider": "xAI",
+        "cost_in": 1.25, "cost_out": 2.50,
+        "supports_tools": True,
+    },
+    "grok-4.20-0309-non-reasoning": {
+        "label": "Grok 4.20 Non-Reasoning", "provider": "xAI",
+        "cost_in": 1.25, "cost_out": 2.50,
+        "supports_tools": True,
+    },
+    "grok-4.20-multi-agent-0309": {
+        "label": "Grok 4.20 Multi-Agent (planner only)", "provider": "xAI",
+        "cost_in": 1.25, "cost_out": 2.50,
+        # Multi-agent model rejects client-side tools without beta access
+        # entitlement — only use for planning, never executor steps.
+        "supports_tools": False,
+    },
+    "grok-build-0.1": {
+        "label": "Grok Build", "provider": "xAI",
+        "cost_in": 1.00, "cost_out": 2.00,
+        "supports_tools": True,
+    },
     "grok-4-1-fast-reasoning": {
         "label": "Grok 4.1 Fast Reasoning", "provider": "xAI",
         "cost_in": 0.20, "cost_out": 0.50,
@@ -53,42 +81,37 @@ EXECUTOR_MODELS = {
         "cost_in": 0.20, "cost_out": 0.50,
         "supports_tools": True,
     },
-    "grok-4.20-multi-agent-0309": {
-        "label": "Grok 4.20 Multi-Agent (planner only)", "provider": "xAI",
-        "cost_in": 2.00, "cost_out": 6.00,
-        # Multi-agent model rejects client-side tools without beta access
-        # entitlement — only use for planning, never executor steps.
-        "supports_tools": False,
-    },
-    "grok-4.20-0309-reasoning": {
-        "label": "Grok 4.20 Reasoning", "provider": "xAI",
-        "cost_in": 2.00, "cost_out": 6.00,
-        "supports_tools": True,
-    },
-    "grok-4.20-0309-non-reasoning": {
-        "label": "Grok 4.20 Non-Reasoning", "provider": "xAI",
-        "cost_in": 2.00, "cost_out": 6.00,
-        "supports_tools": True,
-    },
-    "grok-4.3-latest": {
-        "label": "Grok 4.3", "provider": "xAI",
-        "cost_in": 1.25, "cost_out": 2.50,
-        "supports_tools": True,
-    },
     "grok-code-fast-1": {
         "label": "Grok Code Fast", "provider": "xAI",
         "cost_in": 0.20, "cost_out": 1.50,
         "supports_tools": True,
     },
-    # Anthropic — verified against live /v1/models (2026-04-19). IDs that
-    # look natural ("claude-sonnet-4-7", "claude-haiku-4-5") don't all
-    # exist — Anthropic only publishes the unversioned alias for the top
-    # flagship and sometimes one size below. Everything else needs the
-    # dated suffix. Previous config invented a couple of IDs that 404'd
-    # on first call.
+    # ── Anthropic (live /v1/models 2026-08-01) ──────────────────────────
+    # Unversioned aliases for gen-5 + 4.8/4.7/4.6; dated pins for 4.5/4.1.
+    "claude-opus-5": {
+        "label": "Claude Opus 5", "provider": "Anthropic",
+        "cost_in": 5.00, "cost_out": 25.00,
+        "supports_tools": True,
+    },
+    "claude-sonnet-5": {
+        "label": "Claude Sonnet 5", "provider": "Anthropic",
+        # Intro pricing through 2026-08-31; standard becomes $3/$15 after.
+        "cost_in": 2.00, "cost_out": 10.00,
+        "supports_tools": True,
+    },
+    "claude-fable-5": {
+        "label": "Claude Fable 5", "provider": "Anthropic",
+        "cost_in": 10.00, "cost_out": 50.00,
+        "supports_tools": True,
+    },
+    "claude-opus-4-8": {
+        "label": "Claude Opus 4.8", "provider": "Anthropic",
+        "cost_in": 5.00, "cost_out": 25.00,
+        "supports_tools": True,
+    },
     "claude-opus-4-7": {
         "label": "Claude Opus 4.7", "provider": "Anthropic",
-        "cost_in": 15.00, "cost_out": 75.00,
+        "cost_in": 5.00, "cost_out": 25.00,
         "supports_tools": True,
     },
     "claude-sonnet-4-6": {
@@ -98,12 +121,12 @@ EXECUTOR_MODELS = {
     },
     "claude-opus-4-6": {
         "label": "Claude Opus 4.6", "provider": "Anthropic",
-        "cost_in": 15.00, "cost_out": 75.00,
+        "cost_in": 5.00, "cost_out": 25.00,
         "supports_tools": True,
     },
     "claude-opus-4-5-20251101": {
         "label": "Claude Opus 4.5", "provider": "Anthropic",
-        "cost_in": 15.00, "cost_out": 75.00,
+        "cost_in": 5.00, "cost_out": 25.00,
         "supports_tools": True,
     },
     "claude-sonnet-4-5-20250929": {
@@ -121,19 +144,32 @@ EXECUTOR_MODELS = {
         "cost_in": 15.00, "cost_out": 75.00,
         "supports_tools": True,
     },
-    # Legacy Claude 4 pinned IDs — still live on Anthropic's API.
-    "claude-opus-4-20250514": {
-        "label": "Claude Opus 4 (legacy pin)", "provider": "Anthropic",
-        "cost_in": 15.00, "cost_out": 75.00,
+    # ── OpenAI (short-context standard rates) ───────────────────────────
+    "gpt-5.6-sol": {
+        "label": "GPT-5.6 Sol", "provider": "OpenAI",
+        "cost_in": 5.00, "cost_out": 30.00,
         "supports_tools": True,
     },
-    "claude-sonnet-4-20250514": {
-        "label": "Claude Sonnet 4 (legacy pin)", "provider": "Anthropic",
-        "cost_in": 3.00, "cost_out": 15.00,
+    "gpt-5.6-terra": {
+        "label": "GPT-5.6 Terra", "provider": "OpenAI",
+        "cost_in": 2.00, "cost_out": 12.00,
         "supports_tools": True,
     },
-    # OpenAI — GPT-5.4 family is the current flagship; 4o tier retained for
-    # low-cost jobs; o3-mini kept for reasoning tasks that still prefer it.
+    "gpt-5.6-luna": {
+        "label": "GPT-5.6 Luna", "provider": "OpenAI",
+        "cost_in": 0.20, "cost_out": 1.20,
+        "supports_tools": True,
+    },
+    "gpt-5.5": {
+        "label": "GPT-5.5", "provider": "OpenAI",
+        "cost_in": 5.00, "cost_out": 30.00,
+        "supports_tools": True,
+    },
+    "gpt-5.5-pro": {
+        "label": "GPT-5.5 Pro", "provider": "OpenAI",
+        "cost_in": 30.00, "cost_out": 180.00,
+        "supports_tools": True,
+    },
     "gpt-5.4": {
         "label": "GPT-5.4", "provider": "OpenAI",
         "cost_in": 2.50, "cost_out": 15.00,
@@ -149,6 +185,11 @@ EXECUTOR_MODELS = {
         "cost_in": 0.20, "cost_out": 1.25,
         "supports_tools": True,
     },
+    "gpt-5.4-pro": {
+        "label": "GPT-5.4 Pro", "provider": "OpenAI",
+        "cost_in": 30.00, "cost_out": 180.00,
+        "supports_tools": True,
+    },
     "gpt-4o": {
         "label": "GPT-4o", "provider": "OpenAI",
         "cost_in": 2.50, "cost_out": 10.00,
@@ -157,6 +198,16 @@ EXECUTOR_MODELS = {
     "gpt-4o-mini": {
         "label": "GPT-4o Mini", "provider": "OpenAI",
         "cost_in": 0.15, "cost_out": 0.60,
+        "supports_tools": True,
+    },
+    "o3": {
+        "label": "o3", "provider": "OpenAI",
+        "cost_in": 2.00, "cost_out": 8.00,
+        "supports_tools": True,
+    },
+    "o4-mini": {
+        "label": "o4-mini", "provider": "OpenAI",
+        "cost_in": 1.10, "cost_out": 4.40,
         "supports_tools": True,
     },
     "o3-mini": {
@@ -304,7 +355,7 @@ TRIBE_CACHE_DIR.mkdir(exist_ok=True)
 
 # ── Arena ──────────────────────────────────────────────────────────────────
 ARENA_MASTER_MODEL = PLANNER_MODEL       # 16-agent Pantheon for commentary/judging
-ARENA_DEFAULT_FIGHTER_MODEL = "grok-4.20-0309-reasoning"
+ARENA_DEFAULT_FIGHTER_MODEL = "grok-4.5"
 ARENA_FIGHTER_AGENT_COUNT = 4
 ARENA_RECON_ITERATIONS = 3               # tool iterations for recon round
 ARENA_FORGE_ITERATIONS = 5               # tool iterations for weapon forge round
