@@ -31,6 +31,9 @@ dependencies = [
 
     # Trading
     "yfinance>=0.2",
+
+    # Chess arena
+    "chess>=1.10",
 ]
 
 [project.optional-dependencies]

@@ -1,0 +1,44 @@
+# Core — required to boot `python app.py`
+xai-sdk
+flask
+python-dotenv
+pydantic
+requests
+chess
+
+# Recommended — covers most features advertised in the README
+anthropic
+openai
+playwright
+pillow
+rich
+bcrypt
+pyyaml
+aiohttp
+
+# Optional — uncomment for the features you want
+# Heavy ML stack (TRIBE, Surgeon, fake-audio detection)
+# torch
+# transformers
+# librosa
+# soundfile
+# numpy
+
+# RAG pipeline
+# chromadb
+# sentence-transformers
+
+# Trading providers
+# yfinance
+# robin-stocks
+# py-clob-client
+
+# Solana toll settlement
+# solana
+# solders
+
+# Document/PDF tools
+# PyMuPDF
+
+# MCP server
+# mcp

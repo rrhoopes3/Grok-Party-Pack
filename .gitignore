@@ -9,10 +9,15 @@ __pycache__/
 dist/
 build/
 .pytest_cache/
+.venv/
+venv/
 
 # Runtime data (keep dir structure via .gitkeep)
 forge/data/*
 !forge/data/**/.gitkeep
+
+# Local ROM libraries / emulators (not redistributable, often multi-GB)
+forge/nes/
 
 # IDE / editor
 .vscode/
