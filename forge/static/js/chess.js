@@ -300,16 +300,27 @@ function renderChessMoves(moves) {
     el.innerHTML = "";
     moves.forEach(mv => {
         const row = document.createElement("div");
-        row.className = "chess-move-row " + (mv.side === "white" ? "white-move" : "black-move") + (mv.forced ? " forced" : "");
+        const src = mv.source || (mv.forced ? "forced" : "model");
+        const house = src !== "model";
+        row.className = "chess-move-row "
+            + (mv.side === "white" ? "white-move" : "black-move")
+            + (house ? " forced" : "")
+            + (src === "adjudicated" ? " adjudicated" : "")
+            + (src === "forfeit" ? " forfeit" : "");
         const moveNum = Math.floor((mv.n - 1) / 2) + 1;
         const dots = mv.side === "white" ? "." : "…";
         const tokBit = (mv.input_tokens || mv.output_tokens)
             ? ` · ${(mv.input_tokens || 0) + (mv.output_tokens || 0)}tok`
             : "";
-        const meta = `${mv.ms}ms${mv.attempts > 1 ? ` · ${mv.attempts}×` : ""}${mv.forced ? " · forced" : ""}${tokBit}`;
+        let srcBit = "";
+        if (src === "adjudicated") srcBit = " · adjudicated";
+        else if (src === "forfeit") srcBit = " · protocol forfeit";
+        else if (mv.forced) srcBit = " · house";
+        const sanLabel = (src === "forfeit") ? "—" : (mv.san || "?");
+        const meta = `${mv.ms}ms${mv.attempts > 1 ? ` · ${mv.attempts}×` : ""}${srcBit}${tokBit}`;
         row.innerHTML = `
             <span class="move-n">${moveNum}${dots}</span>
-            <span class="move-san" title="${escapeHtml(mv.uci)}">${escapeHtml(mv.san)}</span>
+            <span class="move-san" title="${escapeHtml(mv.uci || src)}">${escapeHtml(sanLabel)}</span>
             <span class="move-meta">${escapeHtml(meta)}</span>
         `;
         if (mv.thinking) row.title = mv.thinking;
@@ -416,6 +427,7 @@ async function chessNewMatch() {
     const windowPlies = parseInt(winPart || "0", 10) || 0;
 
     let payload;
+    let statusLabel;
     if (mode === "human_vs_ai") {
         // Human vs AI mode
         const aiModel = document.getElementById("chess-black-model").value; // for now default human=white, ai=black
@@ -431,6 +443,7 @@ async function chessNewMatch() {
             commentary_interval: interval,
             commentary_window_plies: windowPlies,
         };
+        statusLabel = `You (White) vs ${aiModel}`;
     } else {
         const white = document.getElementById("chess-white-model").value;
         const black = document.getElementById("chess-black-model").value;
@@ -445,6 +458,7 @@ async function chessNewMatch() {
             commentary_interval: interval,
             commentary_window_plies: windowPlies,
         };
+        statusLabel = `${white} vs ${black}`;
     }
 
     chessSetStatus("Starting match…", "working");
@@ -464,7 +478,7 @@ async function chessNewMatch() {
         const modeTag = windowPlies > 0
             ? `recap-last-${windowPlies/2}-rounds`
             : "full-history";
-        chessSetStatus(`Match started — ${white} vs ${black} · Judge ${judge} every ${interval} round${interval>1?"s":""} (${modeTag}). Auto-playing…`, "ok");
+        chessSetStatus(`Match started — ${statusLabel} · Judge ${judge} every ${interval} round${interval>1?"s":""} (${modeTag}). Auto-playing…`, "ok");
         // Kick off auto-play automatically. Users expected "start match" to
         // mean "begin the game" — making them hunt for a separate Step /
         // Auto-play button was a UX footgun. They can still pause anytime.
@@ -709,13 +723,13 @@ function bindChessUi() {
         if (sel) sel.addEventListener("mousedown", refreshSelects);
     });
 
-    // Chess TTS piggy-backs the arena TTS engine — flipping this toggle
-    // also flips the shared state.ttsEnabled flag so speakText() actually
-    // synthesizes. Persist the preference so tab reloads respect it.
+    // Chess TTS piggy-backs the arena TTS engine via state.ttsEnabled.
+    // Chess checkbox is authoritative when present (do not let arena
+    // localStorage leave the flag false while chess TTS is checked).
     if (ttsBtn) {
         const savedTts = localStorage.getItem("forge_chess_tts");
         if (savedTts !== null) ttsBtn.checked = savedTts === "true";
-        state.ttsEnabled = ttsBtn.checked || state.ttsEnabled;
+        state.ttsEnabled = !!ttsBtn.checked;
         ttsBtn.addEventListener("change", () => {
             state.ttsEnabled = ttsBtn.checked;
             localStorage.setItem("forge_chess_tts", String(ttsBtn.checked));

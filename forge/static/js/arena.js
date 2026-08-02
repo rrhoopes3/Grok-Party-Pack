@@ -199,14 +199,19 @@ function initTTS() {
     if (!("speechSynthesis" in window)) return;
 
     const saved = localStorage.getItem("forge_arena_tts");
-    els.ttsToggle.checked = saved === "true";
-    state.ttsEnabled = els.ttsToggle.checked;
-
-    els.ttsToggle.addEventListener("change", () => {
+    if (els.ttsToggle) {
+        els.ttsToggle.checked = saved === "true";
         state.ttsEnabled = els.ttsToggle.checked;
-        localStorage.setItem("forge_arena_tts", String(state.ttsEnabled));
-        if (!state.ttsEnabled) stopTTS();
-    });
+        els.ttsToggle.addEventListener("change", () => {
+            state.ttsEnabled = els.ttsToggle.checked;
+            localStorage.setItem("forge_arena_tts", String(state.ttsEnabled));
+            if (!state.ttsEnabled) stopTTS();
+        });
+    }
+    // Chess tab has its own TTS checkbox; if it's on, keep speech enabled
+    // even when arena TTS was saved off (bindChessUi may have run first).
+    const chessTts = document.getElementById("chess-tts-toggle");
+    if (chessTts?.checked) state.ttsEnabled = true;
 
     const pickVoice = () => {
         const voices = speechSynthesis.getVoices();

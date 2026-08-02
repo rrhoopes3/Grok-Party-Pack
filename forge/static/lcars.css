@@ -38,7 +38,7 @@
   --lcars-violet:     #ff3399;
   --lcars-red:        #ff3344;
   --lcars-rust:       #cc6666;   /* classic LCARS "red 2" — used for Keys tab */
-  --lcars-plum:       #9966cc;   /* LCARS "violet 2" — used for Chess tab */
+  --lcars-plum:       #6b7585;   /* steel grey — Chess tab (was purple) */
   --lcars-scarlet:    #ff5544;   /* NES Arena — arcade/CRT power-LED red */
   --lcars-green:      #66ff99;
   --lcars-text:       #ffe4c4;
@@ -353,7 +353,7 @@ body.lcars .tab-btn:nth-child(5) { background: var(--lcars-blue); }
 body.lcars .tab-btn:nth-child(6) { background: var(--lcars-orange); }
 body.lcars .tab-btn:nth-child(7) { background: var(--lcars-green); }
 body.lcars .tab-btn:nth-child(8)  { background: var(--lcars-violet); }
-body.lcars .tab-btn:nth-child(9)  { background: var(--lcars-plum);    color: #ffe4c4; }
+body.lcars .tab-btn:nth-child(9)  { background: linear-gradient(180deg, #8a93a0 0%, #4e5766 100%); color: #e8ecf0; }
 body.lcars .tab-btn:nth-child(10) { background: var(--lcars-scarlet); color: #ffe4c4; }
 body.lcars .tab-btn:nth-child(11) { background: var(--lcars-rust);    color: #ffe4c4; }
 
@@ -1629,15 +1629,34 @@ body.lcars .keys-status.err { color: var(--lcars-red); }
 /* ══════════════════════════════════════════════════════════════════════
    CHESS TAB — LLM vs LLM match arena
    ══════════════════════════════════════════════════════════════════════
-   Plum-bordered panels. The board itself uses classic alternating tiles
-   (teal / deep-indigo) instead of the cliché cream/brown, since the rest
-   of the shell is already QD-OLED cold. Pieces are Unicode figures, sized
-   by the square grid so they stay crisp at any zoom.
+   Cool steel / gunmetal / ice-metal palette. No purple, no canary.
+   Brushed titanium accents, slate board, platinum vs graphite sides.
+   Pieces are Unicode figures, sized by the square grid.
    ════════════════════════════════════════════════════════════════════ */
 
+body.lcars {
+  --chess-steel:        #8b95a5;
+  --chess-steel-hi:     #c8d0db;
+  --chess-steel-mid:    #5c6675;
+  --chess-steel-lo:     #2a303a;
+  --chess-gun:          #0b0d11;
+  --chess-gun-2:        #12151b;
+  --chess-panel:        #0e1116;
+  --chess-ice:          #9eb6c9;
+  --chess-ice-hi:       #d4e0eb;
+  --chess-titanium:     #7d93a8;
+  --chess-platinum:     #e6eaef;
+  --chess-graphite:     #7a8494;
+  --chess-ok:           #7f9e8c;
+  --chess-warn:         #b07070;
+  --chess-border:       rgba(158, 182, 201, 0.28);
+  --chess-glow:         0 0 24px rgba(125, 147, 168, 0.18);
+}
+
 body.lcars .chess-layout {
-  padding: 18px 24px 40px;
-  max-width: 1280px;
+  padding: 18px 20px 40px;
+  /* Wide enough for big board + mid panel + move column */
+  max-width: 1680px;
   margin: 0 auto;
   display: flex;
   flex-direction: column;
@@ -1646,22 +1665,29 @@ body.lcars .chess-layout {
 
 body.lcars .chess-setup-panel,
 body.lcars .chess-main-panel {
-  border: 1px solid var(--lcars-plum);
+  border: 1px solid var(--chess-border);
   border-radius: 14px;
-  background: #05070a;
+  background:
+    linear-gradient(165deg, rgba(158, 182, 201, 0.04) 0%, transparent 40%),
+    var(--chess-gun);
   overflow: hidden;
-  box-shadow: 0 0 22px rgba(153, 102, 204, 0.16);
+  box-shadow: var(--chess-glow), inset 0 1px 0 rgba(200, 208, 219, 0.06);
 }
 
 body.lcars .chess-panel-header {
-  background: linear-gradient(90deg, var(--lcars-plum) 0%, #5a3880 100%);
-  color: #ffe4c4;
+  background: linear-gradient(90deg,
+    #3a4250 0%,
+    #1c2129 45%,
+    #151920 100%);
+  color: var(--chess-ice-hi);
   padding: 10px 18px;
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: 16px;
   flex-wrap: wrap;
+  border-bottom: 1px solid rgba(158, 182, 201, 0.2);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 body.lcars .chess-panel-header h3 {
   margin: 0;
@@ -1670,16 +1696,19 @@ body.lcars .chess-panel-header h3 {
   letter-spacing: 0.22em;
   font-size: 1.05rem;
   font-weight: 700;
+  color: var(--chess-platinum);
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.5);
 }
 body.lcars .chess-subtitle {
   font-size: 0.72rem;
   letter-spacing: 0.08em;
-  opacity: 0.85;
+  color: var(--chess-steel);
+  opacity: 0.95;
 }
 
 body.lcars .chess-setup-row {
   display: grid;
-  grid-template-columns: minmax(200px, 1fr) minmax(200px, 1fr) auto;
+  grid-template-columns: minmax(200px, 1fr) minmax(200px, 1fr) minmax(200px, 1fr) auto;
   gap: 12px;
   align-items: end;
   padding: 14px 18px 16px;
@@ -1694,12 +1723,12 @@ body.lcars .chess-setup-row .field > span {
   text-transform: uppercase;
   letter-spacing: 0.14em;
   font-size: 0.74rem;
-  color: var(--lcars-muted);
+  color: var(--chess-steel);
 }
 body.lcars .chess-model-select {
-  background: #000;
-  color: var(--lcars-text);
-  border: 1px solid var(--lcars-plum);
+  background: var(--chess-gun-2);
+  color: var(--chess-platinum);
+  border: 1px solid rgba(139, 149, 165, 0.35);
   border-radius: 8px;
   padding: 6px 10px;
   font-family: "JetBrains Mono", "Consolas", monospace;
@@ -1707,8 +1736,8 @@ body.lcars .chess-model-select {
 }
 body.lcars .chess-model-select:focus {
   outline: none;
-  border-color: var(--lcars-canary);
-  box-shadow: 0 0 0 2px rgba(255, 204, 0, 0.18);
+  border-color: var(--chess-ice);
+  box-shadow: 0 0 0 2px rgba(158, 182, 201, 0.18);
 }
 
 body.lcars .chess-btn {
@@ -1718,15 +1747,16 @@ body.lcars .chess-btn {
   font-size: 0.72rem;
   font-weight: 700;
   padding: 7px 16px;
-  border: none;
+  border: 1px solid rgba(200, 208, 219, 0.22);
   border-radius: 10px;
-  background: var(--lcars-plum);
-  color: #ffe4c4;
+  background: linear-gradient(180deg, #4a5362 0%, #2c333e 100%);
+  color: var(--chess-platinum);
   cursor: pointer;
-  transition: filter 120ms ease, transform 120ms ease;
+  transition: filter 120ms ease, transform 120ms ease, box-shadow 120ms ease;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
 }
 body.lcars .chess-btn:hover:not(:disabled) {
-  filter: brightness(1.15);
+  filter: brightness(1.12);
   transform: translateY(-1px);
 }
 body.lcars .chess-btn:disabled {
@@ -1734,15 +1764,39 @@ body.lcars .chess-btn:disabled {
   cursor: not-allowed;
   transform: none;
 }
-body.lcars .chess-new-btn    { background: var(--lcars-canary); color: var(--lcars-ink); }
-body.lcars .chess-auto-btn   { background: var(--lcars-green);  color: var(--lcars-ink); }
-body.lcars .chess-auto-btn.is-running { background: var(--lcars-red); color: var(--lcars-text); }
-body.lcars .chess-resign-btn { background: #444a56; color: var(--lcars-text); }
+body.lcars .chess-new-btn {
+  background: linear-gradient(180deg, #d0d7e0 0%, #8e99a8 48%, #6a7585 100%);
+  color: #0c0e12;
+  border-color: rgba(255, 255, 255, 0.25);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.45),
+    0 2px 10px rgba(0, 0, 0, 0.35);
+}
+body.lcars .chess-new-btn:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+body.lcars .chess-auto-btn {
+  background: linear-gradient(180deg, #6d8a9e 0%, #3d5466 100%);
+  color: var(--chess-ice-hi);
+  border-color: rgba(158, 182, 201, 0.35);
+}
+body.lcars .chess-auto-btn.is-running {
+  background: linear-gradient(180deg, #8a5555 0%, #5a3030 100%);
+  color: #f0e0e0;
+  border-color: rgba(176, 112, 112, 0.5);
+}
+body.lcars .chess-resign-btn {
+  background: linear-gradient(180deg, #3a404a 0%, #242930 100%);
+  color: var(--chess-steel);
+}
 
-/* Main grid — board left, side panel right */
+/* Main grid — board | status/commentary | move log */
 body.lcars .chess-main-grid {
   display: grid;
-  grid-template-columns: minmax(320px, 560px) minmax(280px, 1fr);
+  grid-template-columns:
+    minmax(420px, min(72vh, 760px))
+    minmax(280px, 1fr)
+    minmax(200px, 260px);
   gap: 16px;
   padding: 16px 18px 18px;
   align-items: start;
@@ -1752,18 +1806,24 @@ body.lcars .chess-board-wrap {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  min-width: 0;
 }
 
 body.lcars .chess-board {
   aspect-ratio: 1 / 1;
+  width: 100%;
+  max-width: min(72vh, 760px);
   display: grid;
   grid-template-columns: repeat(8, 1fr);
   grid-template-rows: repeat(8, 1fr);
-  border: 2px solid var(--lcars-plum);
+  border: 3px solid #4a3020;
   border-radius: 8px;
   overflow: hidden;
   user-select: none;
-  box-shadow: 0 0 28px rgba(153, 102, 204, 0.25);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.5),
+    0 8px 32px rgba(0, 0, 0, 0.55),
+    inset 0 0 0 1px rgba(243, 230, 200, 0.15);
 }
 body.lcars .chess-board .chess-empty {
   grid-column: 1 / -1;
@@ -1773,28 +1833,66 @@ body.lcars .chess-board .chess-empty {
   justify-content: center;
   padding: 30px;
   text-align: center;
-  color: var(--lcars-muted);
+  color: var(--chess-steel-mid);
   font-family: "Antonio", "Oswald", sans-serif;
   letter-spacing: 0.12em;
-  background: #05070a;
+  background:
+    radial-gradient(ellipse at center, #1a1f28 0%, var(--chess-gun) 70%);
 }
 body.lcars .chess-square {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: clamp(1.6rem, 5vw, 2.6rem);
+  /* Scale glyphs with the larger board */
+  font-size: clamp(2rem, 5.5vh, 3.4rem);
   line-height: 1;
   font-weight: 400;
   position: relative;
 }
-body.lcars .chess-square.light { background: #233042; }
-body.lcars .chess-square.dark  { background: #0f1a2a; }
-body.lcars .chess-square.last-from { box-shadow: inset 0 0 0 3px rgba(255, 204, 0, 0.55); }
-body.lcars .chess-square.last-to   { box-shadow: inset 0 0 0 3px var(--lcars-canary); }
-body.lcars .chess-square.in-check  { box-shadow: inset 0 0 0 3px var(--lcars-red); }
+/* Classic wood board — off-white cream vs walnut brown (high contrast) */
+body.lcars .chess-square.light {
+  background: linear-gradient(145deg, #f3e6c8 0%, #e8d4a8 55%, #dfc894 100%);
+}
+body.lcars .chess-square.dark {
+  background: linear-gradient(145deg, #b58863 0%, #8b5a2b 55%, #6d4520 100%);
+}
+body.lcars .chess-square.last-from {
+  box-shadow: inset 0 0 0 3px rgba(40, 90, 160, 0.55);
+}
+body.lcars .chess-square.last-to {
+  box-shadow: inset 0 0 0 3px rgba(30, 110, 70, 0.75);
+  background: linear-gradient(145deg, #c9e0a8 0%, #9bc06a 100%);
+}
+body.lcars .chess-square.dark.last-to {
+  background: linear-gradient(145deg, #7a9a48 0%, #5a7830 100%);
+}
+body.lcars .chess-square.in-check {
+  box-shadow: inset 0 0 0 3px #c04040;
+  background: linear-gradient(145deg, #e8a090 0%, #c06050 100%);
+}
 
-body.lcars .chess-piece.white { color: #f5f5f5; text-shadow: 0 1px 2px rgba(0,0,0,0.7); }
-body.lcars .chess-piece.black { color: #101018; text-shadow: 0 0 3px rgba(255,255,255,0.35); }
+/* White pieces: pure cream + strong black rim (reads on brown) */
+body.lcars .chess-piece.white {
+  color: #fffaf0;
+  text-shadow:
+    -1.5px -1.5px 0 #1a1208,
+     1.5px -1.5px 0 #1a1208,
+    -1.5px  1.5px 0 #1a1208,
+     1.5px  1.5px 0 #1a1208,
+     0 2px 3px rgba(0, 0, 0, 0.55);
+  -webkit-text-stroke: 0.6px #1a1208;
+}
+/* Black pieces: near-black + cream rim (reads on both cream and brown) */
+body.lcars .chess-piece.black {
+  color: #1a1208;
+  text-shadow:
+    -1.5px -1.5px 0 #fff8e7,
+     1.5px -1.5px 0 #fff8e7,
+    -1.5px  1.5px 0 #fff8e7,
+     1.5px  1.5px 0 #fff8e7,
+     0 2px 3px rgba(0, 0, 0, 0.35);
+  -webkit-text-stroke: 0.55px #fff8e7;
+}
 
 /* Rank/file labels in corners */
 body.lcars .chess-square .coord {
@@ -1802,13 +1900,14 @@ body.lcars .chess-square .coord {
   font-family: "JetBrains Mono", "Consolas", monospace;
   font-size: 0.58rem;
   letter-spacing: 0.04em;
-  opacity: 0.55;
+  opacity: 0.65;
   pointer-events: none;
+  font-weight: 600;
 }
 body.lcars .chess-square .coord.file { bottom: 2px; right: 4px; }
 body.lcars .chess-square .coord.rank { top: 2px; left: 4px; }
-body.lcars .chess-square.light .coord { color: #0a0d12; }
-body.lcars .chess-square.dark  .coord { color: #ffe4c4; }
+body.lcars .chess-square.light .coord { color: #5a3a18; opacity: 0.75; }
+body.lcars .chess-square.dark  .coord { color: #f5e6c8; opacity: 0.8; }
 
 body.lcars .chess-board-meta {
   display: flex;
@@ -1824,19 +1923,19 @@ body.lcars .chess-side-badge {
   font-size: 0.78rem;
   padding: 4px 10px;
   border-radius: 8px;
-  background: #0a0d12;
-  border: 1px solid var(--lcars-plum);
-  color: var(--lcars-text);
+  background: var(--chess-gun-2);
+  border: 1px solid rgba(139, 149, 165, 0.35);
+  color: var(--chess-steel-hi);
 }
 body.lcars .chess-side-badge.active {
-  background: var(--lcars-canary);
-  color: var(--lcars-ink);
-  border-color: var(--lcars-canary);
-  box-shadow: 0 0 14px rgba(255, 204, 0, 0.35);
+  background: linear-gradient(180deg, #d0d7e0 0%, #9aa5b4 100%);
+  color: #0c0e12;
+  border-color: rgba(255, 255, 255, 0.3);
+  box-shadow: 0 0 14px rgba(158, 182, 201, 0.35);
 }
 body.lcars .chess-vs {
   font-family: "Antonio", "Oswald", sans-serif;
-  color: var(--lcars-muted);
+  color: var(--chess-steel-mid);
   letter-spacing: 0.2em;
   font-size: 0.72rem;
 }
@@ -1854,8 +1953,8 @@ body.lcars .chess-status-block {
   gap: 8px;
 }
 body.lcars .chess-turn-label {
-  background: #0a0d12;
-  border: 1px solid rgba(153, 102, 204, 0.35);
+  background: var(--chess-panel);
+  border: 1px solid var(--chess-border);
   border-radius: 8px;
   padding: 8px 10px;
   display: flex;
@@ -1867,17 +1966,17 @@ body.lcars .chess-turn-label span {
   text-transform: uppercase;
   letter-spacing: 0.14em;
   font-size: 0.62rem;
-  color: var(--lcars-muted);
+  color: var(--chess-steel-mid);
 }
 body.lcars .chess-turn-label strong {
   font-family: "Antonio", "Oswald", sans-serif;
   font-size: 0.9rem;
   letter-spacing: 0.1em;
-  color: var(--lcars-text);
+  color: var(--chess-platinum);
 }
-body.lcars .chess-turn-label strong.white-turn { color: var(--lcars-canary); }
-body.lcars .chess-turn-label strong.black-turn { color: var(--lcars-teal); }
-body.lcars .chess-turn-label strong.ended      { color: var(--lcars-green); }
+body.lcars .chess-turn-label strong.white-turn { color: var(--chess-platinum); }
+body.lcars .chess-turn-label strong.black-turn { color: var(--chess-ice); }
+body.lcars .chess-turn-label strong.ended      { color: var(--chess-ok); }
 
 body.lcars .chess-controls {
   display: grid;
@@ -1888,14 +1987,14 @@ body.lcars .chess-controls {
 body.lcars .chess-status-msg {
   font-size: 0.78rem;
   letter-spacing: 0.05em;
-  color: var(--lcars-muted);
+  color: var(--chess-steel);
   min-height: 1.2em;
   padding: 2px 4px;
 }
-body.lcars .chess-status-msg.ok  { color: var(--lcars-green); }
-body.lcars .chess-status-msg.err { color: var(--lcars-red); }
+body.lcars .chess-status-msg.ok  { color: var(--chess-ok); }
+body.lcars .chess-status-msg.err { color: var(--chess-warn); }
 body.lcars .chess-status-msg.working {
-  color: var(--lcars-canary);
+  color: var(--chess-ice);
   animation: chess-thinking-pulse 1.4s ease-in-out infinite;
 }
 body.lcars .chess-status-msg.working::before {
@@ -1907,34 +2006,47 @@ body.lcars .chess-status-msg.working::before {
   50%      { opacity: 1; }
 }
 
+/* Dedicated right column for the move log */
+body.lcars .chess-moves-column {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  /* Stretch with board height so the log feels like a true sidebar */
+  align-self: stretch;
+  max-height: min(72vh, 760px);
+}
 body.lcars .chess-moves-block {
   flex: 1;
   display: flex;
   flex-direction: column;
-  min-height: 280px;
+  min-height: 0;
+  height: 100%;
 }
 body.lcars .chess-moves-header {
   font-family: "Antonio", "Oswald", sans-serif;
   text-transform: uppercase;
   letter-spacing: 0.16em;
   font-size: 0.72rem;
-  color: var(--lcars-plum);
+  color: var(--chess-titanium);
   padding: 4px 0;
-  border-bottom: 1px solid rgba(153, 102, 204, 0.3);
+  border-bottom: 1px solid var(--chess-border);
   margin-bottom: 6px;
+  flex-shrink: 0;
 }
 body.lcars .chess-moves {
   flex: 1;
   overflow: auto;
-  background: #03050a;
-  border: 1px solid rgba(153, 102, 204, 0.25);
+  background: var(--chess-gun);
+  border: 1px solid var(--chess-border);
   border-radius: 8px;
   padding: 6px 4px;
-  max-height: 420px;
-  min-height: 200px;
+  min-height: 280px;
+  max-height: none;
+  height: 100%;
 }
 body.lcars .chess-moves-empty {
-  color: var(--lcars-muted);
+  color: var(--chess-steel-mid);
   font-style: italic;
   padding: 20px 10px;
   text-align: center;
@@ -1950,19 +2062,30 @@ body.lcars .chess-move-row {
   font-family: "JetBrains Mono", "Consolas", monospace;
   font-size: 0.8rem;
 }
-body.lcars .chess-move-row:hover { background: rgba(153, 102, 204, 0.08); }
-body.lcars .chess-move-row.white-move { border-left: 2px solid var(--lcars-canary); }
-body.lcars .chess-move-row.black-move { border-left: 2px solid var(--lcars-teal); }
-body.lcars .chess-move-row .move-n    { color: var(--lcars-muted); }
-body.lcars .chess-move-row .move-san  { color: var(--lcars-text); font-weight: 600; }
+body.lcars .chess-move-row:hover { background: rgba(158, 182, 201, 0.06); }
+body.lcars .chess-move-row.white-move { border-left: 2px solid var(--chess-platinum); }
+body.lcars .chess-move-row.black-move { border-left: 2px solid var(--chess-titanium); }
+body.lcars .chess-move-row .move-n    { color: var(--chess-steel-mid); }
+body.lcars .chess-move-row .move-san  { color: var(--chess-platinum); font-weight: 600; }
 body.lcars .chess-move-row .move-meta {
-  color: var(--lcars-muted);
+  color: var(--chess-steel);
   font-size: 0.72rem;
   letter-spacing: 0.02em;
 }
 body.lcars .chess-move-row.forced .move-san::after {
   content: " ⚠";
-  color: var(--lcars-red);
+  color: var(--chess-warn);
+}
+body.lcars .chess-move-row.adjudicated .move-san::after {
+  content: " ♣";
+  color: var(--chess-ice);
+}
+body.lcars .chess-move-row.forfeit .move-san {
+  color: var(--chess-warn);
+}
+body.lcars .chess-move-row.forfeit .move-san::after {
+  content: " ✕";
+  color: var(--chess-warn);
 }
 
 /* ── Chess setup: second row + commentary block ─────────────────────── */
@@ -1984,7 +2107,7 @@ body.lcars .chess-interval-field > span {
   text-transform: uppercase;
   letter-spacing: 0.14em;
   font-size: 0.72rem;
-  color: var(--lcars-muted);
+  color: var(--chess-steel);
 }
 body.lcars .chess-interval-field .chess-model-select {
   padding: 4px 10px;
@@ -2000,27 +2123,27 @@ body.lcars .chess-tts-toggle > span:first-child {
   text-transform: uppercase;
   letter-spacing: 0.14em;
   font-size: 0.72rem;
-  color: var(--lcars-muted);
+  color: var(--chess-steel);
 }
 
 body.lcars .chess-mini-btn {
   padding: 3px 10px;
   font-size: 0.64rem;
-  background: var(--lcars-plum);
-  color: #ffe4c4;
+  background: linear-gradient(180deg, #4a5362 0%, #2c333e 100%);
+  color: var(--chess-ice-hi);
+  border: 1px solid rgba(158, 182, 201, 0.25);
 }
 
-/* Judge commentary block — amber-bordered, prose card with a pulsing
-   "thinking…" state and a rolling history list underneath. */
+/* Judge commentary — cool steel card, not amber carnival */
 body.lcars .chess-commentary-block {
-  background: #0a0d12;
-  border: 1px solid var(--lcars-amber);
+  background: var(--chess-panel);
+  border: 1px solid rgba(158, 182, 201, 0.32);
   border-radius: 10px;
   padding: 10px 12px;
   display: flex;
   flex-direction: column;
   gap: 6px;
-  box-shadow: 0 0 14px rgba(255, 153, 0, 0.12);
+  box-shadow: inset 0 1px 0 rgba(200, 208, 219, 0.06);
 }
 body.lcars .chess-commentary-header {
   display: flex;
@@ -2031,12 +2154,12 @@ body.lcars .chess-commentary-header {
   text-transform: uppercase;
   letter-spacing: 0.18em;
   font-size: 0.74rem;
-  color: var(--lcars-amber);
-  border-bottom: 1px solid rgba(255, 153, 0, 0.35);
+  color: var(--chess-ice);
+  border-bottom: 1px solid var(--chess-border);
   padding-bottom: 4px;
 }
 body.lcars .chess-commentary-meta {
-  color: var(--lcars-muted);
+  color: var(--chess-steel-mid);
   font-size: 0.66rem;
   letter-spacing: 0.06em;
   margin-left: auto;
@@ -2050,22 +2173,22 @@ body.lcars .chess-commentary-body {
   font-family: "Georgia", "Times New Roman", serif;
   font-size: 0.95rem;
   line-height: 1.45;
-  color: var(--lcars-text);
+  color: #c5ccd6;
   min-height: 72px;
   padding: 4px 2px;
   font-style: italic;
 }
 body.lcars .chess-commentary-body.thinking {
-  color: var(--lcars-canary);
+  color: var(--chess-ice);
   animation: chess-thinking-pulse 1.4s ease-in-out infinite;
   font-style: normal;
 }
 body.lcars .chess-commentary-body.speaking {
-  color: var(--lcars-amber);
-  text-shadow: 0 0 6px rgba(255, 153, 0, 0.28);
+  color: var(--chess-ice-hi);
+  text-shadow: 0 0 8px rgba(158, 182, 201, 0.2);
 }
 body.lcars .chess-commentary-body.error {
-  color: var(--lcars-red);
+  color: var(--chess-warn);
   font-style: normal;
   font-family: "JetBrains Mono", "Consolas", monospace;
   font-size: 0.82rem;
@@ -2079,8 +2202,8 @@ body.lcars .chess-captures {
   gap: 4px;
   margin-top: 6px;
   padding: 6px 8px;
-  background: #03050a;
-  border: 1px solid rgba(153, 102, 204, 0.3);
+  background: var(--chess-gun);
+  border: 1px solid var(--chess-border);
   border-radius: 8px;
 }
 body.lcars .chess-capture-row {
@@ -2092,14 +2215,14 @@ body.lcars .chess-capture-row {
   min-height: 28px;
   border-radius: 4px;
 }
-body.lcars #chess-capture-white { border-left: 3px solid var(--lcars-canary); }
-body.lcars #chess-capture-black { border-left: 3px solid var(--lcars-teal); }
+body.lcars #chess-capture-white { border-left: 3px solid var(--chess-platinum); }
+body.lcars #chess-capture-black { border-left: 3px solid var(--chess-titanium); }
 body.lcars .chess-capture-label {
   font-family: "Antonio", "Oswald", sans-serif;
   text-transform: uppercase;
   letter-spacing: 0.14em;
   font-size: 0.68rem;
-  color: var(--lcars-muted);
+  color: var(--chess-steel);
 }
 body.lcars .chess-capture-pieces {
   font-size: 1.4rem;
@@ -2111,12 +2234,21 @@ body.lcars .chess-capture-pieces {
   padding: 2px 0;
 }
 body.lcars .chess-capture-pieces .piece-w {
-  color: #f5f5f5;
-  text-shadow: 0 1px 2px rgba(0,0,0,0.7);
+  color: #f2f5f8;
+  text-shadow:
+    -1px -1px 0 #0a0c10,
+     1px -1px 0 #0a0c10,
+    -1px  1px 0 #0a0c10,
+     1px  1px 0 #0a0c10;
 }
 body.lcars .chess-capture-pieces .piece-b {
-  color: #9aa3b2;
-  text-shadow: 0 0 3px rgba(255,255,255,0.2);
+  color: #0e1116;
+  text-shadow:
+    -1px -1px 0 #d4e0eb,
+     1px -1px 0 #d4e0eb,
+    -1px  1px 0 #d4e0eb,
+     1px  1px 0 #d4e0eb;
+  -webkit-text-stroke: 0.4px rgba(212, 224, 235, 0.5);
 }
 body.lcars .chess-capture-pieces .just-taken {
   animation: chess-capture-pop 900ms ease-out;
@@ -2129,16 +2261,16 @@ body.lcars .chess-capture-pieces .just-taken {
 body.lcars .chess-capture-material {
   font-family: "JetBrains Mono", "Consolas", monospace;
   font-size: 0.76rem;
-  color: var(--lcars-canary);
+  color: var(--chess-ice);
   min-width: 2.5em;
   text-align: right;
 }
-body.lcars .chess-capture-material.neg { color: var(--lcars-red); }
+body.lcars .chess-capture-material.neg { color: var(--chess-warn); }
 
 /* ── Token usage block ──────────────────────────────────────────────── */
 body.lcars .chess-tokens-block {
-  background: #0a0d12;
-  border: 1px solid rgba(255, 204, 0, 0.3);
+  background: var(--chess-panel);
+  border: 1px solid var(--chess-border);
   border-radius: 10px;
   padding: 8px 12px 10px;
   display: flex;
@@ -2153,12 +2285,12 @@ body.lcars .chess-tokens-header {
   text-transform: uppercase;
   letter-spacing: 0.18em;
   font-size: 0.72rem;
-  color: var(--lcars-canary);
-  border-bottom: 1px solid rgba(255, 204, 0, 0.28);
+  color: var(--chess-steel-hi);
+  border-bottom: 1px solid var(--chess-border);
   padding-bottom: 4px;
 }
 body.lcars .chess-tokens-total {
-  color: var(--lcars-amber);
+  color: var(--chess-ice);
   font-family: "JetBrains Mono", "Consolas", monospace;
   font-size: 0.74rem;
   letter-spacing: 0.04em;
@@ -2182,13 +2314,13 @@ body.lcars .chess-tokens-role {
   text-transform: uppercase;
   letter-spacing: 0.12em;
   font-size: 0.72rem;
-  color: var(--lcars-muted);
+  color: var(--chess-steel);
 }
-body.lcars .chess-tokens-row[data-role="white"] .chess-tokens-role { color: var(--lcars-canary); }
-body.lcars .chess-tokens-row[data-role="black"] .chess-tokens-role { color: var(--lcars-teal); }
-body.lcars .chess-tokens-row[data-role="judge"] .chess-tokens-role { color: var(--lcars-amber); }
+body.lcars .chess-tokens-row[data-role="white"] .chess-tokens-role { color: var(--chess-platinum); }
+body.lcars .chess-tokens-row[data-role="black"] .chess-tokens-role { color: var(--chess-ice); }
+body.lcars .chess-tokens-row[data-role="judge"] .chess-tokens-role { color: var(--chess-titanium); }
 body.lcars .chess-tokens-val {
-  color: var(--lcars-text);
+  color: #b8c0cc;
   text-align: right;
   letter-spacing: 0.02em;
 }
@@ -2199,9 +2331,9 @@ body.lcars .chess-commentary-history {
   max-height: 140px;
   overflow-y: auto;
   font-size: 0.74rem;
-  color: var(--lcars-muted);
+  color: var(--chess-steel);
   padding: 2px 4px;
-  border-top: 1px dashed rgba(255, 153, 0, 0.22);
+  border-top: 1px dashed rgba(158, 182, 201, 0.2);
   padding-top: 6px;
   margin-top: 2px;
 }
@@ -2214,24 +2346,48 @@ body.lcars .chess-history-row {
   border-radius: 4px;
   line-height: 1.35;
 }
-body.lcars .chess-history-row:hover { background: rgba(255, 153, 0, 0.06); }
+body.lcars .chess-history-row:hover { background: rgba(158, 182, 201, 0.06); }
 body.lcars .chess-history-row .history-round {
-  color: var(--lcars-amber);
+  color: var(--chess-titanium);
   font-family: "JetBrains Mono", "Consolas", monospace;
   font-size: 0.7rem;
   letter-spacing: 0.04em;
 }
 body.lcars .chess-history-row .history-text {
-  color: var(--lcars-text);
+  color: #b8c0cc;
   font-family: "Georgia", "Times New Roman", serif;
   font-style: italic;
   font-size: 0.76rem;
 }
 
-/* Narrow viewports: stack board + panel */
+/* Mid: keep board + controls, stack move log under */
+@media (max-width: 1200px) {
+  body.lcars .chess-main-grid {
+    grid-template-columns:
+      minmax(360px, min(62vh, 640px))
+      minmax(260px, 1fr);
+  }
+  body.lcars .chess-moves-column {
+    grid-column: 1 / -1;
+    max-height: 320px;
+  }
+  body.lcars .chess-board {
+    max-width: min(62vh, 640px);
+  }
+}
+
+/* Narrow: full stack */
 @media (max-width: 860px) {
   body.lcars .chess-main-grid {
     grid-template-columns: 1fr;
+  }
+  body.lcars .chess-board {
+    max-width: min(92vw, 560px);
+    margin: 0 auto;
+  }
+  body.lcars .chess-moves-column {
+    grid-column: auto;
+    max-height: 280px;
   }
   body.lcars .chess-setup-row {
     grid-template-columns: 1fr;

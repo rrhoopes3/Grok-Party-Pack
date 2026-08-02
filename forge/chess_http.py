@@ -157,3 +157,16 @@ def chess_delete(match_id: str):
         return jsonify({"error": f"Unknown match: {match_id!r}"}), 404
     return jsonify({"deleted": match_id})
 
+
+@chess_bp.route("/api/chess/<match_id>/pgn", methods=["GET"])
+def chess_pgn(match_id: str):
+    """Return PGN text with house-move tags ({adjudicated}, protocol forfeit)."""
+    m = _chess.get_match(match_id)
+    if m is None:
+        return jsonify({"error": f"Unknown match: {match_id!r}"}), 404
+    pgn = _chess.export_pgn(m)
+    return pgn, 200, {
+        "Content-Type": "application/x-chess-pgn; charset=utf-8",
+        "Content-Disposition": f'attachment; filename="forge-{match_id}.pgn"',
+    }
+
