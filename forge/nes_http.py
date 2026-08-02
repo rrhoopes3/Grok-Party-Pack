@@ -257,7 +257,8 @@ def nes_controller_grok(session_id: str):
                 model=model, max_tokens=200, system=system,
                 messages=[{"role": "user", "content": content}],
             )
-            raw = resp.content[0].text
+            from forge.providers import anthropic_message_text
+            raw = anthropic_message_text(resp.content)
             u = getattr(resp, "usage", None)
             if u:
                 usage_in = int(getattr(u, "input_tokens", 0) or 0)

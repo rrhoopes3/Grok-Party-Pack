@@ -65,7 +65,7 @@ def _llm_call(
             model = "grok-4-1-fast-non-reasoning"
             provider = "xai"
         elif ANTHROPIC_API_KEY:
-            model = "claude-haiku-4-20250414"
+            model = "claude-haiku-4-5-20251001"
             provider = "anthropic"
         elif OPENAI_API_KEY:
             model = "gpt-4o-mini"
@@ -144,7 +144,8 @@ def _call_anthropic(prompt: str, system: str, model: str, temperature: float, ma
     if temperature is not None and not _model_rejects_temperature(model):
         kwargs["temperature"] = min(temperature, 1.0)  # Anthropic caps at 1.0
     resp = client.messages.create(**kwargs)
-    return resp.content[0].text
+    from forge.providers import anthropic_message_text
+    return anthropic_message_text(resp.content)
 
 
 def _call_openai_compat(

@@ -124,7 +124,8 @@ class StepJudge:
                 max_tokens=100,
                 messages=[{"role": "user", "content": prompt}],
             )
-            return msg.content[0].text if msg.content else ""
+            from forge.providers import anthropic_message_text
+            return anthropic_message_text(msg.content)
 
         elif provider == "openai":
             from forge.config import OPENAI_API_KEY

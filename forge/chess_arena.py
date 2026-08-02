@@ -17,7 +17,10 @@ Prompt design:
 
 Illegal-move policy (empirical integrity — no house roulette):
   * Up to 3 retries per turn. Attempts 2–3 use a STRICT numbered legal
-    list, short max_tokens, and system prompt that forbids prose.
+    list and a system prompt that forbids prose. Completion budgets are
+    reasoning-aware: models whose thinking bills inside max_tokens
+    (Claude gen-5, Grok reasoning, o-series) get 8000/2500, plain chat
+    models keep 2000/400.
   * If still no legal MOVE → judge **adjudicates** one legal UCI
     (source=adjudicated, forced=True for UI).
   * If adjudication fails → **protocol forfeit** for the side to move
@@ -99,6 +102,44 @@ def _model_rejects_temperature(model: str) -> bool:
 def _model_uses_max_completion_tokens(model: str) -> bool:
     m = model.lower()
     return m.startswith(("o1-", "o3-", "o4-", "gpt-5"))
+
+
+# Claude 4.6+ / gen-5 models run adaptive thinking (Fable 5 can't disable
+# it at all — explicit {"type": "disabled"} is a 400), and thinking tokens
+# bill INSIDE max_tokens. Two consequences for chess:
+#   1. Budgets must fit thinking + a MOVE line (see _reasoning_tier).
+#   2. With the default display="omitted", a truncated response carries only
+#      EMPTY thinking blocks — nothing to salvage. So we request effort=low
+#      ("pick one UCI from a numbered list" is not a thinking task) and
+#      display="summarized" so providers.anthropic_message_text's thinking
+#      fallback actually has text — the mirror of the reasoning_content
+#      salvage on the OpenAI-compatible path.
+_ANTHROPIC_ADAPTIVE_PREFIXES = (
+    "claude-fable-5", "claude-mythos", "claude-opus-5", "claude-sonnet-5",
+    "claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6", "claude-sonnet-4-6",
+)
+
+
+def _anthropic_thinking_kwargs(model: str) -> dict[str, Any]:
+    if model.lower().startswith(_ANTHROPIC_ADAPTIVE_PREFIXES):
+        return {
+            "thinking": {"type": "adaptive", "display": "summarized"},
+            "output_config": {"effort": "low"},
+        }
+    return {}
+
+
+def _reasoning_tier(model: str) -> bool:
+    """Models whose internal reasoning bills against max_tokens — they need
+    a much larger completion budget than plain chat models."""
+    m = model.lower()
+    if m.startswith(_ANTHROPIC_ADAPTIVE_PREFIXES):
+        return True
+    if "reasoning" in m or "thinking" in m:
+        return True
+    if m.startswith(("o1", "o3", "o4", "gpt-5")):
+        return True
+    return False
 
 
 # Qwen3+ supports disabling its hybrid-thinking mode via extra_body —
@@ -211,7 +252,13 @@ def _llm_oneshot(prompt: str, system: str, model: str,
             kwargs["system"] = system
         if not skip_temp:
             kwargs["temperature"] = min(temperature, 1.0)
+        kwargs.update(_anthropic_thinking_kwargs(model))
         resp = client.messages.create(**kwargs)
+        # A max_tokens stop means thinking+text got truncated — this is the
+        # failure that used to log as "returned unparseable/illegal".
+        if getattr(resp, "stop_reason", None) == "max_tokens":
+            log.warning("chess: %s hit max_tokens (%d) — thinking+text truncated",
+                        model, max_tokens)
         # Claude gen-5 (Fable/Opus/Sonnet 5) may lead with ThinkingBlock —
         # never index content[0].text.  See providers.anthropic_message_text.
         from forge.providers import anthropic_message_text
@@ -287,6 +334,9 @@ def _llm_oneshot(prompt: str, system: str, model: str,
     # reasoning_content — players often think "I will play e2e4" out
     # loud and the extractor finds that inside the reasoning.
     msg = resp.choices[0].message
+    if getattr(resp.choices[0], "finish_reason", None) == "length":
+        log.warning("chess: %s hit max_tokens (%d) — reply truncated",
+                    model, max_tokens)
     text = msg.content or ""
     if not text:
         reasoning = getattr(msg, "reasoning_content", "") or ""
@@ -485,13 +535,19 @@ class ChessMatch:
 # ────────────────────────────────────────────────────────────────────────
 
 def _board_ascii(board: chess.Board) -> str:
-    """Unicode-free ASCII board; rows labeled 8..1, columns a..h."""
+    """Plain piece grid, no labels — kept for the API payload."""
     return str(board)
 
 
-def _board_unicode(board: chess.Board) -> str:
-    """Unicode chess figures — nicer for LLM prompts."""
-    return board.unicode(borders=False, empty_square="·")
+def _board_labeled(board: chess.Board) -> str:
+    """ASCII grid with rank/file labels for LLM prompts. Models misread
+    unlabeled boards (they have to count rows to name a square), and
+    unicode chess glyphs tokenize worse than plain letters."""
+    rows = str(board).splitlines()
+    out = [f"{8 - i}  {row}" for i, row in enumerate(rows)]
+    out.append("")
+    out.append("   a b c d e f g h")
+    return "\n".join(out)
 
 
 def serialize_match(m: ChessMatch) -> dict:
@@ -577,40 +633,48 @@ _MOVE_PREFIX_RE = re.compile(r"MOVE\s*[:=]\s*`?([^\s`]+)`?", re.IGNORECASE)
 
 
 def _extract_move(text: str, board: chess.Board) -> Optional[chess.Move]:
-    """Return a legal chess.Move parsed from `text`, or None."""
-    # Prefer an explicit "MOVE: ..." directive (whatever format)
-    m = _MOVE_PREFIX_RE.search(text)
-    candidates: list[str] = []
-    if m:
-        candidates.append(m.group(1))
+    """Return a legal chess.Move parsed from `text`, or None.
 
-    # Any UCI-shaped token in the body
-    candidates.extend(_UCI_RE.findall(text))
+    All scans run LAST-mentioned-first: chain-of-thought replies name
+    rejected candidates before the final choice ("e2e4 looks tempting,
+    but d2d4 is better") — first-match scanning plays the reject.
+    """
 
-    # Try UCI first
-    for cand in candidates:
-        cand = cand.strip().lower()
+    def try_uci(tok: str) -> Optional[chess.Move]:
         try:
-            mv = chess.Move.from_uci(cand)
-            if mv in board.legal_moves:
-                return mv
+            mv = chess.Move.from_uci(tok.strip().lower())
+            return mv if mv in board.legal_moves else None
         except Exception:
-            pass
+            return None
 
-    # Fall back to SAN parsing against a stripped version of the text
-    # Scan tokens with likely SAN glyphs (ignore "." for move numbers).
-    san_tokens = re.findall(r"[NBRQK]?[a-h1-8x=+#\-O0]+[+#]?", text)
-    for tok in san_tokens:
+    def try_san(tok: str) -> Optional[chess.Move]:
         tok = tok.strip().rstrip(".,;:")
         if not tok or tok == "O":
-            continue
-        # Allow "O-O" / "O-O-O" (castling)
+            return None
         try:
             mv = board.parse_san(tok)
-            if mv in board.legal_moves:
-                return mv
+            return mv if mv in board.legal_moves else None
         except Exception:
-            continue
+            return None
+
+    # Explicit "MOVE: ..." directives win; the last one is the decision.
+    for cand in reversed(_MOVE_PREFIX_RE.findall(text)):
+        mv = try_uci(cand) or try_san(cand)
+        if mv is not None:
+            return mv
+
+    # Any bare UCI-shaped token in the body.
+    for cand in reversed(_UCI_RE.findall(text)):
+        mv = try_uci(cand)
+        if mv is not None:
+            return mv
+
+    # SAN fallback — tokens with likely SAN glyphs ("." move numbers ignored,
+    # "O-O"/"O-O-O" castling allowed).
+    for tok in reversed(re.findall(r"[NBRQK]?[a-h1-8x=+#\-O0]+[+#]?", text)):
+        mv = try_san(tok)
+        if mv is not None:
+            return mv
     return None
 
 
@@ -732,10 +796,65 @@ def _server_history_san(m: ChessMatch) -> list[str]:
 
 
 def _numbered_legal_list(board: chess.Board) -> tuple[list[str], str]:
-    """Return (uci_list, formatted numbered block for prompts)."""
+    """Return (uci_list, formatted numbered block for prompts).
+
+    Each line pairs UCI with SAN — models think in SAN (PGN corpora), so
+    the pairing removes the mental translation step, and SAN's own glyphs
+    flag captures/checks/promotions (x, +, =Q) for free."""
     legal = [mv.uci() for mv in board.legal_moves]
-    lines = [f"  {i}. {u}" for i, u in enumerate(legal, 1)]
+    lines = [
+        f"  {i}. {mv.uci()}  ({board.san(mv)})"
+        for i, mv in enumerate(board.legal_moves, 1)
+    ]
     return legal, "\n".join(lines) if lines else "  (none)"
+
+
+_PIECE_VALUES = {
+    chess.PAWN: 1, chess.KNIGHT: 3, chess.BISHOP: 3,
+    chess.ROOK: 5, chess.QUEEN: 9,
+}
+
+
+def _material_summary(board: chess.Board) -> str:
+    """Server-computed material balance — models miscount from FEN alone."""
+    score = 0
+    for piece_type, val in _PIECE_VALUES.items():
+        score += val * len(board.pieces(piece_type, chess.WHITE))
+        score -= val * len(board.pieces(piece_type, chess.BLACK))
+    if score > 0:
+        return f"White +{score}"
+    if score < 0:
+        return f"Black +{-score}"
+    return "level"
+
+
+def _last_move_line(m: ChessMatch) -> str:
+    """One-line callout of the opponent's last applied move, with capture
+    info — cheaper for the model than diffing the history itself."""
+    if not m.moves:
+        return ""
+    rec = m.moves[-1]
+    if not rec.uci:
+        return ""
+    line = f"Opponent's last move: {rec.san} (UCI {rec.uci})"
+    for cap in reversed(m.captures):
+        if cap.move_n == rec.n:
+            name = _PIECE_NAMES.get(cap.piece_symbol.lower(), cap.piece_symbol)
+            line += f" — captured your {name}"
+            break
+    return line
+
+
+def _own_previous_thinking(m: ChessMatch, max_len: int = 400) -> str:
+    """The side-to-move's reasoning from its own previous move, so it can
+    hold a plan across plies instead of re-deriving from the FEN."""
+    for rec in reversed(m.moves):
+        if rec.side == m.turn and rec.source == MOVE_SOURCE_MODEL:
+            t = (rec.thinking or "").strip()
+            if len(t) > max_len:
+                t = t[:max_len] + "…"
+            return t
+    return ""
 
 
 def _build_prompt(m: ChessMatch, last_error: str = "", *, strict: bool = False) -> str:
@@ -749,21 +868,38 @@ def _build_prompt(m: ChessMatch, last_error: str = "", *, strict: bool = False) 
         "",
         f"FEN: {m.board.fen()}",
         "",
-        "Board (unicode; white = white pieces, black = black pieces):",
+        "Board (from White's perspective; UPPERCASE = White, lowercase = black):",
         "```",
-        _board_unicode(m.board),
+        _board_labeled(m.board),
         "```",
         "",
         f"Move history ({len(m.moves)} half-moves) — server-applied SAN only:",
         " ".join(history_san) if history_san else "(none — this is the first move)",
+    ]
+
+    last_line = _last_move_line(m)
+    if last_line:
+        lines.extend(["", last_line])
+
+    lines.extend([
         "",
+        f"Material: {_material_summary(m.board)}",
         f"You are in check: {'YES' if m.board.is_check() else 'no'}",
         f"Halfmove clock: {m.board.halfmove_clock}  Fullmove: {m.board.fullmove_number}",
         "",
-        f"Legal moves ({len(legal)}) — pick EXACTLY one UCI from this list:",
+        f"Legal moves ({len(legal)}) — UCI with SAN in parens; pick EXACTLY one UCI:",
         numbered,
         "",
-    ]
+    ])
+
+    prev_think = _own_previous_thinking(m)
+    if prev_think and not strict:
+        lines.extend([
+            "Your reasoning on your previous move (may be truncated):",
+            prev_think,
+            "",
+        ])
+
     if last_error:
         lines.append(f"REJECTED previous reply: {last_error}")
         lines.append("Your output must be a single line: MOVE: <uci> using a UCI from the list.")
@@ -809,16 +945,22 @@ def _adjudicate_move(m: ChessMatch) -> tuple[Optional[chess.Move], str, dict[str
         f"Adjudicate a chess move for {m.turn.upper()}. "
         f"The side's model failed to emit a legal MOVE after retries.\n"
         f"FEN: {m.board.fen()}\n"
-        f"Legal moves (pick exactly one UCI):\n{numbered}\n\n"
+        f"Pick a SAFE move: do NOT move a piece to a square the opponent "
+        f"attacks unless it is a sound capture or the piece is defended "
+        f"there. Prefer a quiet, solid move over anything speculative — "
+        f"you are a caretaker, not a hero.\n"
+        f"Legal moves (UCI with SAN; pick exactly one UCI):\n{numbered}\n\n"
         f"Reply with ONLY one line: MOVE: <uci>"
     )
     try:
+        # 500 not 80: a reasoning-tier judge burns its budget on internal
+        # thinking before the MOVE line — 80 guaranteed an empty reply.
         reply, usage = _llm_oneshot(
             prompt=prompt,
             system=_STRICT_SYSTEM_PROMPT,
             model=m.judge_model,
             temperature=0.0,
-            max_tokens=80,
+            max_tokens=500,
         )
     except Exception as e:
         log.warning("chess %s: adjudicate failed: %s", m.id, e)
@@ -869,8 +1011,15 @@ def make_move(match_id: str, max_attempts: int = 3) -> Optional[ChessMatch]:
 
         for attempts in range(1, max_attempts + 1):
             strict = attempts > 1
-            # Cap retry completion budget so blank reasoning can't burn 8k+ tokens.
-            max_tok = 2000 if attempts == 1 else 400
+            # Reasoning-tier models bill thinking INSIDE max_tokens (Fable 5
+            # can't turn thinking off at all), so their budget has to fit
+            # thinking + a MOVE line. 2000/400 starved them: truncation
+            # mid-thinking → zero text blocks → guaranteed adjudication.
+            # Plain chat models keep the tight caps — they never use more.
+            if _reasoning_tier(model):
+                max_tok = 8000 if attempts == 1 else 2500
+            else:
+                max_tok = 2000 if attempts == 1 else 400
             try:
                 reply, usage = _llm_oneshot(
                     prompt=_build_prompt(m, last_error=last_error, strict=strict),

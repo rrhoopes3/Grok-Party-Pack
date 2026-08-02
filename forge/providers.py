@@ -37,6 +37,50 @@ def _effective_key(provider: str, fallback: str) -> str:
 log = logging.getLogger("forge.providers")
 
 
+def anthropic_message_text(content) -> str:
+    """Extract visible text from an Anthropic Messages API ``content`` list.
+
+    Claude gen-5 / adaptive-thinking models often return a ``ThinkingBlock``
+    *before* any ``TextBlock``.  Older code did ``content[0].text`` and blew
+    up with ``AttributeError: 'ThinkingBlock' object has no attribute 'text'``
+    (Fable 5, Opus 5, Sonnet 5 in Chess Arena, etc.).
+
+    Preference order:
+      1. Concatenate every ``type == "text"`` block
+      2. Fall back to ``thinking`` blocks if the model emitted no text
+      3. Empty string if nothing usable is present
+    """
+    if not content:
+        return ""
+    text_parts: list[str] = []
+    thinking_parts: list[str] = []
+    for block in content:
+        btype = getattr(block, "type", None) or ""
+        if btype == "text":
+            t = getattr(block, "text", None)
+            if t:
+                text_parts.append(str(t))
+        elif btype in ("thinking", "redacted_thinking"):
+            # ThinkingBlock uses `.thinking`; redacted may only have a stub.
+            t = getattr(block, "thinking", None) or getattr(block, "text", None)
+            if t:
+                thinking_parts.append(str(t))
+        else:
+            # Unknown block shapes — prefer an explicit text attr if present.
+            t = getattr(block, "text", None)
+            if t is not None and btype != "tool_use":
+                text_parts.append(str(t))
+    if text_parts:
+        return "\n".join(text_parts).strip()
+    if thinking_parts:
+        log.info(
+            "anthropic: no text blocks; salvaging %d char(s) from thinking",
+            sum(len(p) for p in thinking_parts),
+        )
+        return "\n".join(thinking_parts).strip()
+    return ""
+
+
 # ── Provider Health Cache ──────────────────────────────────────────────────
 # When a provider returns a non-retryable error (quota exhausted, auth fail),
 # we mark it unhealthy for `_HEALTH_TTL` seconds. The router consults

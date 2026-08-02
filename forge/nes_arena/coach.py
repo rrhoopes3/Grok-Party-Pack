@@ -155,7 +155,8 @@ def _call_anthropic(prompt: str, system: str, model: str,
     if not _model_rejects_temperature(model):
         kwargs["temperature"] = 0.6
     resp = client.messages.create(**kwargs)
-    return resp.content[0].text
+    from forge.providers import anthropic_message_text
+    return anthropic_message_text(resp.content)
 
 
 def _call_openai_compat(prompt: str, system: str, model: str,
