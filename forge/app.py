@@ -20,7 +20,7 @@ import time
 import uuid
 from queue import Queue
 
-from flask import Flask, request, jsonify, Response, send_from_directory
+from flask import Flask, request, jsonify, Response, send_from_directory, redirect
 
 # Fix Windows console encoding
 if sys.platform == "win32":
@@ -382,6 +382,37 @@ def index():
 @app.route("/favicon.ico")
 def favicon():
     return Response(status=204)
+
+
+# ── BattleChess (3D viewer) ─────────────────────────────────────────────
+# Served from this app rather than its own static server so it is SAME-ORIGIN
+# with /api/chess. The browser would otherwise block its fetches: the Forge app
+# sends no CORS headers, so a BattleChess loaded from any other port/origin can
+# reach nothing and silently falls back to its canned offline demo.
+_BATTLECHESS_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "BattleChess"
+)
+
+
+@app.route("/battlechess")
+def battlechess_redirect():
+    # The trailing slash is load-bearing: index.html's importmap and script tags
+    # use relative paths ("./js/main.js"), which resolve against "/" — not
+    # "/battlechess/" — when the URL has no trailing slash, 404ing every asset.
+    return redirect("/battlechess/", code=308)
+
+
+@app.route("/battlechess/")
+def battlechess_index():
+    if not os.path.isdir(_BATTLECHESS_DIR):
+        return jsonify({"error": "BattleChess/ not found next to forge/"}), 404
+    return send_from_directory(_BATTLECHESS_DIR, "index.html")
+
+
+@app.route("/battlechess/<path:filename>")
+def battlechess_asset(filename: str):
+    # send_from_directory rejects traversal outside the root itself.
+    return send_from_directory(_BATTLECHESS_DIR, filename)
 
 @app.route("/api/task", methods=["POST"])
 def submit_task():
