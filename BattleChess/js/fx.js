@@ -39,6 +39,22 @@ const TRAIL_SPACING = 0.035;         // world units between emitted trail points
 
 const WHITE = new THREE.Color(0xffffff);
 
+/**
+ * Clears an `onBeforeRender` override on a pooled object.
+ *
+ * Do NOT assign `null` here. `onBeforeRender` lives on `Object3D.prototype`, and
+ * three.js calls `object.onBeforeRender(...)` unconditionally for every rendered
+ * object. Assigning `null` creates an *own* property that shadows the prototype
+ * method, so the next frame throws
+ * `TypeError: object.onBeforeRender is not a function` from inside
+ * `renderObject()` — once per frame, forever, because the pooled ring is
+ * re-acquired with the poisoned property still on it.
+ *
+ * A shared no-op keeps the object's hidden class stable across pool reuse
+ * (`delete` would force a shape transition on a hot object).
+ */
+const NO_BEFORE_RENDER = () => {};
+
 /* ------------------------------------------------------------------------- *
  * Small helpers
  * ------------------------------------------------------------------------- */
@@ -989,7 +1005,7 @@ export function createFX({ scene } = {}) {
     ground.scale.setScalar(0.4);
     ground.material.color.copy(_flashCol).lerp(WHITE, 0.2);
     ground.material.opacity = 0.8;
-    ground.onBeforeRender = null;
+    ground.onBeforeRender = NO_BEFORE_RENDER;
     root.add(ground);
 
     // --- spark burst ---
@@ -1016,7 +1032,7 @@ export function createFX({ scene } = {}) {
     let heldFlash = true, heldRing = true, heldGround = true;
 
     const dropFlash = () => { if (heldFlash) { heldFlash = false; flashPool.release(sprite); } };
-    const dropRing = () => { if (heldRing) { heldRing = false; ring.onBeforeRender = null; shockPool.release(ring); } };
+    const dropRing = () => { if (heldRing) { heldRing = false; ring.onBeforeRender = NO_BEFORE_RENDER; shockPool.release(ring); } };
     const dropGround = () => { if (heldGround) { heldGround = false; shockPool.release(ground); } };
 
     addEffect({
@@ -1160,7 +1176,7 @@ export function createFX({ scene } = {}) {
     ring.scale.setScalar(0.5);
     ring.material.color.copy(_beamCol);
     ring.material.opacity = 0;
-    ring.onBeforeRender = null;
+    ring.onBeforeRender = NO_BEFORE_RENDER;
     root.add(ring);
 
     let t = 0;
