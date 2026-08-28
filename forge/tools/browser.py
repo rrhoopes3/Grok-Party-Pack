@@ -61,6 +61,8 @@ def close_browser():
 def navigate(url: str) -> str:
     """Navigate to a URL and return the page title and URL."""
     try:
+        from forge.security import check_public_url
+        url = check_public_url(url)
         page = _get_page()
         resp = page.goto(url, wait_until="domcontentloaded", timeout=20_000)
         status = resp.status if resp else "unknown"
@@ -84,7 +86,8 @@ def screenshot(filename: str = "") -> str:
             filename = f"{safe_title or 'screenshot'}.png"
         if not filename.endswith(".png"):
             filename += ".png"
-        path = SCREENSHOTS_DIR / filename
+        from forge.security import resolve_in_root
+        path = resolve_in_root(SCREENSHOTS_DIR, filename)
         page.screenshot(path=str(path), full_page=False)
         return json.dumps({
             "status": "ok",

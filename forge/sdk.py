@@ -76,6 +76,7 @@ class ForgeClient:
         url = f"{self.base_url}{path}"
         headers = kwargs.pop("headers", {})
         headers.update(self._headers())
+        kwargs.setdefault("timeout", 30)
         resp = requests.request(method, url, headers=headers, **kwargs)
         data = resp.json() if resp.content else {}
 
@@ -159,7 +160,7 @@ class ForgeClient:
     def stream_task(self, task_id: str) -> Generator[dict, None, None]:
         """Stream SSE events from a running task. Yields dicts."""
         url = f"{self.base_url}/api/v1/tasks/{task_id}/stream"
-        resp = requests.get(url, headers=self._headers(), stream=True)
+        resp = requests.get(url, headers=self._headers(), stream=True, timeout=(15, 120))
         if resp.status_code != 200:
             raise ForgeError(f"Stream error: HTTP {resp.status_code}", resp.status_code)
 

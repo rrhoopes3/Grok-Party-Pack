@@ -229,10 +229,12 @@ def get_manager() -> ConversationManager:
 def create_blueprint():
     """Create Flask blueprint for conversation API endpoints."""
     from flask import Blueprint, request, jsonify
+    from forge.security import require_auth
 
     bp = Blueprint("conversations", __name__, url_prefix="/api/v1/conversations")
 
     @bp.route("", methods=["POST"])
+    @require_auth
     def create_conversation():
         data = request.get_json()
         agent_a = data.get("agent_a", "").strip()
@@ -260,6 +262,7 @@ def create_blueprint():
         return jsonify({"status": "ok", "conversation": conv.to_dict()})
 
     @bp.route("/<conv_id>/reply", methods=["POST"])
+    @require_auth
     def reply(conv_id):
         data = request.get_json()
         speaker = data.get("speaker", "").strip()
@@ -281,6 +284,7 @@ def create_blueprint():
             return jsonify({"error": str(e)}), 400
 
     @bp.route("/<conv_id>/close", methods=["POST"])
+    @require_auth
     def close_conversation(conv_id):
         data = request.get_json() or {}
         outcome = data.get("outcome", "")

@@ -32,7 +32,10 @@ from flask import Flask, jsonify, render_template_string, request
 # Allow running as python chronicler/web_app.py
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from forge.security import bind_host, install_auth_gate, require_auth
+
 app = Flask(__name__)
+install_auth_gate(app, allow_loopback_demo=True)
 
 # ── Configuration ────────────────────────────────────────────────────────────
 CHRONICLER_HOME = Path.home() / ".chronicler"
@@ -476,12 +479,14 @@ def index():
 
 
 @app.route("/api/runs")
+@require_auth
 def api_runs():
     seeds = get_all_seeds()
     return jsonify(seeds)
 
 
 @app.route("/api/weave", methods=["POST"])
+@require_auth
 def api_weave():
     data = request.json or {}
     seed = data.get("seed") or {"id": data.get("id", "unknown"), "task": "unknown quest"}
@@ -499,6 +504,7 @@ def api_cycle():
 
 
 @app.route("/api/etch", methods=["POST"])
+@require_auth
 def api_etch():
     myth = request.json or {}
     if not myth.get("saga"):
@@ -523,4 +529,4 @@ if __name__ == "__main__":
     print(f"║  http://localhost:{port}                                    ║")
     print("║  Your run logs will become legend.                         ║")
     print("╚════════════════════════════════════════════════════════════╝")
-    app.run(host="0.0.0.0", port=port, debug=True)
+    app.run(host=bind_host(), port=port, debug=False)

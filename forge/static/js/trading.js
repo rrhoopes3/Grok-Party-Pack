@@ -1516,7 +1516,11 @@ async function loadPolymarkets() {
         const data = await resp.json();
 
         if (data.error) {
-            container.innerHTML = `<div class="empty-state">Error: ${data.error}</div>`;
+            container.textContent = "";
+            const err = document.createElement("div");
+            err.className = "empty-state";
+            err.textContent = `Error: ${data.error}`;
+            container.appendChild(err);
             return;
         }
 
@@ -1553,7 +1557,7 @@ async function loadPolymarkets() {
                 const pct = (o.price * 100).toFixed(0);
                 const cls = o.name.toLowerCase() === "yes" ? "poly-price-yes" :
                             o.name.toLowerCase() === "no" ? "poly-price-no" : "poly-price-yes";
-                return `<span class="poly-price-pill ${cls}">${o.name} ${pct}%</span>`;
+                return `<span class="poly-price-pill ${cls}">${escapeHtml(o.name)} ${pct}%</span>`;
             }).join("");
 
             const vol24 = m.volume24hr ? `$${formatCompact(m.volume24hr)}` : "";
@@ -1572,7 +1576,11 @@ async function loadPolymarkets() {
             container.appendChild(card);
         });
     } catch (e) {
-        container.innerHTML = `<div class="empty-state">Failed to load: ${e.message}</div>`;
+        container.textContent = "";
+        const fail = document.createElement("div");
+        fail.className = "empty-state";
+        fail.textContent = `Failed to load: ${e.message}`;
+        container.appendChild(fail);
     }
 }
 

@@ -223,10 +223,13 @@ async def run_stdio(sandbox_path: str = "") -> None:
 def create_sse_app(sandbox_path: str = ""):
     """Create a Flask app for SSE transport (HTTP-based MCP)."""
     from flask import Flask, Response, request as flask_request, jsonify
+    from forge.security import install_auth_gate, require_auth
 
     sse_app = Flask(__name__)
+    install_auth_gate(sse_app, allow_loopback_demo=False)
 
     @sse_app.route("/sse", methods=["GET"])
+    @require_auth
     def sse_stream():
         """SSE endpoint — client sends requests via POST /message, receives via this stream."""
         def generate():
@@ -235,6 +238,7 @@ def create_sse_app(sandbox_path: str = ""):
         return Response(generate(), mimetype="text/event-stream")
 
     @sse_app.route("/message", methods=["POST"])
+    @require_auth
     def handle_message():
         """Handle JSON-RPC request from SSE client."""
         data = flask_request.get_json()
@@ -268,7 +272,8 @@ def main():
     if args.transport == "sse":
         app = create_sse_app(sandbox_path=args.sandbox)
         log.info("Forge MCP server starting (SSE on port %d)", args.port)
-        app.run(host="0.0.0.0", port=args.port)
+        from forge.security import bind_host
+        app.run(host=bind_host(), port=args.port, debug=False)
     else:
         asyncio.run(run_stdio(sandbox_path=args.sandbox))
 

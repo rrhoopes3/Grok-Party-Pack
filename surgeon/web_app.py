@@ -19,8 +19,10 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from surgeon import check_dependencies, scan_model, operate, list_operations, load_operation
+from forge.security import bind_host, install_auth_gate, require_auth
 
 app = Flask(__name__)
+install_auth_gate(app, allow_loopback_demo=True)
 
 INDEX_HTML = """
 <!doctype html>
@@ -99,10 +101,12 @@ def index():
     return render_template_string(INDEX_HTML)
 
 @app.route("/api/check")
+@require_auth
 def api_check():
     return jsonify(check_dependencies())
 
 @app.route("/api/scan", methods=["POST"])
+@require_auth
 def api_scan():
     data = request.json or {}
     model = data.get("model", "meta-llama/Llama-3.1-8B-Instruct")
@@ -113,6 +117,7 @@ def api_scan():
         return jsonify({"error": str(e)}), 400
 
 @app.route("/api/operate", methods=["POST"])
+@require_auth
 def api_operate():
     data = request.json or {}
     model = data.get("model")
@@ -133,4 +138,4 @@ if __name__ == "__main__":
     port = int(os.getenv("SURGEON_PORT", 5001))
     print(f"Surgeon web UI running on http://localhost:{port}")
     print("Set OBLITERATUS_ROOT before starting if you haven't already.")
-    app.run(host="0.0.0.0", port=port, debug=True)
+    app.run(host=bind_host(), port=port, debug=False)

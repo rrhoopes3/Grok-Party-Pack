@@ -7,6 +7,7 @@ import logging
 
 from flask import Blueprint, Response, jsonify, request
 
+from forge.security import require_auth
 from forge.trading import check_trading_readiness
 from forge.trading.engine import get_engine
 from forge.trading_deps import get_provider_dependency_status
@@ -89,6 +90,7 @@ def get_alerts():
 
 
 @trading_bp.route("/alerts", methods=["POST"])
+@require_auth
 def set_alert():
     """Create a new alert."""
     data = request.get_json() or {}
@@ -109,6 +111,7 @@ def set_alert():
 
 
 @trading_bp.route("/alerts/<alert_id>", methods=["DELETE"])
+@require_auth
 def remove_alert(alert_id: str):
     """Remove an alert."""
     removed = get_engine().remove_alert(alert_id)
@@ -272,6 +275,7 @@ def get_config():
 
 
 @trading_bp.route("/provider", methods=["POST"])
+@require_auth
 def switch_provider():
     """Switch the active trading provider at runtime."""
     import forge.config as cfg
@@ -330,6 +334,7 @@ def get_portfolio():
 
 
 @trading_bp.route("/order", methods=["POST"])
+@require_auth
 def place_order():
     """Place a trade order."""
     try:

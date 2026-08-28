@@ -5,25 +5,37 @@ from pathlib import Path
 from .registry import ToolRegistry
 
 
-def query_sqlite(database: str, query: str) -> str:
-    """Execute a SQL query against a SQLite database file."""
-    p = Path(database)
+_WRITE_PREFIXES = (
+    "INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "CREATE", "REPLACE",
+    "ATTACH", "DETACH", "VACUUM", "REINDEX", "INTO", "GRANT", "REVOKE",
+)
 
-    # Allow creating new databases
-    if not p.exists() and not query.strip().upper().startswith(("CREATE", "ATTACH")):
+
+def query_sqlite(database: str, query: str) -> str:
+    """Read-only SQL query against a SQLite database file. Never commits."""
+    p = Path(database)
+    if not p.exists():
         return json.dumps({"error": f"Database not found: {database}"})
 
-    try:
-        p.parent.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(database)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        cursor.execute(query)
+    q = (query or "").strip()
+    if not q:
+        return json.dumps({"error": "query required"})
+    if ";" in q.rstrip(";"):
+        return json.dumps({"error": "multiple SQL statements are not allowed"})
+    head = q.lstrip("(").split(None, 1)
+    verb = (head[0] if head else "").upper()
+    if verb in _WRITE_PREFIXES or verb not in ("SELECT", "PRAGMA", "EXPLAIN", "WITH"):
+        return json.dumps({"error": "read-only: only SELECT / PRAGMA / EXPLAIN / WITH queries are allowed"})
 
-        # Check if it's a SELECT/PRAGMA or data-modifying statement
-        q_upper = query.strip().upper()
-        if q_upper.startswith(("SELECT", "PRAGMA", "EXPLAIN")):
-            rows = cursor.fetchmany(100)  # Cap at 100 rows
+    try:
+        uri = p.resolve().as_uri() + "?mode=ro"
+        conn = sqlite3.connect(uri, uri=True)
+        conn.row_factory = sqlite3.Row
+        try:
+            conn.execute("PRAGMA query_only = ON")
+            cursor = conn.cursor()
+            cursor.execute(q)
+            rows = cursor.fetchmany(100)
             columns = [desc[0] for desc in cursor.description] if cursor.description else []
             data = [dict(row) for row in rows]
             result = {
@@ -33,14 +45,8 @@ def query_sqlite(database: str, query: str) -> str:
             }
             if len(data) == 100:
                 result["truncated"] = True
-        else:
-            conn.commit()
-            result = {
-                "status": "ok",
-                "rows_affected": cursor.rowcount,
-            }
-
-        conn.close()
+        finally:
+            conn.close()
         output = json.dumps(result, default=str, separators=(",", ":"))
         return output[:6_000] if len(output) > 6_000 else output
 
@@ -55,7 +61,7 @@ def query_sqlite(database: str, query: str) -> str:
 def register(registry: ToolRegistry):
     registry.register(
         name="query_sqlite",
-        description="Execute a SQL query on a SQLite database file. SELECT returns rows (max 100). INSERT/UPDATE/DELETE returns rows_affected. Creates the database if it doesn't exist for CREATE statements.",
+        description="Read-only SQL query on a SQLite database file. SELECT/PRAGMA/EXPLAIN/WITH only (max 100 rows). Writes are rejected.",
         parameters={
             "type": "object",
             "properties": {

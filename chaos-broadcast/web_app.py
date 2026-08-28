@@ -27,9 +27,17 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import sys
+
 from flask import Flask, jsonify, render_template_string, request
 
+_ROOT = str(Path(__file__).resolve().parent.parent)
+if _ROOT not in sys.path:
+    sys.path.insert(0, _ROOT)
+from forge.security import bind_host, install_auth_gate
+
 app = Flask(__name__)
+install_auth_gate(app, allow_loopback_demo=True)
 
 BROADCAST_HOME = Path.home() / ".chaos-broadcast"
 BROADCAST_HOME.mkdir(parents=True, exist_ok=True)
@@ -247,4 +255,4 @@ if __name__ == "__main__":
     print(f"║  http://localhost:{port}                                    ║")
     print("║  TRANSMIT. RECEIVE. INTERFERE. REPEAT.                     ║")
     print("╚════════════════════════════════════════════════════════════╝")
-    app.run(host="0.0.0.0", port=port, debug=True)
+    app.run(host=bind_host(), port=port, debug=False)

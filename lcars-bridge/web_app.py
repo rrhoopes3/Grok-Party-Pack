@@ -18,10 +18,18 @@ most beautiful set piece. It makes people go "wait... what is this project?"
 from __future__ import annotations
 
 import os
+import sys
+from pathlib import Path
 
 from flask import Flask, render_template_string
 
+_ROOT = str(Path(__file__).resolve().parent.parent)
+if _ROOT not in sys.path:
+    sys.path.insert(0, _ROOT)
+from forge.security import bind_host, install_auth_gate
+
 app = Flask(__name__)
+install_auth_gate(app, allow_loopback_demo=True)
 
 LCARS_BRIDGE_HTML = """
 <!doctype html>
@@ -359,4 +367,4 @@ if __name__ == "__main__":
     print(f"║  http://localhost:{port}                                    ║")
     print("║  Open on second monitor. Let the LCARS wash over you.      ║")
     print("╚════════════════════════════════════════════════════════════╝")
-    app.run(host="0.0.0.0", port=port, debug=True)
+    app.run(host=bind_host(), port=port, debug=False)

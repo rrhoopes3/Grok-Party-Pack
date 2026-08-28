@@ -80,7 +80,7 @@ SAFE_TOOLS = {
     # Browser (read-only)
     "browser_navigate", "browser_screenshot", "browser_extract_text", "browser_info",
 
-    # Database (read-only queries on user-provided paths — sandboxed)
+    # Database (enforced read-only: SELECT/PRAGMA/EXPLAIN/WITH, no commit)
     "query_sqlite",
 
     # Image ops (safe transforms)

@@ -246,6 +246,43 @@ _ssl_model = None
 _ssl_lock = threading.Lock()
 
 
+def _checkpoint_path(checkpoint_path: str) -> Path:
+    """Resolve a model checkpoint inside FORGE_MODEL_DIR / DATA_DIR/models."""
+    from forge.config import DATA_DIR
+    from forge.security import resolve_in_root
+
+    raw = Path(checkpoint_path)
+    extra = (os.getenv("FORGE_MODEL_DIR") or "").strip()
+    roots = [Path(DATA_DIR) / "models"]
+    if extra:
+        roots.insert(0, Path(extra))
+    last_err: Exception | None = None
+    for root in roots:
+        try:
+            if raw.is_absolute():
+                resolved = raw.resolve()
+                resolved.relative_to(root.resolve())
+                return resolved
+            return resolve_in_root(root, *raw.parts)
+        except (ValueError, OSError) as e:
+            last_err = e
+            continue
+    raise ValueError(
+        f"checkpoint_path must be inside FORGE_MODEL_DIR or DATA_DIR/models ({last_err})"
+    )
+
+
+def _torch_load_weights(path: Path, device: str):
+    """Deserialize tensors only — never pickle arbitrary objects."""
+    import torch
+    try:
+        return torch.load(str(path), map_location=device, weights_only=True)
+    except TypeError as e:
+        raise RuntimeError(
+            "Refusing to load a checkpoint without torch.weights_only support. Upgrade torch."
+        ) from e
+
+
 def _load_aasist(checkpoint_path: str, device: str = "cpu"):
     """Load AASIST model from a local checkpoint."""
     import torch
@@ -261,12 +298,13 @@ def _load_aasist(checkpoint_path: str, device: str = "cpu"):
 
     from aasist.models.AASIST import Model as AASISTModel
 
-    with open(Path(checkpoint_path).parent / "config.conf") as f:
+    ckpt_path = _checkpoint_path(checkpoint_path)
+    with open(ckpt_path.parent / "config.conf") as f:
         import json as _json
         cfg = _json.load(f)
 
     model = AASISTModel(cfg["model_config"]).to(device)
-    ckpt = torch.load(checkpoint_path, map_location=device)
+    ckpt = _torch_load_weights(ckpt_path, device)
     model.load_state_dict(ckpt if "state_dict" not in ckpt else ckpt["state_dict"])
     model.eval()
     return model
@@ -297,8 +335,9 @@ def _load_ssl(checkpoint_path: str, device: str = "cpu"):
         algo = 3
         lr = 0.000001
 
+    ckpt_path = _checkpoint_path(checkpoint_path)
     model = SSLModel(_Args(), device).to(device)
-    ckpt = torch.load(checkpoint_path, map_location=device)
+    ckpt = _torch_load_weights(ckpt_path, device)
     model.load_state_dict(ckpt)
     model.eval()
     return model

@@ -12,10 +12,12 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 from relics.bootstrap import register_all_relics
+from forge.security import bind_host, install_auth_gate
 
 
 def create_host_app() -> Flask:
     host = Flask("relic_host")
+    install_auth_gate(host, allow_loopback_demo=True)
     mounted = register_all_relics(host)
 
     @host.route("/")
@@ -37,7 +39,7 @@ def main() -> None:
     print("  index:", f"http://localhost:{port}/")
     for slug in sorted(getattr(app, "relic_apps", {})):
         print(f"  /relics/{slug}/")
-    app.run(host="0.0.0.0", port=port, debug=True)
+    app.run(host=bind_host(), port=port, debug=False)
 
 
 if __name__ == "__main__":

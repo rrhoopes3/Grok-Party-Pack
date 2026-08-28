@@ -3,21 +3,6 @@
  * Relies on core.js for resetRunState / applyRunState / updateStatus / modeFromControls
  */
 
-function renderVerificationList(items) {
-    els.verificationList.innerHTML = "";
-
-    if (!items.length) {
-        els.verificationList.innerHTML = "<li>No active step.</li>";
-        return;
-    }
-
-    items.forEach((item) => {
-        const li = document.createElement("li");
-        li.textContent = item;
-        els.verificationList.appendChild(li);
-    });
-}
-
 function recordRuntimeEvent(kind, message, detail = "") {
     state.runtimeEvents.unshift({ kind, message, detail });
     state.runtimeEvents = state.runtimeEvents.slice(0, 8);
@@ -347,9 +332,9 @@ function addMessage(type, content, options = {}) {
     div.className = `msg ${type}${extraClass}`;
 
     if (options.markdown) {
-        div.innerHTML = renderMarkdown(content);
+        div.innerHTML = sanitizeHtml(renderMarkdown(content));
     } else if (options.html) {
-        div.innerHTML = content;
+        div.innerHTML = sanitizeHtml(content);
     } else {
         div.textContent = content;
     }
@@ -439,6 +424,22 @@ function renderMarkdown(text) {
         return marked.parse(text || "");
     }
     return escapeHtml(text || "").replace(/\n/g, "<br>");
+}
+
+function sanitizeHtml(html) {
+    const template = document.createElement("template");
+    template.innerHTML = String(html || "");
+    template.content.querySelectorAll("script,iframe,object,embed,link,meta,base").forEach((el) => el.remove());
+    template.content.querySelectorAll("*").forEach((el) => {
+        [...el.attributes].forEach((attr) => {
+            const name = attr.name.toLowerCase();
+            const val = attr.value || "";
+            if (name.startsWith("on") || name === "srcdoc" || /^(javascript|data|vbscript):/i.test(val.trim())) {
+                el.removeAttribute(attr.name);
+            }
+        });
+    });
+    return template.innerHTML;
 }
 
 function isNearBottom(el) {

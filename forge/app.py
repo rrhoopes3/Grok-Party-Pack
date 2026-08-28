@@ -17,10 +17,10 @@ import json
 import logging
 import threading
 import time
-import uuid
 from queue import Queue
 
 from flask import Flask, request, jsonify, Response, send_from_directory, redirect
+from forge.security import install_auth_gate, require_auth
 
 # Fix Windows console encoding
 if sys.platform == "win32":
@@ -42,7 +42,7 @@ from forge.config import (
     PLANNER_AGENT_COUNT, EXECUTOR_MAX_ITERATIONS,
     USER_CORRECTION_ENABLED, GENERATIVE_UI_ENABLED, TRADING_ENABLED,
     PROPHECY_ENABLED, ARENA_SWARM_ENABLED,
-    AUTH_ENABLED, SCHEDULER_ENABLED, CONVERSATIONS_ENABLED,
+    SCHEDULER_ENABLED, CONVERSATIONS_ENABLED,
     OBSERVABILITY_ENABLED, PUBLIC_MODE,
     MCP_ENABLED, MCP_AUTO_SYNC_ENABLED, BLENDER_PACK_ENABLED,
     SALESFORCE_PACK_ENABLED,
@@ -80,13 +80,7 @@ def _mcp_api_summary() -> dict:
     except Exception as e:
         return {"enabled": True, "error": f"{type(e).__name__}: {e}"}
 
-# ── MCP health cache ────────────────────────────────────────────────────
-#
-# Live-pinging external MCP servers spawns a subprocess and takes 1-3s per
-# call. Every hit would storm the system on page load, so we cache the
-# result for _MCP_STATUS_CACHE_TTL seconds keyed by server name. `?live=true`
-# forces a refresh. Servers never pinged return `reachable: null` so the UI
-# can render them as "unknown" rather than "down".
+# MCP health cache: live ping is 1-3s; TTL keyed by server. ?live=true refreshes.
 
 _MCP_STATUS_CACHE_TTL = 5.0
 _mcp_status_cache: dict = {}
@@ -249,13 +243,8 @@ def register_modules(flask_app: Flask) -> dict:
         log.info("Observability enabled (/metrics)")
         enabled["observability"] = True
 
-    # ── Web UI Auth ─────────────────────────────────────────────────────
-    if AUTH_ENABLED:
-        from forge.auth import AuthManager
-        _auth = AuthManager()
-        _auth.init_app(flask_app)
-        log.info("Web UI authentication enabled")
-        enabled["auth"] = True
+    _auth = install_auth_gate(flask_app, with_login_ui=True)
+    enabled["auth"] = True
 
     # ── Public Demo Mode (BYOK) ─────────────────────────────────────────
     if PUBLIC_MODE:
@@ -415,6 +404,7 @@ def battlechess_asset(filename: str):
     return send_from_directory(_BATTLECHESS_DIR, filename)
 
 @app.route("/api/task", methods=["POST"])
+@require_auth
 def submit_task():
     data = request.get_json()
     task = data.get("task", "").strip()
@@ -443,7 +433,8 @@ def submit_task():
                 resubmission.description,
             )
 
-    task_id = str(uuid.uuid4())[:8]
+    from forge.security import new_id
+    task_id = new_id()
 
     if USER_CORRECTION_ENABLED:
         from forge.signals import correction_detector as _cd
@@ -489,6 +480,7 @@ def submit_task():
     return jsonify({"task_id": task_id})
 
 @app.route("/api/kill/<task_id>", methods=["POST"])
+@require_auth
 def kill_task(task_id):
     cancel_event = task_cancel_events.get(task_id)
     if not cancel_event:
@@ -531,13 +523,15 @@ def stream(task_id):
     })
 
 @app.route("/api/arena", methods=["POST"])
+@require_auth
 def submit_arena():
     data = request.get_json() or {}
     red_model = data.get("red_model", "").strip()
     blue_model = data.get("blue_model", "").strip()
     scenario = data.get("scenario", "classic").strip()
 
-    task_id = f"arena-{str(uuid.uuid4())[:8]}"
+    from forge.security import new_id
+    task_id = f"arena-{new_id()}"
     q = Queue()
     cancel_event = threading.Event()
     task_queues[task_id] = q
@@ -832,6 +826,7 @@ def get_mcp_status():
     })
 
 @app.route("/api/mcp/namespaces")
+@require_auth
 def get_mcp_namespaces():
     """Full sidebar render payload: internal + external namespaces.
 
@@ -990,10 +985,11 @@ def track_toll(msg: dict):
 # ── Main ────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
+    from forge.security import bind_host
     print()
     print("  ╔═══════════════════════════════════════╗")
     print("  ║     THE FORGE — Grok 4.20 Agent OS    ║")
     print("  ║     http://localhost:5000              ║")
     print("  ╚═══════════════════════════════════════╝")
     print()
-    app.run(host="0.0.0.0", port=5000, debug=False, threaded=True)
+    app.run(host=bind_host(), port=5000, debug=False, threaded=True)

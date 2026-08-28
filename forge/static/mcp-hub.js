@@ -60,12 +60,6 @@
     return `${(ms / 1000).toFixed(1)}s`;
   }
 
-  function stampNow() {
-    const d = new Date();
-    const pad = (n) => String(n).padStart(2, "0");
-    return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-  }
-
   // ── Fetchers ──────────────────────────────────────────────────────────
 
   async function fetchJSON(url) {

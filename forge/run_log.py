@@ -15,8 +15,17 @@ import time
 from pathlib import Path
 
 from forge.config import RUNS_DIR
+from forge.security import resolve_in_root, safe_id
 
 log = logging.getLogger("forge.run_log")
+
+
+def _run_file(task_id: str, suffix: str) -> Path | None:
+    try:
+        tid = safe_id(task_id)
+        return resolve_in_root(RUNS_DIR, f"{tid}{suffix}")
+    except ValueError:
+        return None
 
 
 class RunLog:
@@ -24,7 +33,10 @@ class RunLog:
 
     def __init__(self, task_id: str):
         self.task_id = task_id
-        self.path = RUNS_DIR / f"{task_id}.jsonl"
+        path = _run_file(task_id, ".jsonl")
+        if path is None:
+            raise ValueError("invalid task_id")
+        self.path = path
         self._artifacts: list[dict] = []
         self._event_count = 0
 
@@ -61,7 +73,9 @@ class RunLog:
             "artifacts": self._artifacts,
             **(metadata or {}),
         }
-        index_path = RUNS_DIR / f"{self.task_id}.meta.json"
+        index_path = _run_file(self.task_id, ".meta.json")
+        if index_path is None:
+            return
         try:
             index_path.write_text(
                 json.dumps(index, indent=2, default=str),
@@ -73,8 +87,8 @@ class RunLog:
 
 def load_run_events(task_id: str) -> list[dict]:
     """Load all events for a task run."""
-    path = RUNS_DIR / f"{task_id}.jsonl"
-    if not path.exists():
+    path = _run_file(task_id, ".jsonl")
+    if path is None or not path.exists():
         return []
     events = []
     try:
@@ -90,8 +104,8 @@ def load_run_events(task_id: str) -> list[dict]:
 
 def load_run_meta(task_id: str) -> dict | None:
     """Load the run metadata/index."""
-    path = RUNS_DIR / f"{task_id}.meta.json"
-    if not path.exists():
+    path = _run_file(task_id, ".meta.json")
+    if path is None or not path.exists():
         return None
     try:
         return json.loads(path.read_text(encoding="utf-8"))

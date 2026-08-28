@@ -9,6 +9,7 @@ import logging
 
 from flask import Blueprint, jsonify, request
 
+from forge.security import require_auth
 from forge.config import TOLL_DB_PATH
 from forge.toll.ledger import Ledger
 from forge.toll.rates import RateEngine
@@ -87,6 +88,7 @@ def get_rates():
 
 
 @toll_bp.route("/rates", methods=["PUT"])
+@require_auth
 def update_rates():
     """Update toll rates."""
     from forge.toll.models import TollRate

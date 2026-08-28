@@ -7,33 +7,31 @@ Users are stored in a JSON file.
 
 Usage:
     from forge.auth import AuthManager, require_login
+    from forge.security import install_auth_gate, require_auth
 
-    auth = AuthManager()
-    auth.create_user("admin", "changeme")
+    # Preferred: shared gate (login UI + before_request)
+    install_auth_gate(app, with_login_ui=True)
 
-    # In Flask app:
-    auth.init_app(app)
-
-    @app.route("/protected")
-    @require_login
-    def protected():
-        return "secret"
-
-First-run creates a default admin user with password from FORGE_ADMIN_PASSWORD
-env var (or "changeme" if not set — change it!).
+First-run creates a default admin user. Password comes from
+FORGE_ADMIN_PASSWORD, or a generated demo secret (never a hardcoded default).
+Non-demo mode fails closed if the env secret is missing.
 """
 from __future__ import annotations
 
-import functools
 import hashlib
 import json
 import logging
 import os
 import secrets
 import time
+from collections import defaultdict
 from pathlib import Path
 
 log = logging.getLogger("forge.auth")
+
+_LOCKOUT_WINDOW = 300  # seconds
+_LOCKOUT_THRESHOLD = 5
+_LOCKOUT_SECONDS = 300
 
 
 def _hash_password(password: str, salt: str = "") -> tuple[str, str]:
@@ -53,13 +51,17 @@ def _hash_password(password: str, salt: str = "") -> tuple[str, str]:
 
 
 def _verify_password(password: str, stored_hash: str, salt: str = "") -> bool:
-    """Verify a password against a stored hash."""
+    """Verify a password against a stored hash. Never raises."""
     try:
         import bcrypt
         return bcrypt.checkpw(password.encode(), stored_hash.encode())
     except ImportError:
         hashed = hashlib.sha256((salt + password).encode()).hexdigest()
-        return hashed == stored_hash
+        if len(hashed) != len(stored_hash):
+            return False
+        return secrets.compare_digest(hashed, stored_hash)
+    except Exception:
+        return False
 
 
 class AuthManager:
@@ -73,10 +75,15 @@ class AuthManager:
         self._sessions: dict[str, dict] = {}  # token → {user, created_at, expires_at}
         self._users: dict[str, dict] = {}  # username → {hash, salt, role, created_at}
         self._session_ttl = 86400 * 7  # 7 days
+        self._failures: dict[str, list[float]] = defaultdict(list)
+        self._lock_until: dict[str, float] = {}
         self._load()
 
     def _load(self) -> None:
         """Load users from disk."""
+        from forge.security import _under_pytest
+        if _under_pytest():
+            return
         if self._users_file.exists():
             try:
                 with open(self._users_file, "r") as f:
@@ -86,6 +93,9 @@ class AuthManager:
 
     def _save(self) -> None:
         """Persist users to disk."""
+        from forge.security import _under_pytest
+        if _under_pytest():
+            return
         with open(self._users_file, "w") as f:
             json.dump(self._users, f, indent=2)
 
@@ -122,15 +132,40 @@ class AuthManager:
             return True
         return False
 
+    def _is_locked(self, username: str) -> bool:
+        until = self._lock_until.get(username, 0)
+        return time.time() < until
+
+    def _note_failure(self, username: str) -> None:
+        now = time.time()
+        recent = [t for t in self._failures[username] if now - t < _LOCKOUT_WINDOW]
+        recent.append(now)
+        self._failures[username] = recent
+        if len(recent) >= _LOCKOUT_THRESHOLD:
+            self._lock_until[username] = now + _LOCKOUT_SECONDS
+            log.warning("Account locked for %s after %d failures", username, len(recent))
+
+    def _clear_failures(self, username: str) -> None:
+        self._failures.pop(username, None)
+        self._lock_until.pop(username, None)
+
     def authenticate(self, username: str, password: str) -> str | None:
         """Authenticate a user. Returns session token or None."""
+        key = username or "_"
+        if self._is_locked(key):
+            # Dummy verify to keep timing closer to the success path.
+            _verify_password(password or "x", "0" * 64, "")
+            return None
         user = self._users.get(username)
         if not user:
+            _verify_password(password or "x", "0" * 64, "")
+            self._note_failure(key)
             return None
         if not _verify_password(password, user["hash"], user.get("salt", "")):
+            self._note_failure(key)
             return None
 
-        # Create session
+        self._clear_failures(key)
         token = secrets.token_urlsafe(32)
         self._sessions[token] = {
             "user": username,
@@ -156,79 +191,49 @@ class AuthManager:
 
     def ensure_default_user(self) -> None:
         """Create default admin user if no users exist."""
-        if not self._users:
-            password = os.getenv("FORGE_ADMIN_PASSWORD", "changeme")
-            self.create_user("admin", password, role="admin")
-            if password == "changeme":
-                log.warning(
-                    "Default admin created with password 'changeme' — "
-                    "set FORGE_ADMIN_PASSWORD to change it!"
-                )
+        if self._users:
+            return
+        from forge.security import _under_pytest, get_admin_password
+        if _under_pytest():
+            hashed, salt = _hash_password("pytest-admin")
+            self._users["admin"] = {
+                "hash": hashed,
+                "salt": salt,
+                "role": "admin",
+                "created_at": time.time(),
+            }
+            return
+        password = get_admin_password()
+        self.create_user("admin", password, role="admin")
+        if not os.getenv("FORGE_ADMIN_PASSWORD"):
+            log.warning(
+                "Demo admin user created. Password (store it, not shown again): %s",
+                password,
+            )
+            print(f"\n  Forge demo admin: user=admin  password={password}\n")
 
     def init_app(self, app) -> None:
         """Initialize Flask app with auth routes and middleware."""
-        from flask import request, jsonify, redirect, session, g
+        from flask import request, jsonify, session, g
+        from forge.security import get_secret_key, require_request_auth
 
-        app.secret_key = os.getenv(
-            "FORGE_SECRET_KEY",
-            secrets.token_urlsafe(32),
-        )
+        app.secret_key = get_secret_key()
+        app.config.setdefault("FORGE_ALLOW_LOOPBACK_DEMO", False)
+        g_flag = "_forge_auth_manager"
+        app.config[g_flag] = self
 
         self.ensure_default_user()
 
-        # Public paths that don't require auth
-        public_paths = {
-            "/api/v1/agents/register",  # marketplace registration
-            "/login",
-            "/api/login",
-            "/api/logout",
-            "/favicon.ico",
-        }
-        # Public prefixes
-        public_prefixes = (
-            "/static/",
-            "/api/v1/",  # marketplace API uses its own auth
-        )
-
         @app.before_request
         def check_auth():
-            path = request.path
-
-            # Skip auth for public paths
-            if path in public_paths:
-                return
-            for prefix in public_prefixes:
-                if path.startswith(prefix):
-                    return
-
-            # Check for auth if enabled
-            from forge.config import AUTH_ENABLED
-            if not AUTH_ENABLED:
-                return
-
-            # Check session cookie
+            g.forge_auth_manager = self
             token = session.get("forge_token")
             if token:
                 sess = self.validate_session(token)
                 if sess:
                     g.user = sess["user"]
                     g.role = sess["role"]
-                    return
-
-            # Check Authorization header (for API clients)
-            auth_header = request.headers.get("Authorization", "")
-            if auth_header.startswith("Bearer "):
-                token = auth_header[7:]
-                sess = self.validate_session(token)
-                if sess:
-                    g.user = sess["user"]
-                    g.role = sess["role"]
-                    return
-
-            # Not authenticated
-            if request.is_json or path.startswith("/api/"):
-                return jsonify({"error": "Authentication required"}), 401
-            return redirect("/login")
+            return require_request_auth()
 
         @app.route("/login", methods=["GET"])
         def login_page():
@@ -275,7 +280,11 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
             password = data.get("password", "")
             token = self.authenticate(username, password)
             if token:
+                # Rotate the cookie session so a pre-auth id cannot be reused.
+                session.clear()
                 session["forge_token"] = token
+                session["_sid"] = secrets.token_urlsafe(16)
+                session.modified = True
                 return jsonify({"status": "ok", "user": username})
             return jsonify({"error": "Invalid credentials"}), 401
 
@@ -291,11 +300,5 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
 
 def require_login(f):
     """Flask route decorator that requires authentication."""
-    @functools.wraps(f)
-    def decorated(*args, **kwargs):
-        from flask import g
-        if not hasattr(g, "user") or not g.user:
-            from flask import jsonify
-            return jsonify({"error": "Authentication required"}), 401
-        return f(*args, **kwargs)
-    return decorated
+    from forge.security import require_auth
+    return require_auth(f)

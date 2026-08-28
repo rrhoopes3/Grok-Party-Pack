@@ -630,15 +630,20 @@ DALL-E 3 image generation, OpenAI TTS, and Whisper transcription. Requires `OPEN
 
 ## Web UI Authentication
 
-Session-based authentication for the Forge web interface. Disabled by default.
+Session-based authentication for the Forge web interface. Mutating APIs
+require a session cookie or `Authorization: Bearer` / `X-Forge-Admin` token.
+The server binds to `127.0.0.1` unless `FORGE_BIND=0.0.0.0`.
 
 ```env
-FORGE_AUTH_ENABLED=true
 FORGE_ADMIN_PASSWORD=your-secure-password
 FORGE_SECRET_KEY=your-secret-key
+FORGE_BIND=127.0.0.1
 ```
 
-First run creates a default `admin` user. The marketplace API (`/api/v1/`) uses its own API key auth and is not affected.
+Demo (loopback bind) generates missing secrets and prints the admin password
+once. Any other mode fails closed if those env vars are missing. There is no
+hardcoded default password. The marketplace API (`/api/v1/agents`, `/wallet`,
+`/tasks`, `/toll`) uses its own API key auth; `/api/v1/conversations` does not.
 
 ---
 

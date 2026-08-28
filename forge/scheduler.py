@@ -352,6 +352,7 @@ class Scheduler:
 def create_blueprint(scheduler: Scheduler):
     """Create Flask blueprint for scheduler API endpoints."""
     from flask import Blueprint, request, jsonify
+    from forge.security import require_auth
 
     bp = Blueprint("scheduler", __name__, url_prefix="/api/scheduler")
 
@@ -365,6 +366,7 @@ def create_blueprint(scheduler: Scheduler):
         })
 
     @bp.route("/jobs", methods=["POST"])
+    @require_auth
     def create_job():
         data = request.get_json()
         name = data.get("name", "").strip()
@@ -389,12 +391,14 @@ def create_blueprint(scheduler: Scheduler):
             return jsonify({"error": str(e)}), 400
 
     @bp.route("/jobs/<job_id>", methods=["DELETE"])
+    @require_auth
     def delete_job(job_id):
         if scheduler.remove(job_id):
             return jsonify({"status": "ok"})
         return jsonify({"error": "Job not found"}), 404
 
     @bp.route("/jobs/<job_id>/trigger", methods=["POST"])
+    @require_auth
     def trigger_job(job_id):
         result = scheduler.trigger(job_id)
         if "error" in result:

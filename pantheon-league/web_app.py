@@ -24,9 +24,17 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import sys
+
 from flask import Flask, jsonify, render_template_string, request
 
+_ROOT = str(Path(__file__).resolve().parent.parent)
+if _ROOT not in sys.path:
+    sys.path.insert(0, _ROOT)
+from forge.security import bind_host, install_auth_gate, require_auth
+
 app = Flask(__name__)
+install_auth_gate(app, allow_loopback_demo=True)
 
 LEAGUE_HOME = Path.home() / ".pantheon-league"
 LEAGUE_HOME.mkdir(parents=True, exist_ok=True)
@@ -424,6 +432,7 @@ def index():
 
 
 @app.route("/api/standings")
+@require_auth
 def api_standings():
     return jsonify(get_standings())
 
@@ -450,6 +459,7 @@ def api_rivals_report():
 
 
 @app.route("/api/simulate", methods=["POST"])
+@require_auth
 def api_simulate():
     data = request.json or {}
     a, b = data.get("a"), data.get("b")
@@ -480,4 +490,4 @@ if __name__ == "__main__":
     print(f"║  http://localhost:{port}                                    ║")
     print("║  Book matches. Watch grudges grow. Generate propaganda.    ║")
     print("╚════════════════════════════════════════════════════════════╝")
-    app.run(host="0.0.0.0", port=port, debug=True)
+    app.run(host=bind_host(), port=port, debug=False)

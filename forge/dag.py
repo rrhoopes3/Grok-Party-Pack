@@ -100,7 +100,7 @@ class DAGPlan:
 
     def __post_init__(self):
         if not self.id:
-            self.id = uuid.uuid4().hex[:12]
+            self.id = uuid.uuid4().hex
         if not self.created_at:
             self.created_at = time.time()
 

@@ -13,7 +13,10 @@ from flask import Flask
 
 def create_relic_app(import_name: str) -> Flask:
     """Canonical factory — every relic starts here."""
-    return Flask(import_name)
+    app = Flask(import_name)
+    from forge.security import install_auth_gate
+    install_auth_gate(app, allow_loopback_demo=True)
+    return app
 
 
 def load_json_safe(path: Path) -> list[dict]:
@@ -41,16 +44,18 @@ def run_relic(
     default_port: int,
     env_var: str,
     banner: list[str] | None = None,
-    debug: bool = True,
+    debug: bool = False,
 ) -> None:
     """Shared __main__ runner for standalone relic processes."""
+    from forge.security import bind_host
     port = int(os.getenv(env_var, str(default_port)))
     if banner:
         for line in banner:
             print(line.replace("{port}", str(port)))
     else:
         print(f"Relic app on http://localhost:{port}")
-    app.run(host="0.0.0.0", port=port, debug=debug)
+    debug = (os.getenv("FORGE_DEBUG") or "").strip().lower() in ("1", "true", "yes")
+    app.run(host=bind_host(), port=port, debug=debug)
 
 
 def register_all_relics(host: Flask) -> dict[str, Flask]:

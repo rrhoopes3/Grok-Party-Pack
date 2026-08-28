@@ -33,6 +33,7 @@ if str(_ROOT) not in sys.path:
 from flask import jsonify, render_template_string
 
 from relics.bootstrap import create_relic_app, load_json_safe, run_relic
+from forge.security import require_auth
 
 app = create_relic_app(__name__)
 
@@ -198,6 +199,7 @@ def api_episode():
     return jsonify(generate_episode())
 
 @app.route("/api/dispatch", methods=["POST"])
+@require_auth
 def api_dispatch():
     data = request.json or {}
     topic = data.get("topic", "the current state of the relics")
