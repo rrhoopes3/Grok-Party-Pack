@@ -40,6 +40,7 @@ from forge.tools import create_registry
 from forge import executor
 from forge.arena import sandbox
 from forge.arena.swarm import SWARM_SCENARIOS, run_swarm_war
+from forge.arena.conquest import CONQUEST_SCENARIOS, run_conquest
 
 log = logging.getLogger("forge.arena")
 
@@ -144,6 +145,8 @@ SCENARIOS = {
     },
     # ── Swarm Mode (CASS — Colloidal Algorithmic Strife Simulator) ──────
     **{k: {**v, "mode": "swarm"} for k, v in SWARM_SCENARIOS.items()},
+    # ── Conquest Mode (Risk-style war game; every territory is a skill) ──
+    **{k: {**v, "mode": "conquest"} for k, v in CONQUEST_SCENARIOS.items()},
 }
 
 
@@ -497,13 +500,16 @@ class ArenaRunner:
         self.scenario = SCENARIOS[self.scenario_key]
         self.is_collab = self.scenario.get("mode") == "collab"
         self.is_swarm = self.scenario.get("mode") == "swarm"
+        self.is_conquest = self.scenario.get("mode") == "conquest"
         self.scores = {"red": 0, "blue": 0}
         self.combat_log = []
         self.paths = {}
 
     def run(self) -> Generator[dict, None, None]:
         """Full arena pipeline. Yields SSE dicts."""
-        if self.is_swarm:
+        if self.is_conquest:
+            yield from self._run_conquest_mode()
+        elif self.is_swarm:
             yield from self._run_swarm_mode()
         elif self.is_collab:
             yield from self._run_collab()
@@ -679,6 +685,23 @@ class ArenaRunner:
 
         finally:
             sandbox.cleanup()
+
+    def _run_conquest_mode(self) -> Generator[dict, None, None]:
+        """CONQUEST — Risk-style war game. The engine referees; models only send orders."""
+        models = {
+            "red": self.red_model,
+            "blue": self.blue_model,
+            "gold": ARENA_DEFAULT_FIGHTER_MODEL,
+            "green": ARENA_DEFAULT_FIGHTER_MODEL,
+        }
+        for event in run_conquest(self.scenario_key, models=models,
+                                  cancel_event=self.cancel_event):
+            if event.get("type") == "arena_scores":
+                self.scores["red"] = event.get("red_total", self.scores["red"])
+                self.scores["blue"] = event.get("blue_total", self.scores["blue"])
+            yield event
+            if self.cancel_event.is_set():
+                return
 
     def _run_collab(self) -> Generator[dict, None, None]:
         """Full collaboration pipeline — same engine, cooperative energy."""
