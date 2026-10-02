@@ -644,6 +644,31 @@ def _extract_json(text: str) -> Any:
     return extract(text)
 
 
+def _coerce_cohort_body(raw: Any) -> dict:
+    """Accept a dict, a JSON string, or {"id", "body": {...}} from a cohort process."""
+    if isinstance(raw, str):
+        raw = raw.strip()
+        try:
+            raw = json.loads(raw)
+        except json.JSONDecodeError:
+            match = re.search(r"\{.*\}", raw, re.S)
+            if not match:
+                return {}
+            try:
+                raw = json.loads(match.group())
+            except json.JSONDecodeError:
+                return {}
+    if isinstance(raw, list):
+        raw = raw[0] if raw and isinstance(raw[0], dict) else {}
+    if not isinstance(raw, dict):
+        return {}
+    body = raw.get("body")
+    if isinstance(body, dict):
+        return body
+    return {k: v for k, v in raw.items()
+            if k not in ("id", "kind", "faction", "turn", "prompt", "system", "view")}
+
+
 # ── Prompts ──────────────────────────────────────────────────────────────────
 
 ORDERS_SYSTEM = """You command the {fname} ({faction}) in CONQUEST, a Risk-style war game.
@@ -719,6 +744,7 @@ class ConquestGame:
         commentary_model: str = "",
         cancel_event: threading.Event | None = None,
         rounds: int | None = None,
+        controllers: dict[str, Callable[[dict], Any]] | None = None,
     ):
         self.scenario_key = scenario_key if scenario_key in CONQUEST_SCENARIOS else "conquest"
         self.scenario = CONQUEST_SCENARIOS[self.scenario_key]
@@ -728,6 +754,10 @@ class ConquestGame:
         self.commentary_model = commentary_model
         self.cancel_event = cancel_event or threading.Event()
         self.rounds = rounds or self.scenario["rounds"]
+        # Optional external players. A controller receives one JSON-able request
+        # per decision and returns the same JSON a model would. Missing factions
+        # still go through `llm`. Controllers never receive hidden task answers.
+        self.controllers: dict[str, Callable[[dict], Any]] = dict(controllers or {})
         models = models or {}
         self.players: dict[str, Player] = {
             f: Player(faction=f, model=models.get(f, "")) for f in self.scenario["factions"]
@@ -777,6 +807,39 @@ class ConquestGame:
 
     def alive_factions(self) -> list[str]:
         return [f for f, p in self.players.items() if p.alive]
+
+    def faction_view(self, faction: str) -> dict:
+        """Fog-safe snapshot for a cohort player. Hidden tiles have null owner and troops."""
+        seen = self.visible(faction)
+        player = self.players[faction]
+        tiles = []
+        for name in TERRITORIES:
+            ter = self.map[name]
+            hidden = name not in seen
+            region = TERRITORY_REGION[name]
+            tiles.append({
+                "name": name,
+                "region": region,
+                "domain": REGIONS[region]["domain"],
+                "adjacent": sorted(ADJACENCY[name]),
+                "owner": None if hidden else ter.owner,
+                "troops": None if hidden else ter.troops,
+            })
+        return {
+            "turn": self.turn,
+            "rounds": self.rounds,
+            "faction": faction,
+            "name": FACTION_NAMES.get(faction, faction),
+            "alive": self.alive_factions(),
+            "reinforcements": self.income(faction),
+            "score": self.score(faction),
+            "perks": sorted(self.perks(faction)),
+            "memory": player.memory,
+            "inbox": list(player.inbox),
+            "intel": list(player.intel),
+            "territories": tiles,
+            "max_attacks": MAX_ATTACKS_PER_TURN,
+        }
 
     def visible(self, faction: str) -> set[str]:
         if "all_seeing_eye" in self.perks(faction):
@@ -844,6 +907,24 @@ class ConquestGame:
         if isinstance(data, list):
             data = data[0] if data and isinstance(data[0], dict) else {}
         return data if isinstance(data, dict) else {}
+
+    def _cohort_reply(self, faction: str, kind: str, prompt: str, system: str) -> dict:
+        """Ask an external controller. Never calls a model API."""
+        ctrl = self.controllers[faction]
+        req = {
+            "kind": kind,
+            "faction": faction,
+            "turn": self.turn,
+            "prompt": prompt,
+            "system": system,
+            "view": self.faction_view(faction),
+        }
+        try:
+            raw = ctrl(req)
+        except Exception as e:
+            log.warning("Conquest cohort %s failed (%s): %s", faction, kind, e)
+            return {}
+        return _coerce_cohort_body(raw)
 
     # ── turn prompt ──────────────────────────────────────────────────
 
@@ -1057,7 +1138,10 @@ class ConquestGame:
         tool_left = "interpreter" in self.perks(faction)
         for attempt in range(1, attempts + 1):
             prompt = f"TASK ({task.domain}):\n{task.prompt}\n{extra}{history}"
-            data = self._ask_json(prompt, system, p.model, 0.3)
+            if faction in self.controllers:
+                data = self._cohort_reply(faction, "duel", prompt, system)
+            else:
+                data = self._ask_json(prompt, system, p.model, 0.3)
             if tool_left and isinstance(data.get("python"), str) and not data.get("answer") and not data.get("code"):
                 tool_left = False
                 res = run_sandboxed(data["python"])
@@ -1067,8 +1151,11 @@ class ConquestGame:
                 trail.append("used Interpreter" + (f" ({res['error']})" if res.get("error") else ""))
                 history += (f"\n\nYOUR PYTHON RAN. stdout:\n{out}\nerror: {res.get('error')}\n"
                             "Now give your final answer.")
-                data = self._ask_json(f"TASK ({task.domain}):\n{task.prompt}\n{extra}{history}",
-                                      system, p.model, 0.3)
+                follow = f"TASK ({task.domain}):\n{task.prompt}\n{extra}{history}"
+                if faction in self.controllers:
+                    data = self._cohort_reply(faction, "duel", follow, system)
+                else:
+                    data = self._ask_json(follow, system, p.model, 0.3)
             answer = data.get("code") if task.domain == "code" else data.get("answer")
             if task.domain == "code" and not answer:
                 answer = data.get("answer")
@@ -1176,13 +1263,17 @@ class ConquestGame:
             return
         amount = self.income(faction)
         prompt = self._turn_prompt(faction, amount)
-        p.intel = []
         system = ORDERS_SYSTEM.format(
             fname=FACTION_NAMES[faction], faction=faction.upper(), max_attacks=MAX_ATTACKS_PER_TURN,
             big_army=BIG_ARMY, neutral_score=NEUTRAL_SCORE, spy_cost=SPY_COST,
             max_msgs=MAX_MESSAGES_PER_TURN, mem_chars=self.memory_limit(faction))
         yield {"type": "arena_status", "content": f"{faction.upper()} is planning..."}
-        orders = self._ask_json(prompt, system, p.model, 0.7)
+        # Intel is still on the player here so a cohort `view` matches the prompt.
+        if faction in self.controllers:
+            orders = self._cohort_reply(faction, "orders", prompt, system)
+        else:
+            orders = self._ask_json(prompt, system, p.model, 0.7)
+        p.intel = []
         if not orders:
             yield {"type": "arena_team_action", "team": faction, "action_type": "orders",
                    "content": "No valid orders received (model error or bad JSON). Turn forfeited."}
@@ -1234,8 +1325,10 @@ class ConquestGame:
         try:
             yield {"type": "arena_status", "content": (
                 f"⚔ CONQUEST — {sc['name'].upper()} ⚔\n\"{sc['tagline']}\"\n"
-                + "\n".join(f"  {f.upper()} ({FACTION_NAMES[f]}): {p.model or 'default model'}"
-                            for f, p in self.players.items()))}
+                + "\n".join(
+                    f"  {f.upper()} ({FACTION_NAMES[f]}): "
+                    + (p.model or ("cohort" if f in self.controllers else "default model"))
+                    for f, p in self.players.items()))}
             yield {"type": "arena_status", "content": "THE MAP\n" + self.render_map()}
             yield {"type": "conquest_state", "state": self.public_state()}
             prev = {f: self.score(f) for f in self.players}
