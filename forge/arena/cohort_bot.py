@@ -198,68 +198,199 @@ def solve_duel(prompt: str) -> dict:
 
 
 def plan_orders(req: dict) -> dict:
-    """Legal, fog-respecting orders. Skips hidden tiles so Cheat Watch stays quiet."""
+    """Legal, fog-respecting orders with region focus, fortify, and spy.
+
+    Skips hidden tiles (owner/troops None) so Cheat Watch stays quiet. Prefers
+    completing a region, stacks on the frontier, commits BIG_ARMY when it can,
+    fortifies spare interior troops forward, and spies when fog still bites.
+    """
     view = req.get("view") or {}
     me = view.get("faction") or req.get("faction") or "red"
     tiles = {t["name"]: t for t in view.get("territories") or []}
     mine = [name for name, tile in tiles.items() if tile.get("owner") == me]
     amount = int(view.get("reinforcements") or 0)
+    turn = int(view.get("turn") or 0)
+    perks = set(view.get("perks") or [])
     if not mine:
         return {
             "reinforce": {}, "attacks": [], "fortify": None, "spy": None,
             "messages": [], "memory": "no land",
         }
 
+    def owner_of(name: str):
+        return tiles[name].get("owner")
+
+    def troops_of(name: str) -> int:
+        return int(tiles[name].get("troops") or 0)
+
     def threats(name: str) -> list[str]:
-        return [n for n in tiles[name]["adjacent"] if tiles[n].get("owner") != me]
+        return [
+            n for n in tiles[name]["adjacent"]
+            if owner_of(n) not in (me, None)
+        ]
 
-    host = max(mine, key=lambda n: (len(threats(n)), -(tiles[n].get("troops") or 0)))
-    reinforce = {host: amount} if amount else {}
-    troops = {n: int(tiles[n].get("troops") or 0) for n in mine}
-    troops[host] = troops.get(host, 0) + amount
+    # Region progress from what we can see (hidden tiles count as not ours).
+    regions: dict[str, dict] = {}
+    for name, tile in tiles.items():
+        r = tile.get("region") or "?"
+        bucket = regions.setdefault(r, {"mine": [], "enemy": [], "hidden": 0, "total": 0})
+        bucket["total"] += 1
+        own = owner_of(name)
+        if own == me:
+            bucket["mine"].append(name)
+        elif own is None:
+            bucket["hidden"] += 1
+        else:
+            bucket["enemy"].append(name)
 
+    def region_score(r: str) -> tuple:
+        b = regions[r]
+        need = b["total"] - len(b["mine"])
+        # Prefer almost-complete visible regions, then ones we already touch.
+        return (need == 0, -len(b["mine"]), need, r)
+
+    # Primary goal: region we partly hold and can still finish (or the best start).
+    open_regions = [r for r, b in regions.items() if len(b["mine"]) < b["total"]]
+    goal = None
+    if open_regions:
+        # Prefer regions where we already own something and see the rest.
+        touched = [r for r in open_regions if regions[r]["mine"]]
+        pool = touched or open_regions
+        goal = min(pool, key=region_score)
+
+    # Attack candidates: adjacent, visible enemy/neutral only.
     cands = []
     for src in mine:
         for dst in tiles[src]["adjacent"]:
-            owner = tiles[dst].get("owner")
-            if owner in (me, None):
+            own = owner_of(dst)
+            if own in (me, None):
                 continue
-            cands.append((int(tiles[dst].get("troops") or 0), src, dst, owner))
-    if me == "blue":
-        cands.sort(key=lambda c: (0 if c[3] == "neutral" else 1, c[0], c[1]))
-    else:
-        cands.sort(key=lambda c: (c[0], c[1], c[2]))
+            dtr = troops_of(dst)
+            in_goal = 1 if goal and tiles[dst].get("region") == goal else 0
+            # Prefer goal-region, neutrals, weaker garrisons, then weaker sources last.
+            # Lower sort key = better.
+            rival = 0 if own == "neutral" else 1
+            cands.append((
+                -in_goal, rival, dtr, -troops_of(src), src, dst, own, dtr,
+            ))
+    cands.sort()
 
+    # Reinforce onto the best attack springboard (or busiest frontier).
+    host = None
+    if cands:
+        # Prefer a source that can hit the top candidate after stacking.
+        top = cands[0]
+        host = top[4]
+    if host is None:
+        host = max(mine, key=lambda n: (len(threats(n)), troops_of(n)))
+
+    reinforce = {host: amount} if amount else {}
+    troops = {n: troops_of(n) for n in mine}
+    troops[host] = troops.get(host, 0) + amount
+
+    BIG_ARMY = 4
     attacks = []
     spent = {n: 0 for n in mine}
     max_attacks = int(view.get("max_attacks") or 3)
-    for dtroops, src, dst, owner in cands:
+    for _ig, _riv, _dtr, _ns, src, dst, own, dtroops in cands:
         if len(attacks) >= max_attacks:
             break
         spare = troops[src] - 1 - spent[src]
-        if spare < 1 or spare < dtroops:
+        need = max(1, dtroops)  # need >= defender troops to capture on a win
+        if spare < need:
             continue
-        commit = min(spare, dtroops)
+        # Commit enough to capture; stretch to BIG_ARMY for a second duel attempt.
+        commit = need
+        if spare >= BIG_ARMY and BIG_ARMY >= need:
+            commit = BIG_ARMY
+        elif spare > need:
+            commit = min(spare, max(need, min(BIG_ARMY, spare)))
+        cry_region = tiles[dst].get("region") or "the frontier"
         attacks.append({
             "from": src,
             "to": dst,
             "troops": commit,
-            "battle_cry": f"{me} claims {dst}",
+            "battle_cry": f"{me.upper()} for {cry_region} — {dst} falls.",
         })
         spent[src] += commit
 
+    # Spy first in the plan (engine runs spy before attacks). Pay from post-reinforce
+    # stacks; do not subtract attack commits.
+    spy = None
+    SPY_COST = 2
     others = [f for f in (view.get("alive") or []) if f != me]
+    if others and "all_seeing_eye" not in perks and turn >= 2:
+        hidden = sum(1 for t in tiles.values() if t.get("owner") is None)
+        # Prefer paying from a tile that is NOT our top attack source.
+        attack_srcs = {a["from"] for a in attacks}
+        pay_order = sorted(
+            mine,
+            key=lambda x: (x in attack_srcs, -troops[x]),
+        )
+        pay_from = next((n for n in pay_order if troops[n] > SPY_COST), None)
+        if pay_from and (hidden > 0 or turn % 2 == 0):
+            rival_strength = {}
+            for t in tiles.values():
+                o = t.get("owner")
+                if o in others:
+                    rival_strength[o] = rival_strength.get(o, 0) + int(t.get("troops") or 0)
+            target = max(others, key=lambda f: rival_strength.get(f, 0))
+            spy = {"target": target, "pay_from": pay_from}
+            # Reserve the spy cost so later fortify math stays honest.
+            troops[pay_from] -= SPY_COST
+
+    # Fortify: move spare toward a hotter adjacent owned tile (after attack commits).
+    # Prefer true interiors, but also allow quiet frontiers to feed hotter ones.
+    fortify = None
+    def heat(n: str) -> int:
+        return len(threats(n))
+
+    donors = [
+        n for n in mine
+        if troops[n] - spent.get(n, 0) > 1
+    ]
+    if donors:
+        # Pick the hottest owned tile that a donor can reach.
+        ranked_dests = sorted(mine, key=lambda n: (-heat(n), troops[n] - spent.get(n, 0)))
+        for dest in ranked_dests:
+            if heat(dest) == 0:
+                break
+            for src in sorted(donors, key=lambda n: (heat(n), -(troops[n] - spent.get(n, 0)))):
+                if src == dest or dest not in tiles[src]["adjacent"]:
+                    continue
+                if heat(src) >= heat(dest):
+                    continue  # only flow toward hotter fronts
+                move = troops[src] - spent.get(src, 0) - 1
+                if move >= 1:
+                    fortify = {"from": src, "to": dest, "troops": move}
+                    break
+            if fortify:
+                break
+
     messages = []
-    if others and int(view.get("turn") or 0) == 1:
-        messages.append({"to": others[0], "text": "No pact. I take what I can hold."})
-    held = ", ".join(mine)
+    if others and turn == 1:
+        messages.append({
+            "to": others[0],
+            "text": f"No pact. {me.upper()} takes {goal or 'the map'}.",
+        })
+    elif others and turn == 3 and goal:
+        messages.append({
+            "to": "all" if len(others) > 1 else others[0],
+            "text": f"Stay out of {goal}.",
+        })
+
+    goal_bit = goal or "-"
+    mem = (
+        f"turn {turn}: goal={goal_bit}; stack={host}; "
+        f"swings={len(attacks)}; perks={','.join(sorted(perks)) or 'none'}"
+    )
     return {
         "reinforce": reinforce,
         "attacks": attacks,
-        "fortify": None,
-        "spy": None,
+        "fortify": fortify,
+        "spy": spy,
         "messages": messages,
-        "memory": f"turn {view.get('turn')}: hold {held}; stacked {host}; swings {len(attacks)}",
+        "memory": mem[:600],
     }
 
 

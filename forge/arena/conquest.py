@@ -742,6 +742,7 @@ class ConquestGame:
         llm: LLMFn | None = None,
         commentary: bool = True,
         commentary_model: str = "",
+        theater: bool = False,
         cancel_event: threading.Event | None = None,
         rounds: int | None = None,
         controllers: dict[str, Callable[[dict], Any]] | None = None,
@@ -752,6 +753,8 @@ class ConquestGame:
         self.llm = llm or _default_llm
         self.commentary = commentary
         self.commentary_model = commentary_model
+        # Rule-based Zeus (no model). When True, commentary uses theater templates.
+        self.theater = theater
         self.cancel_event = cancel_event or threading.Event()
         self.rounds = rounds or self.scenario["rounds"]
         # Optional external players. A controller receives one JSON-able request
@@ -1315,6 +1318,9 @@ class ConquestGame:
     def _zeus(self, prompt: str) -> str:
         if not self.commentary:
             return ""
+        if self.theater:
+            from forge.arena.theater import theater_from_round_prompt
+            return theater_from_round_prompt(prompt).strip()
         return self._ask(prompt, ZEUS_SYSTEM, self.commentary_model, 0.9).strip()
 
     # ── full game ────────────────────────────────────────────────────
@@ -1353,7 +1359,12 @@ class ConquestGame:
                 if talk:
                     yield {"type": "arena_commentary", "content": f"\n[ROUND {rnd}] {talk}\n"}
 
-                yield {"type": "arena_status", "content": f"MAP AFTER ROUND {rnd}\n" + self.render_map()}
+                if self.theater:
+                    from forge.arena.theater import ascii_map_frame
+                    yield {"type": "arena_status", "content": ascii_map_frame(
+                        f"MAP AFTER ROUND {rnd}", self.render_map())}
+                else:
+                    yield {"type": "arena_status", "content": f"MAP AFTER ROUND {rnd}\n" + self.render_map()}
                 yield {"type": "conquest_state", "state": self.public_state()}
                 yield {"type": "arena_scores", "round": rnd,
                        "red_score": scores.get("red", 0) - prev.get("red", 0),
