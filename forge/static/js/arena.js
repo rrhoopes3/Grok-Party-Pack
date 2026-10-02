@@ -4,6 +4,7 @@
 
 const COLLAB_SCENARIOS = new Set(["pair_prog", "story_time", "startup", "world_build", "hackathon"]);
 const SWARM_SCENARIOS = new Set(["swarm_wars", "influence_ops", "market_crash", "civilization", "memetic_war"]);
+const CONQUEST_SCENARIOS = new Set(["conquest", "conquest_ffa"]);
 
 function openArenaSetup() {
     if (state.isRunning) return;
@@ -15,18 +16,22 @@ function updateArenaSetupCopy() {
     const val = scenarioSelect?.value;
     const isCollab = COLLAB_SCENARIOS.has(val);
     const isSwarm = SWARM_SCENARIOS.has(val);
+    const isConquest = CONQUEST_SCENARIOS.has(val);
     const copy = els.arenaSetup.querySelector(".arena-copy");
     const goBtn = document.getElementById("arena-go-btn");
     if (copy) {
-        copy.querySelector("strong").textContent = isSwarm ? "CASS — SWARM WARS"
+        copy.querySelector("strong").textContent = isConquest ? "CONQUEST — WAR GAMES"
+            : isSwarm ? "CASS — SWARM WARS"
             : isCollab ? "THE FORGE STUDIO" : "THE FORGE ARENA";
-        copy.querySelector("span").textContent = isSwarm
+        copy.querySelector("span").textContent = isConquest
+            ? "Risk, but every territory is a skill. Out-solve the defender to take the land."
+            : isSwarm
             ? "Two AI societies clash. Agents spy, sabotage, recruit, and wage war."
             : isCollab
             ? "Two AI collaborators enter. Something beautiful (maybe) leaves."
             : "Two AI gladiators enter. One leaves victorious. Zeus judges all.";
     }
-    if (goBtn) goBtn.textContent = isSwarm ? "WAR" : isCollab ? "BUILD" : "FIGHT";
+    if (goBtn) goBtn.textContent = isConquest ? "CONQUER" : isSwarm ? "WAR" : isCollab ? "BUILD" : "FIGHT";
 }
 
 async function startArena() {
@@ -136,6 +141,11 @@ function streamArena(taskId) {
                 break;
 
             case "arena_team_action": {
+                if (msg.team !== "red" && msg.team !== "blue") {
+                    // Extra Conquest factions (gold, green) report in the commentary feed.
+                    addArenaCommentary(`[${(msg.team || "?").toUpperCase()}] ${msg.content || ""}`);
+                    break;
+                }
                 const target = msg.team === "red" ? els.redLog : els.blueLog;
                 const line = msg.action_type === "content"
                     ? (msg.content || "")

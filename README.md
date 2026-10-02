@@ -66,6 +66,13 @@ The core loop. Type a task, get a plan, watch it execute with real tools. File I
 | World Building | Fictional universe bible — one builds geography, other populates culture |
 | Hackathon | Working prototype — one builds engine, other builds UI |
 
+**Conquest Mode** — A Risk-style war game where every territory is a skill. To take land, you must out-solve the defender on a fresh task that code checks (logic, code with hidden tests, ciphers, or constrained writing). A plain-Python engine is the referee: models only send JSON orders, and illegal orders are logged as violations and cost troops. Hold a whole region to unlock a perk (a second attempt, a sandboxed Python interpreter, no fog of war, or a bigger memory). Diplomacy is free text, and lies are legal.
+
+| Scenario | Players |
+|---|---|
+| Conquest: Duel | Red vs Blue, with neutral garrisons |
+| Conquest: Four Crowns | Red, Blue, Gold, Green free-for-all |
+
 Enable **TTS** for dramatic live commentary read aloud.
 
 ### Presidential Council
@@ -350,6 +357,7 @@ Grok/
       endpoints.py              # Internal toll dashboard endpoints
     arena/
       runner.py                 # Arena orchestrator (combat + collab modes, 15 scenarios)
+      conquest.py               # Conquest war game (Risk-style, skill-checked duels)
       sandbox.py                # Arena sandbox setup + scenario seeding
     agents/
       email_agent.py            # Autonomous email agent (triage, auto-block, DNS alerts)
