@@ -37,7 +37,11 @@
  *   'speed'               { value: 0.5|1|2|4 }      animation speed multiplier
  *   'camera'              { preset }                'side'|'white'|'black'|'top'|'orbit'
  *   'quality'             { value: 'high'|'low' }   bloom + shadows on/off
- *   'new-match'           {}                        create a match
+ *   'briefing'            {}                        open the launch overlay
+ *   'new-match'           { white_model, black_model, judge_model,
+ *                           commentary_interval, commentary_window_plies }
+ *                                               create a live LLM match
+ *   'demo'                {}                        play the canned Opera game
  *   'load-match'          { id }                    switch to an existing match
  *   'resign'              { side: 'white'|'black' } confirmed resignation
  *
@@ -380,9 +384,49 @@ export function createHUD(options = {}) {
     if (matchSelect.value) emit('load-match', { id: matchSelect.value });
   }, listen);
 
-  const btnNew = button(gMatch, 'NEW', null, 'Create a fresh match');
+  const btnNew = button(gMatch, 'NEW', null, 'Open the launch briefing — pick Party Pack models');
   btnNew.id = 'bc-btn-new';
-  btnNew.addEventListener('click', () => emit('new-match'), listen);
+
+  /* ── External move entry (human / GrokBot duel) ─────────────────── */
+  const moveEntry = el('div', 'bc-move-entry');
+  moveEntry.hidden = true;
+  moveEntry.innerHTML = ''
+    + '<label class="bc-move-entry__label" for="bc-move-input">YOUR MOVE</label>'
+    + '<input id="bc-move-input" class="bc-move-entry__input" type="text" '
+    + 'autocomplete="off" spellcheck="false" placeholder="e4 · Nf3 · e2e4" />'
+    + '<button type="button" class="bc-btn bc-move-entry__go" id="bc-move-go">PLAY</button>'
+    + '<span class="bc-move-entry__hint" id="bc-move-hint"></span>';
+  root.appendChild(moveEntry);
+  const moveInput = moveEntry.querySelector('#bc-move-input');
+  const moveGo = moveEntry.querySelector('#bc-move-go');
+  const moveHint = moveEntry.querySelector('#bc-move-hint');
+
+  function setMoveEntry(opts) {
+    const o = opts || {};
+    const show = !!o.show;
+    moveEntry.hidden = !show;
+    root.classList.toggle('is-move-entry', show);
+    if (o.hint != null) moveHint.textContent = String(o.hint);
+    if (o.label) {
+      const lab = moveEntry.querySelector('.bc-move-entry__label');
+      if (lab) lab.textContent = String(o.label);
+    }
+    if (show) later(() => { try { moveInput.focus(); } catch { /* ignore */ } }, 30);
+  }
+
+  function submitMoveEntry() {
+    const text = (moveInput.value || '').trim();
+    if (!text) return;
+    emit('play-move', { move: text, actor: 'human' });
+    moveInput.value = '';
+  }
+  moveGo.addEventListener('click', submitMoveEntry, listen);
+  moveInput.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Enter') { ev.preventDefault(); submitMoveEntry(); }
+  }, listen);
+
+
+  btnNew.addEventListener('click', () => emit('briefing'), listen);
 
   const gResign = group('RESIGN');
   const resignButtons = {};
@@ -423,6 +467,265 @@ export function createHUD(options = {}) {
     armTimer = later(disarmResign, 3200);
   }
 
+  /* ── Launch briefing (Party Pack model picker) ────────────────────── */
+
+  const STORAGE_KEY = 'battlechess.launch';
+  const COMMENTARY_OPTIONS = [
+    { interval: 1, window: 0, label: 'Every round · full history' },
+    { interval: 2, window: 0, label: 'Every 2 rounds · full history' },
+    { interval: 4, window: 0, label: 'Every 4 rounds · full history' },
+    { interval: 5, window: 10, label: 'Every 5 rounds · recap last 5' },
+  ];
+
+  function readLaunchPrefs() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  }
+
+  function writeLaunchPrefs(prefs) {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(prefs)); } catch { /* private mode */ }
+  }
+
+  const briefing = el('div', 'bc-briefing');
+  briefing.id = 'bc-briefing';
+  briefing.hidden = true;
+  briefing.setAttribute('role', 'dialog');
+  briefing.setAttribute('aria-modal', 'true');
+  briefing.setAttribute('aria-labelledby', 'bc-briefing-title');
+
+  const briefingFrame = el('div', 'bc-briefing__frame');
+  const briefingHead = el('header', 'bc-briefing__head');
+  briefingHead.append(
+    el('p', 'bc-briefing__kicker', 'LLM CHESS ARENA'),
+    el('h2', 'bc-briefing__title', 'Choose the armies'),
+  );
+  briefingHead.querySelector('.bc-briefing__title').id = 'bc-briefing-title';
+  briefingHead.appendChild(el('p', 'bc-briefing__lede',
+    'Starfleet and the Imperium are driven by Party Pack models. Pick both sides and a judge, then engage.'));
+
+  function buildArmy(side) {
+    const meta = FACTION[side];
+    const card = el('section', 'bc-briefing__army ' + meta.skin);
+    card.append(
+      el('span', 'bc-briefing__side', side === 'white' ? 'WHITE' : 'BLACK'),
+      el('h3', 'bc-briefing__faction', meta.label),
+    );
+    const label = el('label', 'bc-briefing__field');
+    label.appendChild(el('span', 'bc-briefing__field-k', 'Model'));
+    const select = el('select', 'bc-select bc-briefing__select');
+    select.id = 'bc-launch-' + side;
+    select.setAttribute('aria-label', meta.label + ' model');
+    label.appendChild(select);
+    card.appendChild(label);
+    return { card, select };
+  }
+
+  const armyWhite = buildArmy('white');
+  const armyBlack = buildArmy('black');
+  const armies = el('div', 'bc-briefing__armies');
+  const vs = el('div', 'bc-briefing__vs');
+  vs.append(el('span', null, 'VS'));
+  armies.append(armyWhite.card, vs, armyBlack.card);
+
+  const booth = el('div', 'bc-briefing__booth');
+  const judgeField = el('label', 'bc-briefing__field');
+  judgeField.appendChild(el('span', 'bc-briefing__field-k', 'Judge'));
+  const judgeSelect = el('select', 'bc-select bc-briefing__select');
+  judgeSelect.id = 'bc-launch-judge';
+  judgeSelect.setAttribute('aria-label', 'Judge model');
+  judgeField.appendChild(judgeSelect);
+
+  const commField = el('label', 'bc-briefing__field');
+  commField.appendChild(el('span', 'bc-briefing__field-k', 'Commentary'));
+  const commSelect = el('select', 'bc-select bc-briefing__select');
+  commSelect.id = 'bc-launch-commentary';
+  COMMENTARY_OPTIONS.forEach((opt) => {
+    const o = el('option', null, opt.label);
+    o.value = opt.interval + ':' + opt.window;
+    commSelect.appendChild(o);
+  });
+  commSelect.value = '2:0';
+  commField.appendChild(commSelect);
+  booth.append(judgeField, commField);
+
+  const briefingNote = el('p', 'bc-briefing__note');
+  briefingNote.id = 'bc-briefing-note';
+  briefingNote.hidden = true;
+
+  const liveBox = el('div', 'bc-briefing__live');
+  liveBox.hidden = true;
+  liveBox.appendChild(el('span', 'bc-briefing__field-k', 'Live on this server'));
+  const liveList = el('div', 'bc-briefing__live-list');
+  liveBox.appendChild(liveList);
+
+  const briefingActions = el('div', 'bc-briefing__actions');
+  const btnEngage = button(briefingActions, 'ENGAGE', 'bc-btn--primary bc-briefing__engage',
+    'Start a live LLM vs LLM match with the selected models');
+  btnEngage.id = 'bc-btn-engage';
+  const btnDemo = button(briefingActions, 'OPERA DEMO', null,
+    'Play the canned Morphy Opera Game with no API keys');
+  btnDemo.id = 'bc-btn-demo';
+  const btnGrokbot = button(briefingActions, 'VS GROKBOT', 'bc-btn--primary bc-briefing__grokbot',
+    'You (Starfleet) vs GrokBot / Spencer (Imperium). Moves via board input or chat.');
+  btnGrokbot.id = 'bc-btn-grokbot';
+  const btnDismiss = button(briefingActions, 'BACK TO BOARD', null,
+    'Close the briefing and keep the current match');
+  btnDismiss.id = 'bc-btn-dismiss';
+  btnDismiss.hidden = true;
+
+  briefingFrame.append(briefingHead, armies, booth, briefingNote, liveBox, briefingActions);
+  briefing.appendChild(briefingFrame);
+  root.appendChild(briefing);
+
+  const briefingState = {
+    open: false,
+    catalog: { models: [], defaults: {} },
+    live: [],
+    offline: false,
+  };
+
+  function fillModelSelect(select, models, filter, preferred) {
+    const prior = select.value;
+    clearNode(select);
+    const grouped = {};
+    for (const m of models) {
+      if (filter && !filter(m)) continue;
+      const provider = m.provider || 'Other';
+      (grouped[provider] ||= []).push(m);
+    }
+    for (const [provider, list] of Object.entries(grouped)) {
+      const group = el('optgroup');
+      group.label = provider;
+      for (const m of list) {
+        const o = el('option', null, m.label || m.id);
+        o.value = m.id;
+        group.appendChild(o);
+      }
+      select.appendChild(group);
+    }
+    const ids = Array.from(select.options).map((o) => o.value);
+    if (!ids.length) return;
+    if (prior && ids.includes(prior)) select.value = prior;
+    else if (preferred && ids.includes(preferred)) select.value = preferred;
+    else select.selectedIndex = 0;
+  }
+
+  function applyCatalog(catalog) {
+    briefingState.catalog = catalog && typeof catalog === 'object' ? catalog : { models: [], defaults: {} };
+    const models = Array.isArray(briefingState.catalog.models) ? briefingState.catalog.models : [];
+    const defaults = briefingState.catalog.defaults || {};
+    const prefs = readLaunchPrefs();
+    fillModelSelect(armyWhite.select, models, null, prefs.white_model || defaults.white_model);
+    fillModelSelect(armyBlack.select, models, null, prefs.black_model || defaults.black_model);
+    fillModelSelect(judgeSelect, models, (m) => m.judge_ok !== false,
+      prefs.judge_model || defaults.judge_model);
+    const commKey = (prefs.commentary_interval || defaults.commentary_interval || 2)
+      + ':' + (prefs.commentary_window_plies || defaults.commentary_window_plies || 0);
+    if (Array.from(commSelect.options).some((o) => o.value === commKey)) commSelect.value = commKey;
+    btnEngage.disabled = models.length === 0 || briefingState.offline;
+  }
+
+  function setCatalog(catalog) {
+    applyCatalog(catalog);
+    if (briefingState.offline) {
+      briefingNote.hidden = false;
+      briefingNote.textContent = 'Forge is unreachable. The Opera demo still runs; live models need the Party Pack on :5000 (or ?api=).';
+    } else if (!briefingState.catalog.models || !briefingState.catalog.models.length) {
+      briefingNote.hidden = false;
+      briefingNote.textContent = (catalog && catalog.error)
+        ? String(catalog.error)
+        : 'No Party Pack models returned. Check /api/chess/models.';
+    } else {
+      briefingNote.hidden = true;
+    }
+  }
+
+  function setLiveMatches(matches) {
+    briefingState.live = Array.isArray(matches) ? matches.filter((m) => m && m.id) : [];
+    clearNode(liveList);
+    const live = briefingState.live.filter((m) => m.status === 'active');
+    if (!live.length) {
+      liveBox.hidden = true;
+      return;
+    }
+    liveBox.hidden = false;
+    live.slice(0, 6).forEach((entry) => {
+      const b = el('button', 'bc-btn bc-briefing__resume',
+        shortModel(entry.white_model || '?') + ' vs ' + shortModel(entry.black_model || '?'));
+      b.type = 'button';
+      b.title = 'Resume match ' + entry.id;
+      b.addEventListener('click', () => {
+        hideBriefing();
+        emit('load-match', { id: entry.id });
+      }, listen);
+      liveList.appendChild(b);
+    });
+  }
+
+  function setBriefingError(text) {
+    briefingNote.hidden = !text;
+    briefingNote.textContent = text ? String(text) : '';
+  }
+
+  function showBriefing(opts) {
+    const options = opts || {};
+    if (options.offline != null) briefingState.offline = !!options.offline;
+    if (options.catalog) applyCatalog(options.catalog);
+    if (options.matches) setLiveMatches(options.matches);
+    if (options.error) setBriefingError(options.error);
+    else if (briefingState.offline) {
+      setBriefingError('Forge is unreachable. The Opera demo still runs; live models need the Party Pack on :5000 (or ?api=).');
+    }
+    btnEngage.disabled = briefingState.offline
+      || !armyWhite.select.options.length
+      || !armyBlack.select.options.length;
+    btnDismiss.hidden = !state.matchId;
+    briefing.hidden = false;
+    briefingState.open = true;
+    root.classList.add('is-briefing');
+    later(() => { try { armyWhite.select.focus(); } catch { /* ignore */ } }, 40);
+  }
+
+  function hideBriefing() {
+    briefing.hidden = true;
+    briefingState.open = false;
+    root.classList.remove('is-briefing');
+  }
+
+  function launchSelection() {
+    const comm = String(commSelect.value || '2:0').split(':');
+    const payload = {
+      white_model: armyWhite.select.value,
+      black_model: armyBlack.select.value,
+      judge_model: judgeSelect.value,
+      commentary_interval: Number(comm[0]) || 2,
+      commentary_window_plies: Number(comm[1]) || 0,
+    };
+    writeLaunchPrefs(payload);
+    return payload;
+  }
+
+  btnEngage.addEventListener('click', () => {
+    if (btnEngage.disabled) return;
+    const payload = launchSelection();
+    if (!payload.white_model || !payload.black_model) {
+      setBriefingError('Pick a model for both Starfleet and the Imperium.');
+      return;
+    }
+    setBriefingError('');
+    emit('new-match', payload);
+  }, listen);
+  btnDemo.addEventListener('click', () => emit('demo'), listen);
+  btnGrokbot.addEventListener('click', () => {
+    setBriefingError('');
+    emit('grokbot', { mode: 'grokbot', human_side: 'white' });
+  }, listen);
+  btnDismiss.addEventListener('click', () => hideBriefing(), listen);
+
   /* ── Optimistic control state ─────────────────────────────────────── */
 
   function markSegment(buttons, matchFn) {
@@ -461,6 +764,18 @@ export function createHUD(options = {}) {
   doc.addEventListener('keydown', (event) => {
     if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return;
     const target = event.target;
+    if (briefingState.open) {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        if (state.matchId) hideBriefing();
+      } else if (event.key === 'Enter' && target && target.tagName !== 'TEXTAREA') {
+        if (target && (target.tagName === 'SELECT' || target === btnEngage) && !btnEngage.disabled) {
+          event.preventDefault();
+          btnEngage.click();
+        }
+      }
+      return;
+    }
     if (target && target !== doc.body) {
       const tag = target.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable) return;
@@ -497,6 +812,9 @@ export function createHUD(options = {}) {
       case 'Escape':
         if (state.expanded !== null) { state.expanded = null; renderLog(state.match, true); }
         disarmResign();
+        break;
+      case 'n': case 'N':
+        emit('briefing');
         break;
       default:
         break;
@@ -928,7 +1246,7 @@ export function createHUD(options = {}) {
     abort.abort();
     for (const id of timers) clearTimeout(id);
     timers.clear();
-    root.classList.remove('is-busy');
+    root.classList.remove('is-busy', 'is-briefing');
     clearNode(root);
     state.match = null;
     state.beatKeys.clear();
@@ -946,11 +1264,19 @@ export function createHUD(options = {}) {
     showError,
     setBusy,
     destroy,
+    setCatalog,
+    setLiveMatches,
+    setBriefingError,
+    setMoveEntry,
+    showBriefing,
+    hideBriefing,
+    setPlaying,
+    get isBriefingOpen() { return briefingState.open; },
     /* Non-contract conveniences for the integrator / debugging. */
     root,
     nodes: {
       status: statusBar, rosterWhite: rosters.white.panel, rosterBlack: rosters.black.panel,
-      log: logPanel, commentary: beatPanel, dock,
+      log: logPanel, commentary: beatPanel, dock, briefing,
     },
   };
 }

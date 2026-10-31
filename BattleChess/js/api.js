@@ -5,6 +5,7 @@
  * CONTRACT (section 7). Base URL is same-origin by default and overridable
  * with `?api=http://127.0.0.1:5000`.
  *
+ *   GET  /api/chess/models       -> { models, defaults } Party Pack catalog
  *   GET  /api/chess              -> { matches: [...] }   newest first
  *   GET  /api/chess/<id>         -> full match state
  *   POST /api/chess              -> create match
@@ -27,14 +28,20 @@
  * verified FEN after every ply — and serves synthesized match payloads shaped
  * exactly like `chess_arena.serialize_match`. `step()` advances one ply, and
  * `pollMatch()` auto-advances so the scene plays itself with no server at all.
+ *
+ * Once the server has answered even once, a later network failure never
+ * flips to the demo. A slow reasoning model can hold a /step open for
+ * minutes; that is a live match still thinking, not a dead server. Those
+ * failures come back as `{ error, status: 0, waiting: true }` instead.
  */
 
 import { parseFEN } from './gamestate.js';
 
 const DEFAULT_TIMEOUT_MS = 12000;
 // A /step call blocks on two LLM round-trips (player + judge). Reasoning-tier
-// models routinely take a minute; anything shorter aborts good moves.
-const DEFAULT_STEP_TIMEOUT_MS = 180000;
+// models routinely take a minute, and Grok 4.7 has taken three. Anything
+// shorter aborts good moves (the old 180s cap aborted them mid-game).
+const DEFAULT_STEP_TIMEOUT_MS = 900000;
 const DEFAULT_POLL_MS = 1500;
 const RETRY_BACKOFF_MS = 400;
 const DEMO_ASSET_URL = './assets/demo-game.json';
@@ -316,6 +323,9 @@ export function createAPI(options = {}) {
   let demoError = null;
   let demoPly = 0;
   let demoResignedBy = null;
+  // True once the server has answered. After that, network failures are
+  // reported as `waiting` and never switch a live match to the demo.
+  let serverSeen = false;
 
   let pollTimer = null;
   let pollToken = 0;
@@ -475,12 +485,39 @@ export function createAPI(options = {}) {
       return ready ? demoCall() : demoUnavailable();
     }
     const res = await netCall();
-    if (res.ok) return res.result;
+    if (res.ok) {
+      serverSeen = true;
+      return res.result;
+    }
+    if (res.network && serverSeen) return { ...res.result, waiting: true };
     if (res.network && (await enterOffline(res.result.error))) return demoCall();
     return res.result;
   }
 
   // ── public surface ───────────────────────────────────────────────────
+
+  /**
+   * GET /api/chess/models -> Party Pack catalog { models, defaults }.
+   * Network failure does NOT flip the client into demo mode — a missing
+   * catalog just means the launcher cannot ENGAGE live LLMs.
+   */
+  async function listModels() {
+    if (offline) {
+      return {
+        error: 'offline demo has no model catalog',
+        status: 0,
+        models: [],
+        defaults: {},
+        offline: true,
+      };
+    }
+    const res = await request('/api/chess/models');
+    if (res.ok) serverSeen = true;
+    if (res.ok && isPlainObject(res.result)) return res.result;
+    return isPlainObject(res.result)
+      ? res.result
+      : { error: 'model catalog unavailable', status: 0, models: [], defaults: {} };
+  }
 
   /** GET /api/chess -> { matches: [...] } (newest first). */
   async function listMatches() {
@@ -504,19 +541,61 @@ export function createAPI(options = {}) {
    * `opts` is passed through verbatim: { white_model, black_model, judge_model,
    * commentary_interval, commentary_window_plies, starting_fen } or
    * { human_side, ai_model, ... }.
+   *
+   * A live LLM create never falls through to the Opera demo — that would
+   * silently substitute Morphy for the models the operator just picked.
    */
   async function createMatch(opts2 = {}) {
-    return withFallback(
-      () => request('/api/chess', { method: 'POST', body: isPlainObject(opts2) ? opts2 : {} }),
-      () => {
-        demoPly = 0;
-        demoResignedBy = null;
-        return demoPayload();
-      },
-    );
+    const body = isPlainObject(opts2) ? opts2 : {};
+    const wantsLive = !!(body.white_model || body.black_model || body.human_side || body.ai_model);
+    if (offline && wantsLive) {
+      return { error: 'Forge is offline — cannot start a live LLM match', status: 0, offline: true };
+    }
+    if (offline) {
+      const ready = demo || (await loadDemo());
+      if (!ready) return demoUnavailable();
+      demoPly = 0;
+      demoResignedBy = null;
+      return demoPayload();
+    }
+    const res = await request('/api/chess', { method: 'POST', body });
+    if (res.ok) {
+      serverSeen = true;
+      return res.result;
+    }
+    if (wantsLive) return res.result;
+    if (res.network && serverSeen) return { ...res.result, waiting: true };
+    if (res.network && (await enterOffline(res.result.error))) {
+      demoPly = 0;
+      demoResignedBy = null;
+      return demoPayload();
+    }
+    return res.result;
   }
 
   /** POST /api/chess/<id>/step -> match payload, possibly with new_commentary. */
+
+  /** POST /api/chess/<id>/move — external UCI/SAN (human or GrokBot). */
+  async function playMove(id, move, opts = {}) {
+    if (!id) return { error: 'playMove: a match id is required', status: 400 };
+    const text = typeof move === 'string' ? move : (move && (move.uci || move.san || move.move)) || '';
+    if (!text) return { error: 'playMove: move is required', status: 400 };
+    const body = {
+      move: String(text),
+      thinking: opts && opts.thinking ? String(opts.thinking) : '',
+      actor: opts && opts.actor ? String(opts.actor) : '',
+    };
+    return withFallback(
+      () => request(`/api/chess/${encodeURIComponent(id)}/move`, {
+        method: 'POST',
+        body,
+        timeoutMs: stepTimeoutMs,
+        retries: 0,
+      }),
+      () => ({ error: 'playMove unavailable in offline demo', status: 0, offline: true }),
+    );
+  }
+
   async function step(id) {
     if (!id) return { error: 'step: a match id is required', status: 400 };
     return withFallback(
@@ -687,10 +766,12 @@ export function createAPI(options = {}) {
   }
 
   const api = {
+    listModels,
     listMatches,
     getMatch,
     createMatch,
     step,
+    playMove,
     resign,
     getPGN,
     useDemo,

@@ -7,6 +7,12 @@ import pytest
 from forge import chess_arena as ca
 
 
+@pytest.fixture(autouse=True)
+def _isolated_store(tmp_path, monkeypatch):
+    """Saved matches go to tmp_path, never the real forge/data folder."""
+    monkeypatch.setattr(ca, "_store_dir", lambda: tmp_path / "chess_matches")
+
+
 @pytest.fixture
 def match():
     m = ca.new_match(
@@ -191,3 +197,47 @@ def test_chess_routes_and_effort_by_provider():
     assert ca._reasoning_tier("grok-4.7")
     assert not ca._reasoning_tier("gpt-4o")
     assert not ca._reasoning_tier("grok-code-fast-1")
+
+
+def test_match_survives_restart(match):
+    _push_server_move(match, "e2e4")
+    match.commentary_interval = 3
+    ca._save_match(match)
+    ca._MATCHES.pop(match.id)  # what a server restart does to memory
+
+    back = ca.get_match(match.id)
+    assert back is not None and back is not match
+    assert back.board.fen() == match.board.fen()
+    assert [mv.uci for mv in back.moves] == ["e2e4"]
+    assert back.judge_model == "test-judge"
+    assert back.commentary_interval == 3
+
+
+def test_load_rejects_non_hex_ids():
+    assert ca.get_match("../../etc/passwd") is None
+
+
+def test_retry_never_shrinks_token_cap(match, monkeypatch):
+    caps = []
+
+    def fake_llm(prompt, system, model, max_tokens=2000, **_kw):
+        caps.append(max_tokens)
+        if len(caps) < 3:
+            return "thinking...", {"input_tokens": 1, "output_tokens": max_tokens,
+                                   "cost_usd": 0.0, "truncated": True}
+        return "MOVE: e2e4", {"input_tokens": 1, "output_tokens": 5, "cost_usd": 0.0}
+
+    monkeypatch.setattr(ca, "_llm_oneshot", fake_llm)
+    monkeypatch.setattr(ca, "_reasoning_tier", lambda _m: True)
+    ca.make_move(match.id)
+    assert caps == [8000, 16000, 16000]
+    assert match.moves[-1].uci == "e2e4"
+
+
+def test_why_no_move_splits_notation_from_chess():
+    board = chess.Board()
+    assert ca._why_no_move("", board) == "empty reply"
+    assert ca._why_no_move("I like e4", board) == "no MOVE line"
+    assert ca._why_no_move("MOVE: e2e5", board).startswith("illegal move")
+    assert ca._why_no_move("MOVE: Ke2", board).startswith("illegal move")
+    assert ca._why_no_move("MOVE: banana", board).startswith("bad notation")

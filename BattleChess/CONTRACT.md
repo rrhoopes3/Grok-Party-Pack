@@ -164,15 +164,18 @@ event), **en passant** (captured pawn is NOT on the destination square), and
 
 ---
 
-## 7. API contract (existing Forge endpoints — do not modify the server)
+## 7. API contract (Forge chess endpoints)
 
 Base URL is same-origin by default, overridable via `?api=http://127.0.0.1:5000`.
+The chess blueprint sends CORS headers so a standalone `python -m http.server`
+can talk to a Forge on another port.
 
 | Method | Path | Purpose |
 |--------|------|---------|
+| GET    | `/api/chess/models` | Party Pack catalog `{models, defaults}` |
 | GET    | `/api/chess` | `{matches:[...]}` newest first |
 | GET    | `/api/chess/<id>` | full match state |
-| POST   | `/api/chess` | create match |
+| POST   | `/api/chess` | create match (`white_model`, `black_model`, `judge_model`, …) |
 | POST   | `/api/chess/<id>/step` | advance one ply (may include `new_commentary`) |
 | POST   | `/api/chess/<id>/resign` | `{side}` |
 | GET    | `/api/chess/<id>/pgn` | PGN text |
@@ -267,6 +270,8 @@ Required elements:
 - Judge commentary panel (latest beat, with speaker styling).
 - Controls: play/pause auto-step, step-once, animation speed, camera presets
   (side / white POV / black POV / top-down / cinematic orbit), quality toggle.
+- Launch briefing: Party Pack model selects for White / Black / Judge, ENGAGE,
+  Opera demo, resume-live-match list. NEW reopens the briefing.
 - Status line: turn, check/checkmate, result, halfmove count.
 - Everything must degrade to "no match loaded" gracefully.
 
@@ -274,7 +279,8 @@ Required elements:
 
 ## 11. Non-negotiables
 
-1. **Do not modify anything outside `BattleChess/`.** The server API is fixed.
+1. **Keep Forge's chess API stable.** BattleChess may consume `/api/chess*`
+   including the model catalog; do not break existing match payload fields.
 2. **No external network calls at runtime.** Three.js is vendored in `vendor/`;
    models are local GLBs. No CDN, no remote fonts.
 3. ES modules only, loaded via an `<script type="importmap">` mapping

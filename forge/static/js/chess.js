@@ -704,6 +704,17 @@ function bindChessUi() {
     if (resignB) resignB.addEventListener("click", () => chessResign("black"));
     if (callBtn) callBtn.addEventListener("click", chessCommentaryNow);
 
+    const btn3d = document.getElementById("chess-3d-btn");
+    if (btn3d) {
+        btn3d.addEventListener("click", () => {
+            chessState.autoPlaying = false;
+            const mid = chessState.match && chessState.match.status === "active" && chessState.match.id;
+            btn3d.href = mid
+                ? `/battlechess/?match=${encodeURIComponent(mid)}`
+                : "/battlechess/";
+        });
+    }
+
     // Click-to-refresh on the three chess model dropdowns. Re-probes
     // /api/lmstudio/models and rebuilds the Local (LM Studio) optgroup
     // with whatever's actually loaded right now. Covers the case where

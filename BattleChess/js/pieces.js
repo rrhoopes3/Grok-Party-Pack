@@ -32,14 +32,16 @@ const LOG = '[BattleChess/pieces]';
 export const FACTIONS = {
   white: {                       // Starfleet
     name: 'Starfleet',
-    body:  { color: 0xe8eef5, metalness: 0.85, roughness: 0.22 },
+    // Roughness 0.34, not 0.22: the near-mirror finish turned the softbox
+    // into a white blowout that hid the piece silhouettes.
+    body:  { color: 0xe8eef5, metalness: 0.8, roughness: 0.34 },
     trim:  { color: 0xb9c6d4 },
     glow:  { color: 0x39d6ff, intensity: 2.4 },   // cyan
     rimLight: 0x2a9df4,
   },
   black: {                       // Imperium
     name: 'Imperium',
-    body:  { color: 0x1a1a1f, metalness: 0.95, roughness: 0.38 },
+    body:  { color: 0x1a1a1f, metalness: 0.95, roughness: 0.44 },
     trim:  { color: 0xa8801f },                    // tarnished brass
     glow:  { color: 0xff3b1f, intensity: 2.2 },   // crimson plasma
     rimLight: 0xff6a3d,

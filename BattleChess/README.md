@@ -14,31 +14,39 @@ reference material.
 ## Running it
 
 BattleChess is plain ES modules. **There is no build step, no bundler, no
-package.json, no TypeScript.** You need exactly two things: the files, and any
-web server.
+package.json, no TypeScript.** You need the files, and the Forge API so the
+models can actually play.
 
 ### Option A — through the Forge (the intended path)
 
-The Forge Flask app already serves this directory. Start the Forge as usual and
-open the BattleChess page it exposes. Same-origin means the API client talks to
-`/api/chess` with no configuration at all.
+Start the Party Pack as usual and open **BattleChess** from the header, or go
+straight to:
+
+```
+http://127.0.0.1:5000/battlechess/
+```
+
+The launch briefing lists the same models as the Chess tab (Grok, Claude, GPT,
+LM Studio if it is running). Pick Starfleet, Imperium, and a judge, then
+**ENGAGE**. Same-origin means `/api/chess` needs no extra configuration.
+
+The Chess tab still has a **Launch BattleChess 3D** link. If a match is already
+running it opens that match (`?match=<id>`) and pauses 2D auto-play so the two
+UIs do not double-step.
 
 ### Option B — standalone static server
 
 ```bash
 cd BattleChess
 python -m http.server 8791
-# then open http://127.0.0.1:8791/
+# then open http://127.0.0.1:8791/?api=http://127.0.0.1:5000
 ```
 
-Point it at a Forge instance running elsewhere with the `api` query parameter:
+Forge must still be running on `:5000` — that is where the models live. The
+chess API sends CORS headers so this origin can create and step matches.
 
-```
-http://127.0.0.1:8791/?api=http://127.0.0.1:5000
-```
-
-If no API answers, `js/api.js` falls back to the canned game in
-`assets/demo-game.json`, so the scene is always demonstrable.
+If no API answers, the briefing offers the canned Morphy Opera Game so the
+scene is still demonstrable.
 
 ### Option C — double-clicking index.html
 
@@ -52,6 +60,9 @@ If no API answers, `js/api.js` falls back to the canned game in
 |------------|---------------|--------|
 | `api`      | a base URL    | Point the API client at a non-same-origin Forge |
 | `quality`  | `low`         | Boot with bloom and shadows off (integrated GPUs) |
+| `match`    | a match id    | Skip the briefing and join that match |
+| `demo`     | `1`           | Skip the briefing and play the canned Opera Game |
+| `autoplay` | `0`           | Start paused after ENGAGE / join |
 
 ### Requirements
 
@@ -247,7 +258,9 @@ Controls never touch the 3D stack. They call `onCommand(name, payload)`:
 | `speed` | `{ value: 0.5 \| 1 \| 2 \| 4 }` | Animation speed multiplier |
 | `camera` | `{ preset }` | `side` · `white` · `black` · `top` · `orbit` |
 | `quality` | `{ value: 'high' \| 'low' }` | Bloom + shadows on/off |
-| `new-match` | `{}` | Create a match |
+| `briefing` | `{}` | Open the launch overlay |
+| `new-match` | `{ white_model, black_model, judge_model, commentary_interval, commentary_window_plies }` | Create a live LLM match |
+| `demo` | `{}` | Play the canned Opera Game |
 | `load-match` | `{ id }` | Switch to an existing match |
 | `resign` | `{ side }` | Resign — only fired after the operator confirms |
 
@@ -266,7 +279,8 @@ The HUD updates its own visual state optimistically and re-syncs from the next
 | `1` `2` `3` `4` | Speed 0.5× · 1× · 2× · 4× |
 | `C` | Cycle camera presets |
 | `Q` | Toggle quality |
-| `Esc` | Collapse the expanded ply, disarm resign |
+| `Esc` | Collapse the expanded ply, disarm resign, close briefing |
+| `N` | Open the launch briefing |
 
 Shortcuts are suppressed while focus is inside an input, select or
 contenteditable.
@@ -470,9 +484,9 @@ wrong, or ignore the faction palette — and the failure will look like a bug in
 
 ## Ground rules
 
-1. **Nothing outside `BattleChess/` is modified.** The Forge server API is fixed.
-2. **No network calls at runtime.** three.js is vendored, models are local, all
-   fonts are system fonts.
+1. **Keep Forge's chess API stable.** BattleChess consumes `/api/chess*`.
+2. **No CDN at runtime.** three.js is vendored, piece models are local, all
+   fonts are system fonts. Match traffic goes to the Forge API.
 3. **ES modules only**, resolved through the importmap in `index.html`.
 4. **No build step.** It runs by being served.
 5. Every module is a single-responsibility ES module with **named exports**.

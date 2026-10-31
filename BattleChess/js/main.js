@@ -263,7 +263,7 @@ export async function boot() {
   const { AnimationQueue } = mods.animation;
   const { createFX } = mods.fx;
   const { createAPI } = mods.api;
-  const { createGameState, ALL_SQUARES, parseUCI } = mods.gamestate;
+  const { createGameState, ALL_SQUARES, parseUCI, startPosition } = mods.gamestate;
   const { createHUD } = mods.hud;
 
   if (config.selftest && typeof mods.gamestate.selfTest === 'function') {
@@ -637,6 +637,7 @@ export async function boot() {
     // which only fires on a busy -> idle transition.
     if (!queue.isBusy) requestBatchComplete();
 
+    syncExternalControls(match);
     return true;
   }
 
@@ -670,7 +671,7 @@ export async function boot() {
   }
 
   /** Exponential backoff so a broken endpoint can never spin a hot loop. */
-  function backoff(reason) {
+  function backoff(reason, label = 'LINK FAULT') {
     driver.failures += 1;
     const delay = Math.min(
       TIMING.backoffMax,
@@ -678,7 +679,7 @@ export async function boot() {
     );
     console.warn(`${LOG} ${reason} — retrying in ${Math.round(delay / 1000)}s `
       + `(attempt ${driver.failures})`);
-    hud.setStatus(`LINK FAULT · RETRY ${Math.round(delay / 1000)}s`);
+    hud.setStatus(`${label} · RETRY ${Math.round(delay / 1000)}s`);
     armPump(delay);
   }
 
@@ -701,9 +702,18 @@ export async function boot() {
       return;
     }
 
-    const stepping = driver.playing;
+    // Never /step on human or GrokBot turns — poll only.
+    const last = (gameState && gameState.matchId === driver.matchId) ? (gameState.match || null) : null;
+    const externalTurn = !!(last && (last.awaiting_external || isExternalPlayer(last.current_model)));
+    const stepping = driver.playing && !externalTurn;
     driver.inFlight = true;
     if (stepping) hud.setBusy(true);
+    if (stepping && !api.isOffline) {
+      // Reasoning models can think for minutes. Say who we are waiting on
+      // so a long turn does not look like a hang.
+      const thinker = last && last.current_model ? String(last.current_model).toUpperCase() : 'MODEL';
+      hud.setStatus(`WAITING ON ${thinker}…`);
+    }
 
     let payload = null;
     try {
@@ -721,7 +731,10 @@ export async function boot() {
 
     if (isFailure(payload)) {
       hud.setBusy(false);
-      backoff(payload && payload.error ? payload.error : 'step failed');
+      // `waiting` = the server answered before, so this is a slow or
+      // restarting server, not a reason to drop the live match. Keep polling.
+      backoff(payload && payload.error ? payload.error : 'step failed',
+        payload && payload.waiting ? 'WAITING ON SERVER' : 'LINK FAULT');
       return;
     }
 
@@ -767,33 +780,274 @@ export async function boot() {
     }
     ingest(payload, { animate: false });
     annotateSource();
+    driver.playing = config.autoplay;
+    hud.setPlaying(driver.playing);
     armPump(driver.playing ? TIMING.stepGap : TIMING.idlePoll);
     return true;
   }
 
   /** Create a fresh match on the server (or rewind the demo when offline). */
-  async function newMatch() {
+  async function newMatch(opts = {}) {
     queue.clear();
     clearCheckHalo();
     driver.renderedMatchId = null;
     driver.failures = 0;
     parkPump();
     hud.setStatus('CREATING MATCH…');
+    hud.setBriefingError('');
 
-    const payload = await api.createMatch({});
+    const payload = await api.createMatch(opts && typeof opts === 'object' ? opts : {});
     if (isFailure(payload)) {
+      const err = payload && payload.error ? payload.error : 'createMatch failed';
       hud.setStatus('COULD NOT CREATE MATCH');
-      backoff(payload && payload.error ? payload.error : 'createMatch failed');
+      hud.setBriefingError(err);
+      hud.showBriefing({ offline: api.isOffline });
       return false;
     }
+    hud.hideBriefing();
     ingest(payload, { animate: false });
     annotateSource();
+    driver.playing = config.autoplay;
+    hud.setPlaying(driver.playing);
     armPump(driver.playing ? TIMING.stepGap : TIMING.idlePoll);
     return true;
   }
 
+  async function loadDemoMatch() {
+    queue.clear();
+    clearCheckHalo();
+    driver.renderedMatchId = null;
+    driver.failures = 0;
+    parkPump();
+    const demo = await api.useDemo();
+    if (isFailure(demo)) {
+      hud.setBriefingError(demo && demo.error ? demo.error : 'demo unavailable');
+      hud.showBriefing({ offline: true });
+      return false;
+    }
+    driver.matchId = demo.id;
+    hud.hideBriefing();
+    ingest(demo, { animate: false });
+    annotateSource();
+    driver.playing = config.autoplay;
+    hud.setPlaying(driver.playing);
+    armPump(TIMING.stepGap);
+    return true;
+  }
+
+  async function openBriefing() {
+    driver.playing = false;
+    hud.setPlaying(false);
+    parkPump();
+    hud.setStatus('BRIEFING');
+    const catalog = await api.listModels();
+    hud.setCatalog(catalog);
+    const listing = await api.listMatches();
+    const matches = listing && Array.isArray(listing.matches) ? listing.matches : [];
+    hud.setLiveMatches(matches);
+    hud.showBriefing({
+      offline: api.isOffline,
+      error: catalog && catalog.error && !(catalog.models && catalog.models.length)
+        ? catalog.error
+        : '',
+    });
+    return true;
+  }
+
   /** Tell the operator when they are looking at canned data or fallback art. */
+
+  function isExternalPlayer(model) {
+    return model === 'human' || model === 'grokbot';
+  }
+
+
+  /* ── Click-to-move (human side in GrokBot duels) ───────────────────── */
+  const pick = { from: null, enabled: false, down: null };
+
+  function setPickerEnabled(on) {
+    pick.enabled = !!on;
+    if (!pick.enabled) {
+      pick.from = null;
+      try { board.clearHighlights(); } catch { /* ignore */ }
+    }
+  }
+
+  function legalDestsFrom(fromSq) {
+    const match = gameState.match;
+    const legals = (match && Array.isArray(match.legal_uci)) ? match.legal_uci : [];
+    const out = [];
+    for (const u of legals) {
+      if (typeof u === 'string' && u.length >= 4 && u.slice(0, 2) === fromSq) {
+        out.push({ to: u.slice(2, 4), uci: u });
+      }
+    }
+    return out;
+  }
+
+  function pieceColorAt(square) {
+    const pos = gameState.position;
+    if (!pos || !pos.board) return null;
+    const cell = pos.board[square];
+    return cell ? cell.color : null;
+  }
+
+  function submitHumanUci(uci) {
+    if (!driver.matchId || !uci) return;
+    driver.inFlight = true;
+    hud.setBusy(true);
+    api.playMove(driver.matchId, uci, { actor: 'human' }).then((res) => {
+      driver.inFlight = false;
+      hud.setBusy(false);
+      if (res && res.error) {
+        hud.setStatus('ILLEGAL MOVE');
+        if (hud.setMoveEntry) {
+          hud.setMoveEntry({ show: true, hint: String(res.error), label: 'STARFLEET MOVE' });
+        }
+        syncExternalControls(gameState.match);
+        return;
+      }
+      ingest(res, { animate: true });
+      armPump(TIMING.idlePoll);
+      if (res && res.current_model === 'grokbot' && driver.matchId) {
+        fetch('/api/chess/' + encodeURIComponent(driver.matchId) + '/notify-grokbot', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason: 'human-moved' }),
+        }).catch(() => {});
+      }
+    }).catch((err) => {
+      driver.inFlight = false;
+      hud.setBusy(false);
+      console.error(err);
+    });
+  }
+
+  function onBoardPointerDown(ev) {
+    if (!pick.enabled || driver.inFlight || queue.isBusy) return;
+    if (ev.button != null && ev.button !== 0) return;
+    pick.down = { x: ev.clientX, y: ev.clientY, t: performance.now() };
+  }
+
+  function onBoardPointerUp(ev) {
+    if (!pick.enabled || driver.inFlight || queue.isBusy) return;
+    if (!pick.down) return;
+    const dx = ev.clientX - pick.down.x;
+    const dy = ev.clientY - pick.down.y;
+    const dt = performance.now() - pick.down.t;
+    pick.down = null;
+    // Ignore orbit-drags
+    if (dx * dx + dy * dy > 36 || dt > 700) return;
+
+    const match = gameState.match;
+    if (!match || match.current_model !== 'human') return;
+
+    const canvas = stage.renderer && stage.renderer.domElement;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const ndcX = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
+    const ndcY = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
+    const square = board.squareFromCameraRay
+      ? board.squareFromCameraRay(stage.camera, ndcX, ndcY)
+      : null;
+    if (!square) return;
+    const sq = String(square).toLowerCase();
+
+    if (!pick.from) {
+      const dests = legalDestsFrom(sq);
+      if (!dests.length) return;
+      // Must be our piece
+      const color = pieceColorAt(sq);
+      if (color && color !== match.turn) return;
+      pick.from = sq;
+      try {
+        board.clearHighlights();
+        board.highlight(sq, 'from');
+        for (const d of dests) board.highlight(d.to, 'legal');
+      } catch (err) { console.warn(err); }
+      return;
+    }
+
+    if (pick.from === sq) {
+      pick.from = null;
+      try { board.clearHighlights(); } catch { /* ignore */ }
+      return;
+    }
+
+    const dests = legalDestsFrom(pick.from);
+    const hit = dests.find((d) => d.to === sq);
+    if (!hit) {
+      const nd = legalDestsFrom(sq);
+      if (nd.length) {
+        const color = pieceColorAt(sq);
+        if (!color || color === match.turn) {
+          pick.from = sq;
+          try {
+            board.clearHighlights();
+            board.highlight(sq, 'from');
+            for (const d of nd) board.highlight(d.to, 'legal');
+          } catch { /* ignore */ }
+        }
+      }
+      return;
+    }
+
+    pick.from = null;
+    try { board.clearHighlights(); } catch { /* ignore */ }
+    submitHumanUci(hit.uci);
+  }
+
+  function installBoardPicker() {
+    const canvas = stage.renderer && stage.renderer.domElement;
+    if (!canvas || canvas.dataset.bcPicker === '1') return;
+    canvas.dataset.bcPicker = '1';
+    canvas.addEventListener('pointerdown', onBoardPointerDown);
+    canvas.addEventListener('pointerup', onBoardPointerUp);
+  }
+
+  function syncExternalControls(match) {
+    if (!match || typeof hud.setMoveEntry !== 'function') return;
+    const over = !!(match.status && match.status !== 'active');
+    const awaiting = !over && !!(match.awaiting_external || isExternalPlayer(match.current_model));
+    const turn = match.turn;
+    const cur = match.current_model;
+    if (!awaiting) {
+      hud.setMoveEntry({ show: false, hint: '' });
+      setPickerEnabled(false);
+      return;
+    }
+    if (cur === 'human') {
+      hud.setMoveEntry({
+        show: true,
+        label: turn === 'white' ? 'STARFLEET MOVE' : 'IMPERIUM MOVE',
+        hint: 'Click a piece, then a square — or type e4 / Nf3',
+      });
+      hud.setStatus('YOUR MOVE');
+      setPickerEnabled(true);
+      installBoardPicker();
+    } else if (cur === 'grokbot') {
+      hud.setMoveEntry({ show: false, hint: '' });
+      hud.setStatus('WAITING FOR GROKBOT…');
+      setPickerEnabled(false);
+      // Ask Forge to wake GrokBot
+      if (driver.matchId) {
+        try {
+          fetch('/api/chess/' + encodeURIComponent(driver.matchId) + '/notify-grokbot', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ reason: 'awaiting-grokbot' }),
+          }).catch(() => {});
+        } catch { /* ignore */ }
+      }
+    }
+  }
+
   function annotateSource() {
+    const match = gameState.match;
+    if (match && (match.awaiting_external || isExternalPlayer(match.current_model))) {
+      // External duel owns the status line (YOUR MOVE / WAITING FOR GROKBOT).
+      syncExternalControls(match);
+      return;
+    }
     const notes = [];
     if (api.isOffline) notes.push('OFFLINE DEMO');
     if (modelSource.white !== 'glb' || modelSource.black !== 'glb') {
@@ -803,37 +1057,30 @@ export async function boot() {
   }
 
   /**
-   * Pick something to show: the requested match, else the newest on the server,
-   * else a freshly created one, else the offline demo.
+   * Pick something to show: an explicit match id, the canned demo, or the
+   * launch briefing so the operator can pick Party Pack models.
    * @returns {Promise<boolean>}
    */
   async function selectInitialMatch() {
+    try {
+      pieces.spawnFromPosition(startPosition());
+    } catch (err) {
+      console.warn(`${LOG} could not spawn the opening position`, err);
+    }
+
     if (config.matchId) {
-      if (await loadMatch(config.matchId)) return true;
+      if (await loadMatch(config.matchId)) {
+        hud.hideBriefing();
+        return true;
+      }
     }
 
-    const listing = await api.listMatches();
-    const matches = listing && Array.isArray(listing.matches) ? listing.matches : [];
-    // The API returns newest first; prefer a match still in progress.
-    const candidate = matches.find((m) => m && m.id && isLive(m)) || matches[0];
-    if (candidate && candidate.id) {
-      if (await loadMatch(candidate.id)) return true;
+    if (config.demo) {
+      return loadDemoMatch();
     }
 
-    if (await newMatch()) return true;
-
-    // Last resort: force the canned game so the scene is never empty.
-    const demo = await api.useDemo();
-    if (!isFailure(demo)) {
-      driver.matchId = demo.id;
-      ingest(demo, { animate: false });
-      annotateSource();
-      armPump(TIMING.stepGap);
-      return true;
-    }
-
-    hud.setStatus('NO MATCH AVAILABLE');
-    return false;
+    await openBriefing();
+    return true;
   }
 
   /* ────────────────────────────────────────────────────────────────────────
@@ -905,12 +1152,83 @@ export async function boot() {
         break;
 
       case 'load-match':
-        loadMatch(payload.id);
+        loadMatch(payload.id).then((ok) => { if (ok) hud.hideBriefing(); });
         break;
 
       case 'new-match':
-        newMatch();
+        newMatch(payload);
         break;
+
+      case 'briefing':
+        openBriefing();
+        break;
+
+      case 'demo':
+        loadDemoMatch();
+        break;
+
+      case 'grokbot':
+        // Brock (human/Starfleet) vs GrokBot (Imperium). No LLM auto-step.
+        newMatch({
+          mode: 'grokbot',
+          human_side: (payload && payload.human_side) || 'white',
+          judge_model: (payload && payload.judge_model) || undefined,
+          commentary_interval: payload && payload.commentary_interval != null
+            ? payload.commentary_interval
+            : 2,
+          commentary_window_plies: payload && payload.commentary_window_plies != null
+            ? payload.commentary_window_plies
+            : 0,
+        }).then((ok) => {
+          if (ok) {
+            driver.playing = true; // poll loop on; /step skipped while external
+            hud.setPlaying(true);
+            hud.setStatus('YOUR MOVE');
+          }
+        });
+        break;
+
+      case 'play-move': {
+        const move = payload && (payload.move || payload.uci || payload.san);
+        if (!driver.matchId || !move) break;
+        driver.inFlight = true;
+        hud.setBusy(true);
+        api.playMove(driver.matchId, String(move), {
+          actor: (payload && payload.actor) || 'human',
+          thinking: (payload && payload.thinking) || '',
+        }).then((res) => {
+          driver.inFlight = false;
+          hud.setBusy(false);
+          if (res && res.error) {
+            hud.setStatus('ILLEGAL MOVE');
+            if (hud.setMoveEntry) {
+              hud.setMoveEntry({
+                show: true,
+                hint: String(res.error),
+                label: 'STARFLEET MOVE',
+              });
+            }
+            return;
+          }
+          ingest(res, { animate: true });
+          annotateSource();
+          syncExternalControls(res);
+          armPump(TIMING.idlePoll);
+          if (res && res.current_model === 'grokbot' && driver.matchId) {
+            fetch('/api/chess/' + encodeURIComponent(driver.matchId) + '/notify-grokbot', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ reason: 'human-moved' }),
+            }).catch(() => {});
+          }
+        }).catch((err) => {
+          driver.inFlight = false;
+          hud.setBusy(false);
+          hud.setStatus('MOVE FAILED');
+          console.error(err);
+        });
+        break;
+      }
 
       case 'resign':
         resign(payload.side);

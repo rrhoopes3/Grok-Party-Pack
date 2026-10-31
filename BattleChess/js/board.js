@@ -30,8 +30,12 @@ import {
   MeshBasicMaterial,
   MeshStandardMaterial,
   PlaneGeometry,
+  Plane,
+  Raycaster,
   ShaderMaterial,
   SRGBColorSpace,
+  Vector2,
+  Vector3,
 } from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
@@ -462,6 +466,22 @@ function buildRingGeometry(inner, outer, bottom, top) {
  * board.clearHighlights();      // wipe everything
  * board.clearHighlights('legal');// wipe just the legal-move dots
  */
+
+/**
+ * Pick a board square from camera NDC coordinates (-1..1).
+ * Intersects the y=0 plane (board surface).
+ */
+export function squareFromCameraRay(camera, ndcX, ndcY) {
+  if (!camera) return null;
+  const raycaster = new Raycaster();
+  const plane = new Plane(new Vector3(0, 1, 0), 0);
+  const mouse = new Vector2(ndcX, ndcY);
+  const hit = new Vector3();
+  raycaster.setFromCamera(mouse, camera);
+  if (!raycaster.ray.intersectPlane(plane, hit)) return null;
+  return worldToSquare(hit);
+}
+
 export function createBoard() {
   const group = new Group();
   group.name = 'BattleChessBoard';
@@ -791,6 +811,7 @@ export function createBoard() {
     // remain the canonical import site.
     squareToWorld,
     worldToSquare,
+    squareFromCameraRay,
     squareToIndices,
     SQUARE_SIZE,
     BOARD_HALF,

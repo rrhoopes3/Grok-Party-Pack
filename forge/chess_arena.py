@@ -3,8 +3,8 @@ Chess Arena — two-model LLM vs LLM chess matches.
 
 Each match wraps `python-chess` for ground-truth move legality / end-state
 detection, and asks each side's LLM for a UCI move per turn. Matches live
-in memory (no persistence yet — a tab refresh keeps them via their id,
-a server restart drops them).
+in memory and are saved as JSON under DATA_DIR/chess_matches after every
+change, so a tab reload or a server restart resumes the same match.
 
 Prompt design:
   * Give the model the FEN, the ASCII board, the SAN move history, and the
@@ -19,8 +19,9 @@ Illegal-move policy (empirical integrity — no house roulette):
   * Up to 3 retries per turn. Attempts 2–3 use a STRICT numbered legal
     list and a system prompt that forbids prose. Completion budgets are
     reasoning-aware: models whose thinking bills inside max_tokens
-    (Claude gen-5, Grok reasoning, o-series) get 8000/2500, plain chat
-    models keep 2000/400.
+    (Claude gen-5, Grok reasoning, o-series) start at 8000, plain chat
+    models at 2000. A retry never gets LESS room: it keeps the cap, and
+    doubles it (up to 16000) when the last reply was truncated.
   * If still no legal MOVE → judge **adjudicates** one legal UCI
     (source=adjudicated, forced=True for UI).
   * If adjudication fails → **protocol forfeit** for the side to move
@@ -40,10 +41,11 @@ from pathlib import Path
 
 import logging
 import re
+import json
 import threading
 import time
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Optional
 
@@ -311,6 +313,7 @@ def _llm_oneshot(prompt: str, system: str, model: str,
         # A max_tokens stop means thinking+text got truncated — this is the
         # failure that used to log as "returned unparseable/illegal".
         if getattr(resp, "stop_reason", None) == "max_tokens":
+            usage["truncated"] = True
             log.warning("chess: %s hit max_tokens (%d) — thinking+text truncated",
                         model, max_tokens)
         # Claude gen-5 (Fable/Opus/Sonnet 5) may lead with ThinkingBlock —
@@ -405,6 +408,7 @@ def _llm_oneshot(prompt: str, system: str, model: str,
     # loud and the extractor finds that inside the reasoning.
     msg = resp.choices[0].message
     if getattr(resp.choices[0], "finish_reason", None) == "length":
+        usage["truncated"] = True
         log.warning("chess: %s hit max_tokens (%d) — reply truncated",
                     model, max_tokens)
     text = msg.content or ""
@@ -602,6 +606,17 @@ class ChessMatch:
         return any(mv.source != MOVE_SOURCE_MODEL for mv in self.moves)
 
 
+# Plain ChessMatch fields written to / read from the saved JSON as-is.
+_PERSISTED_SCALARS = (
+    "created_at", "last_move_at", "resigned_by", "protocol_loss_by",
+    "human_side", "judge_model", "commentary_interval",
+    "commentary_window_plies",
+    "tokens_white_in", "tokens_white_out", "tokens_black_in",
+    "tokens_black_out", "tokens_judge_in", "tokens_judge_out",
+    "cost_white_usd", "cost_black_usd", "cost_judge_usd",
+)
+
+
 # ────────────────────────────────────────────────────────────────────────
 # Serialization for /api/chess
 # ────────────────────────────────────────────────────────────────────────
@@ -756,6 +771,111 @@ def _extract_move(text: str, board: chess.Board) -> Optional[chess.Move]:
     return None
 
 
+def _why_no_move(text: str, board: chess.Board) -> str:
+    """Say why `_extract_move` found nothing: bad notation or bad chess."""
+    if not (text or "").strip():
+        return "empty reply"
+    directives = _MOVE_PREFIX_RE.findall(text)
+    if not directives:
+        return "no MOVE line"
+    tok = directives[-1].strip().rstrip(".,;:")
+    if _UCI_RE.fullmatch(tok):
+        return f"illegal move {tok!r}"
+    try:
+        board.parse_san(tok)
+    except chess.IllegalMoveError:
+        return f"illegal move {tok!r}"
+    except Exception:
+        return f"bad notation {tok!r}"
+    return f"illegal move {tok!r}"
+
+
+# ────────────────────────────────────────────────────────────────────────
+# Match persistence — one JSON file per match, so a restart can resume.
+# ────────────────────────────────────────────────────────────────────────
+
+def _store_dir() -> Path:
+    try:
+        from forge.config import DATA_DIR
+        base = Path(DATA_DIR)
+    except Exception:
+        base = Path(__file__).resolve().parent / "data"
+    return base / "chess_matches"
+
+
+_MATCH_ID_RE = re.compile(r"^[0-9a-f]{32}$")
+
+
+def _match_path(match_id: str) -> Optional[Path]:
+    # Ids are uuid4 hex; anything else never touches the filesystem.
+    if not _MATCH_ID_RE.match(match_id or ""):
+        return None
+    return _store_dir() / f"{match_id}.json"
+
+
+def _save_match(m: ChessMatch) -> None:
+    """Write the match to disk. Never raises — a save failure only costs resume."""
+    path = _match_path(m.id)
+    if path is None:
+        return
+    data = {
+        "version": 1,
+        "id": m.id,
+        "white_model": m.white_model,
+        "black_model": m.black_model,
+        "start_fen": m.board.root().fen(),
+        "move_stack": [mv.uci() for mv in m.board.move_stack],
+        "moves": [asdict(mv) for mv in m.moves],
+        "commentary": [asdict(c) for c in m.commentary],
+        "captures": [asdict(c) for c in m.captures],
+    }
+    for key in _PERSISTED_SCALARS:
+        data[key] = getattr(m, key)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(data), encoding="utf-8")
+        tmp.replace(path)
+    except Exception as e:
+        log.warning("chess %s: save failed: %s", m.id, e)
+
+
+def _load_match(match_id: str) -> Optional[ChessMatch]:
+    path = _match_path(match_id)
+    if path is None or not path.is_file():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        board = chess.Board(data["start_fen"])
+        for uci in data.get("move_stack", []):
+            board.push(chess.Move.from_uci(uci))
+        m = ChessMatch(
+            id=data["id"],
+            white_model=data["white_model"],
+            black_model=data["black_model"],
+            board=board,
+            moves=[MoveRecord(**mv) for mv in data.get("moves", [])],
+            commentary=[CommentaryRecord(**c) for c in data.get("commentary", [])],
+            captures=[CapturedPiece(**c) for c in data.get("captures", [])],
+        )
+        for key in _PERSISTED_SCALARS:
+            if key in data:
+                setattr(m, key, data[key])
+        return m
+    except Exception as e:
+        log.warning("chess %s: load failed: %s", match_id, e)
+        return None
+
+
+def _delete_saved(match_id: str) -> None:
+    path = _match_path(match_id)
+    if path is not None:
+        try:
+            path.unlink(missing_ok=True)
+        except OSError as e:
+            log.warning("chess %s: delete of saved match failed: %s", match_id, e)
+
+
 # ────────────────────────────────────────────────────────────────────────
 # Match registry
 # ────────────────────────────────────────────────────────────────────────
@@ -772,6 +892,8 @@ def _evict_if_needed() -> None:
         (m for m in _MATCHES.values() if m.is_over),
         key=lambda m: m.last_move_at or m.created_at,
     )
+    # Eviction only frees memory; the saved file stays, so get_match can
+    # still reload an old finished game by id.
     for m in finished[: len(_MATCHES) - _MAX_MATCHES]:
         _MATCHES.pop(m.id, None)
 
@@ -802,6 +924,7 @@ def new_match(
         )
         _MATCHES[m.id] = m
         _evict_if_needed()
+        _save_match(m)
         window_note = (f"recap last {m.commentary_window_plies} plies"
                        if m.commentary_window_plies else "full history")
         log.info("chess match created: %s (%s vs %s, judge=%s every %d rounds, %s)",
@@ -811,10 +934,39 @@ def new_match(
 
 
 def get_match(match_id: str) -> Optional[ChessMatch]:
-    return _MATCHES.get(match_id)
+    """Return the match, reloading it from disk after a server restart."""
+    m = _MATCHES.get(match_id)
+    if m is not None:
+        return m
+    loaded = _load_match(match_id)
+    if loaded is None:
+        return None
+    with _REGISTRY_LOCK:
+        # Another thread may have loaded it first; keep that one.
+        m = _MATCHES.setdefault(loaded.id, loaded)
+    log.info("chess match resumed from disk: %s (%d plies)", m.id, len(m.moves))
+    return m
+
+
+_DISK_SCANNED = False
+
+
+def _load_saved_matches() -> None:
+    """Once per process, pull the newest saved matches into the registry."""
+    global _DISK_SCANNED
+    if _DISK_SCANNED:
+        return
+    _DISK_SCANNED = True
+    folder = _store_dir()
+    if not folder.is_dir():
+        return
+    files = sorted(folder.glob("*.json"), key=lambda f: f.stat().st_mtime, reverse=True)
+    for f in files[:_MAX_MATCHES]:
+        get_match(f.stem)
 
 
 def list_matches() -> list[dict]:
+    _load_saved_matches()
     with _REGISTRY_LOCK:
         items = sorted(_MATCHES.values(), key=lambda m: m.created_at, reverse=True)
     return [serialize_match(m) for m in items]
@@ -903,7 +1055,7 @@ def list_player_models() -> dict[str, Any]:
 def resign(match_id: str, side: str) -> Optional[ChessMatch]:
     if side not in ("white", "black"):
         raise ValueError(f"side must be white|black, got {side!r}")
-    m = _MATCHES.get(match_id)
+    m = get_match(match_id)
     if m is None:
         return None
     with m.lock:
@@ -911,13 +1063,17 @@ def resign(match_id: str, side: str) -> Optional[ChessMatch]:
             return m
         m.resigned_by = side
         m.last_move_at = datetime.now(timezone.utc).isoformat()
+        _save_match(m)
     log.info("chess match %s resigned by %s", match_id, side)
     return m
 
 
 def delete_match(match_id: str) -> bool:
+    known = get_match(match_id) is not None
     with _REGISTRY_LOCK:
-        return _MATCHES.pop(match_id, None) is not None
+        _MATCHES.pop(match_id, None)
+    _delete_saved(match_id)
+    return known
 
 
 # ────────────────────────────────────────────────────────────────────────
@@ -1142,7 +1298,7 @@ def _grokbot_pending_path():
 
 def notify_grokbot(match_id: str, reason: str = "notify") -> dict:
     """Persist a wake record when human moved and GrokBot is to play."""
-    m = _MATCHES.get(match_id)
+    m = get_match(match_id)
     if m is None:
         raise KeyError(match_id)
     rec = {
@@ -1239,7 +1395,7 @@ def apply_external_move(
     ctor is optional provenance ("human" | "grokbot" | chat handle). The
     side to move must currently be an EXTERNAL_PLAYERS model (or human_side).
     """
-    m = _MATCHES.get(match_id)
+    m = get_match(match_id)
     if m is None:
         return None
 
@@ -1305,6 +1461,7 @@ def apply_external_move(
             raw_reply=text[:200],
         ))
         m.last_move_at = datetime.now(timezone.utc).isoformat()
+        _save_match(m)
         if (who == "grokbot") or (model == "grokbot"):
             clear_grokbot_wake(match_id)
         return m
@@ -1316,8 +1473,8 @@ def make_move(match_id: str, max_attempts: int = 3) -> Optional[ChessMatch]:
     Ask the current side's model for a move, apply it.
 
     Integrity policy (no house roulette):
-      1. Up to max_attempts player calls — retries 2+ use STRICT numbered list
-         and a short max_tokens budget.
+      1. Up to max_attempts player calls — retries 2+ use STRICT numbered list.
+         A retry keeps the max_tokens cap, and doubles it after truncation.
       2. If still no legal move → judge **adjudicates** one legal UCI
          (source=adjudicated).
       3. If adjudication fails → **protocol forfeit** for the side to move
@@ -1326,7 +1483,7 @@ def make_move(match_id: str, max_attempts: int = 3) -> Optional[ChessMatch]:
     Returns the updated match (None if match_id unknown).
     Raises RuntimeError if the player LLM call fails outright (no API key etc.).
     """
-    m = _MATCHES.get(match_id)
+    m = get_match(match_id)
     if m is None:
         return None
 
@@ -1352,17 +1509,13 @@ def make_move(match_id: str, max_attempts: int = 3) -> Optional[ChessMatch]:
                 f"Current side is {model} — POST /api/chess/<id>/move with uci or san"
             )
 
+        # Reasoning-tier models bill thinking INSIDE max_tokens (Fable 5
+        # can't turn thinking off at all), so their budget has to fit
+        # thinking + a MOVE line. A retry never shrinks it: Astra ran out at
+        # 8000, and the old 2500 retries could only fail harder.
+        max_tok = 8000 if _reasoning_tier(model) else 2000
         for attempts in range(1, max_attempts + 1):
             strict = attempts > 1
-            # Reasoning-tier models bill thinking INSIDE max_tokens (Fable 5
-            # can't turn thinking off at all), so their budget has to fit
-            # thinking + a MOVE line. 2000/400 starved them: truncation
-            # mid-thinking → zero text blocks → guaranteed adjudication.
-            # Plain chat models keep the tight caps — they never use more.
-            if _reasoning_tier(model):
-                max_tok = 8000 if attempts == 1 else 2500
-            else:
-                max_tok = 2000 if attempts == 1 else 400
             try:
                 reply, usage = _llm_oneshot(
                     prompt=_build_prompt(m, last_error=last_error, strict=strict),
@@ -1383,13 +1536,17 @@ def make_move(match_id: str, max_attempts: int = 3) -> Optional[ChessMatch]:
             if chosen is not None:
                 source = MOVE_SOURCE_MODEL
                 break
+            why = _why_no_move(raw_reply, m.board)
+            if usage.get("truncated"):
+                why += f" (truncated at {max_tok} tokens)"
+                max_tok = min(16000, max_tok * 2)
             last_error = (
-                f"No legal move found in your reply. "
-                f"You said: {raw_reply[:180]!r}"
+                f"No legal move found in your reply ({why}). "
+                f"You said: {raw_reply[-180:]!r}"
             )
             log.warning(
-                "chess %s attempt %d: %s returned unparseable/illegal",
-                m.id, attempts, model,
+                "chess %s attempt %d: %s gave no legal move: %s; reply tail: %r",
+                m.id, attempts, model, why, raw_reply[-300:],
             )
 
         if chosen is None:
@@ -1447,6 +1604,7 @@ def make_move(match_id: str, max_attempts: int = 3) -> Optional[ChessMatch]:
                     "chess %s: %s protocol forfeit after %d tries (no house roulette)",
                     m.id, model, max_attempts,
                 )
+                _save_match(m)
                 return m
 
         # Capture detection has to happen BEFORE pushing — once we push,
@@ -1491,6 +1649,7 @@ def make_move(match_id: str, max_attempts: int = 3) -> Optional[ChessMatch]:
             m.cost_black_usd += total_cost
 
         m.last_move_at = datetime.now(timezone.utc).isoformat()
+        _save_match(m)
         return m
 
 
@@ -1738,7 +1897,7 @@ def generate_commentary(match_id: str) -> Optional[CommentaryRecord]:
     field in its response so the UI surfaces the actual cause rather than
     silently skipping beats.
     """
-    m = _MATCHES.get(match_id)
+    m = get_match(match_id)
     if m is None:
         return None
 
@@ -1792,6 +1951,7 @@ def generate_commentary(match_id: str) -> Optional[CommentaryRecord]:
         m.tokens_judge_in += usage["input_tokens"]
         m.tokens_judge_out += usage["output_tokens"]
         m.cost_judge_usd += usage["cost_usd"]
+        _save_match(m)
     log.info("chess %s: judge commentary fired (round %d, %dms, %d→%d toks, $%.4f)",
              m.id, record.round_num, record.ms,
              usage["input_tokens"], usage["output_tokens"], usage["cost_usd"])
@@ -1801,7 +1961,7 @@ def generate_commentary(match_id: str) -> Optional[CommentaryRecord]:
 def maybe_generate_commentary(match_id: str) -> Optional[CommentaryRecord]:
     """Fire commentary if it's the right beat; otherwise return None.
     Called by the /step route after a move is applied."""
-    m = _MATCHES.get(match_id)
+    m = get_match(match_id)
     if m is None:
         return None
     if not _should_emit_commentary(m):

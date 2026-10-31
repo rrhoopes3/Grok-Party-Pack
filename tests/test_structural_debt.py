@@ -76,6 +76,7 @@ def test_domain_blueprints_register_routes():
     rules = {r.rule for r in app.url_map.iter_rules()}
     assert "/api/keys" in rules
     assert "/api/chess" in rules
+    assert "/api/chess/models" in rules
     assert "/api/nes/roms" in rules
 
 

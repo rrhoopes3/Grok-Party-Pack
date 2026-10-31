@@ -5,7 +5,11 @@ import pytest
 
 
 @pytest.fixture
-def client(monkeypatch):
+def client(monkeypatch, tmp_path):
+    # Saved matches go to tmp_path, never the real forge/data folder.
+    monkeypatch.setattr(
+        "forge.chess_arena._store_dir", lambda: tmp_path / "chess_matches"
+    )
     monkeypatch.setattr(
         "forge.chess_arena._lmstudio_available_models", lambda _url: []
     )

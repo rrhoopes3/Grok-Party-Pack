@@ -160,8 +160,11 @@ function buildEnvironmentScene() {
   owned.mat.push(shellMat);
   scene.add(new Mesh(shellGeo, shellMat));
 
-  // Overhead softbox — the dominant specular highlight on every metal piece.
-  panel(11, 0.4, 11, 0xfff2e2, 3.1, [0, 8.6, 0]);
+  // Main softbox — the dominant specular highlight on every metal piece.
+  // Smaller, dimmer and pushed off to the White-right corner: centred
+  // overhead at 3.1 it mirrored straight back into any top-down camera and
+  // washed the pieces out.
+  panel(7, 0.4, 7, 0xfff2e2, 1.5, [5.5, 8.2, 5.5], [0, 0, 0.35]);
   // Secondary ceiling strips give elongated, believable highlights.
   panel(2.2, 0.3, 20, 0xdfe9ff, 1.35, [-7.5, 8.2, 0]);
   panel(2.2, 0.3, 20, 0xdfe9ff, 1.35, [7.5, 8.2, 0]);
@@ -505,12 +508,12 @@ export function createStage({ canvas, quality = 'high' } = {}) {
   lights.name = 'lightRig';
   scene.add(lights);
 
-  // Key: hard spot from high above and slightly to the White-right.
-  // 150cd, not 620: with decay 2 at ~14 units the old value clipped the board
-  // to white from any camera near the reflection axis. Verified across the
-  // side/white/black/top presets before committing.
-  const keyLight = new SpotLight(0xfff0dc, 150, 0, Math.PI / 6.2, 0.42, 2.0);
-  keyLight.position.set(4.2, 13.5, 5.4);
+  // Key: spot from the White-right at ~40° elevation, not overhead. From
+  // (4.2, 13.5, 5.4) the reflection axis sat almost vertical, so every
+  // camera looking down at the board caught the glare. 150cd, not 620: with
+  // decay 2 at ~14 units the old value clipped the board to white.
+  const keyLight = new SpotLight(0xfff0dc, 130, 0, Math.PI / 5.2, 0.5, 2.0);
+  keyLight.position.set(8.5, 9.5, 7.5);
   keyLight.target.position.set(0, 0, 0);
   keyLight.castShadow = settings.shadows;
   keyLight.shadow.mapSize.set(settings.shadowMap, settings.shadowMap);
