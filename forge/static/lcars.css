@@ -532,6 +532,18 @@ body.lcars .tab-content {
 }
 body.lcars .tab-content.active { display: flex; }
 
+body.lcars #tab-chess {
+  padding: 0;
+  background: #000;
+}
+body.lcars #tab-chess .battlechess-frame {
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 0;
+  border: 0;
+  background: #000;
+}
+
 body.lcars .tab-layout-split,
 body.lcars .tab-layout-single {
   padding: 12px 16px;
@@ -997,6 +1009,14 @@ body.lcars .ghost-btn {
   background: #000000;
   color: var(--lcars-peach);
   border: 1px solid var(--lcars-peach);
+}
+a.ghost-btn,
+a.chess-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  box-sizing: border-box;
 }
 body.lcars .kill-btn {
   background: var(--lcars-red);

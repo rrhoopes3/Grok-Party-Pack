@@ -473,9 +473,12 @@ function bindBaseEvents() {
             if (tab === "memory" && typeof loadMemory === "function") loadMemory();
             if (tab === "trading" && typeof initTrading === "function") initTrading();
             if (tab === "keys" && typeof loadKeys === "function") loadKeys();
-            if (tab === "chess" && typeof chessPopulateModelSelects === "function") {
-                chessPopulateModelSelects();
-                if (typeof renderChess === "function") renderChess();
+            if (tab === "chess") {
+                const frame = document.getElementById("battlechess-frame");
+                if (frame && !frame.dataset.loaded) {
+                    frame.src = frame.dataset.src || "/battlechess/";
+                    frame.dataset.loaded = "1";
+                }
             }
             if (tab === "nes" && typeof nesLoadRomList === "function") {
                 nesLoadRomList();

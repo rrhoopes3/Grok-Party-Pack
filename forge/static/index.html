@@ -26,7 +26,7 @@
             <button class="tab-btn" data-tab="trading">Trading</button>
             <button class="tab-btn" data-tab="prophecy">Prophecy</button>
             <button class="tab-btn" data-tab="runtime">Runtime</button>
-            <button class="tab-btn" data-tab="chess">Chess</button>
+            <button class="tab-btn" data-tab="chess">BattleChess</button>
             <button class="tab-btn" data-tab="nes">NES</button>
             <button class="tab-btn" data-tab="keys">Keys</button>
             <button class="tab-btn" data-tab="about">About</button>
@@ -104,6 +104,7 @@
                 </div>
 
                 <button id="arena-btn" class="ghost-btn" title="Open Arena — AI Gladiatorial Combat">Arena</button>
+                <a id="battlechess-btn" class="ghost-btn" href="/battlechess/" title="Open BattleChess — 3D LLM vs LLM">BattleChess</a>
                 <button id="reset-cost-btn" class="ghost-btn small-btn" title="Reset spend">Reset</button>
             </div>
         </section>
@@ -1043,163 +1044,9 @@
         </div>
     </div>
 
-    <!-- ── TAB: Chess (LLM vs LLM arena) ──────────────────────────────── -->
+    <!-- ── TAB: BattleChess ─────────────────────────────────────────── -->
     <div class="tab-content" id="tab-chess">
-        <div class="chess-layout">
-            <section class="panel chess-setup-panel">
-                <div class="panel-header chess-panel-header">
-                    <h3>LLM Chess Arena</h3>
-                    <span class="chess-subtitle">Two models play. Moves are legality-checked server-side.</span>
-                </div>
-                <div class="chess-mode-row" style="margin-bottom: 8px;">
-                    <label style="display:flex; align-items:center; gap:8px; font-size:0.85rem;">
-                        <span>Mode</span>
-                        <select id="chess-mode" style="width:auto; font-size:0.8rem;">
-                            <option value="ai_vs_ai" selected>AI Arena (LLM vs LLM)</option>
-                            <option value="human_vs_ai">Human vs AI — Play against the model</option>
-                        </select>
-                    </label>
-                </div>
-                <div class="chess-setup-row">
-                    <label class="field">
-                        <span>White ♔</span>
-                        <select id="chess-white-model" class="chess-model-select"></select>
-                    </label>
-                    <label class="field">
-                        <span>Black ♚</span>
-                        <select id="chess-black-model" class="chess-model-select"></select>
-                    </label>
-                    <label class="field">
-                        <span>Judge 🎙</span>
-                        <select id="chess-judge-model" class="chess-model-select"></select>
-                    </label>
-                    <button class="btn-primary chess-btn chess-new-btn" id="chess-new-btn">Start match</button>
-                </div>
-                <div class="chess-setup-row2">
-                    <label class="field chess-interval-field">
-                        <span>Commentary</span>
-                        <!-- value format: "interval:window_plies"
-                             window_plies = 0 → full-history running commentary
-                             window_plies > 0 → recap only the last N plies -->
-                        <select id="chess-commentary-interval" class="chess-model-select">
-                            <option value="1:0">every round · full history</option>
-                            <option value="2:0" selected>every 2 rounds · full history</option>
-                            <option value="3:0">every 3 rounds · full history</option>
-                            <option value="4:0">every 4 rounds · full history</option>
-                            <option value="5:10">every 5 rounds · recap last 5 rounds</option>
-                            <option value="10:20">every 10 rounds · recap last 10 rounds</option>
-                        </select>
-                    </label>
-                    <label class="toggle-field chess-tts-toggle">
-                        <span>TTS voice</span>
-                        <span class="switch">
-                            <input type="checkbox" id="chess-tts-toggle">
-                            <span class="switch-track"></span>
-                        </span>
-                    </label>
-                </div>
-            </section>
-
-            <section class="panel chess-main-panel" id="chess-main-panel">
-                <!-- 3 columns: board | status/commentary | move log -->
-                <div class="chess-main-grid">
-                    <div class="chess-board-wrap">
-                        <div class="chess-board" id="chess-board">
-                            <div class="chess-empty">No active match. Configure players above and press "Start match".</div>
-                        </div>
-                        <div class="chess-board-meta">
-                            <span class="chess-side-badge" id="chess-white-badge">— White</span>
-                            <span class="chess-vs">vs</span>
-                            <span class="chess-side-badge" id="chess-black-badge">— Black</span>
-                        </div>
-
-                        <!-- Captured-pieces rows (side-board). Shows black
-                             pieces that white has taken, and vice versa. -->
-                        <div class="chess-captures">
-                            <div class="chess-capture-row" id="chess-capture-white">
-                                <span class="chess-capture-label">White captured</span>
-                                <span class="chess-capture-pieces" id="chess-capture-white-pieces"></span>
-                                <span class="chess-capture-material" id="chess-capture-white-material"></span>
-                            </div>
-                            <div class="chess-capture-row" id="chess-capture-black">
-                                <span class="chess-capture-label">Black captured</span>
-                                <span class="chess-capture-pieces" id="chess-capture-black-pieces"></span>
-                                <span class="chess-capture-material" id="chess-capture-black-material"></span>
-                            </div>
-                        </div>
-                    </div>
-
-                    <aside class="chess-side-panel">
-                        <div class="chess-status-block">
-                            <div class="chess-turn-label">
-                                <span>Turn</span>
-                                <strong id="chess-turn">—</strong>
-                            </div>
-                            <div class="chess-turn-label">
-                                <span>Status</span>
-                                <strong id="chess-status">—</strong>
-                            </div>
-                            <div class="chess-turn-label">
-                                <span>Move #</span>
-                                <strong id="chess-movenum">0</strong>
-                            </div>
-                        </div>
-
-                        <!-- Token accounting — per-side + judge + total. -->
-                        <div class="chess-tokens-block">
-                            <div class="chess-tokens-header">
-                                <span>Token usage</span>
-                                <span class="chess-tokens-total" id="chess-tokens-total">0 tokens · $0.0000</span>
-                            </div>
-                            <div class="chess-tokens-grid">
-                                <div class="chess-tokens-row" data-role="white">
-                                    <span class="chess-tokens-role">♔ White</span>
-                                    <span class="chess-tokens-val" id="chess-tokens-white">0 / 0 · $0.0000</span>
-                                </div>
-                                <div class="chess-tokens-row" data-role="black">
-                                    <span class="chess-tokens-role">♚ Black</span>
-                                    <span class="chess-tokens-val" id="chess-tokens-black">0 / 0 · $0.0000</span>
-                                </div>
-                                <div class="chess-tokens-row" data-role="judge">
-                                    <span class="chess-tokens-role">🎙 Judge</span>
-                                    <span class="chess-tokens-val" id="chess-tokens-judge">0 / 0 · $0.0000</span>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="chess-controls">
-                            <button class="chess-btn" id="chess-step-btn" disabled>Step (next move)</button>
-                            <button class="chess-btn chess-auto-btn" id="chess-auto-btn" disabled>Auto-play</button>
-                            <button class="chess-btn chess-resign-btn" id="chess-resign-white-btn" disabled>Resign White</button>
-                            <button class="chess-btn chess-resign-btn" id="chess-resign-black-btn" disabled>Resign Black</button>
-                        </div>
-
-                        <div class="chess-status-msg" id="chess-status-msg"></div>
-
-                        <div class="chess-commentary-block">
-                            <div class="chess-commentary-header">
-                                <span>🎙 Judge Commentary</span>
-                                <span class="chess-commentary-meta" id="chess-commentary-meta">—</span>
-                                <button class="chess-btn chess-mini-btn" id="chess-commentary-now-btn" disabled>Call it</button>
-                            </div>
-                            <div class="chess-commentary-body" id="chess-commentary-body">
-                                Commentary will appear here after the first full round.
-                            </div>
-                            <div class="chess-commentary-history" id="chess-commentary-history"></div>
-                        </div>
-                    </aside>
-
-                    <aside class="chess-moves-column" aria-label="Move log">
-                        <div class="chess-moves-block">
-                            <div class="chess-moves-header">Move log</div>
-                            <div class="chess-moves" id="chess-moves">
-                                <div class="chess-moves-empty">No moves yet.</div>
-                            </div>
-                        </div>
-                    </aside>
-                </div>
-            </section>
-        </div>
+        <iframe id="battlechess-frame" class="battlechess-frame" title="BattleChess" data-src="/battlechess/"></iframe>
     </div>
 
     <!-- ── TAB: NES Arena (jsnes in-browser emulator + Grok coach) ────── -->
@@ -1421,6 +1268,7 @@
     <script src="/static/js/memory.js"></script>
     <script src="/static/js/keys.js"></script>
     <script src="/static/js/chess.js"></script>
+    <script src="/static/js/nes_ultima_state.js"></script>
     <script src="/static/js/nes.js"></script>
     <script src="/static/js/runner.js"></script>
     <script src="/static/js/arena.js"></script>
