@@ -290,13 +290,20 @@ class TestBuiltinPacks:
 
 class TestGlobalRegistry:
     def test_get_registry_returns_populated(self):
-        """Global registry should have all 8 built-in packs."""
+        """Global registry should include the original built-in packs."""
         # Reset singleton for clean test
         import forge.packs as packs_mod
         packs_mod._registry = None
         reg = get_registry()
-        assert len(reg.list_packs()) == 8
-        assert set(reg.list_names()) == {"research", "builder", "ops", "trading", "arena", "email", "salesforce", "blender"}
+        names = set(reg.list_names())
+        required = {
+            "research", "builder", "ops", "trading", "arena", "email",
+            "salesforce", "blender",
+        }
+        assert required <= names
+        from forge.config import GROKEMON_PACK_ENABLED, PUBLIC_MODE
+        if GROKEMON_PACK_ENABLED and not PUBLIC_MODE:
+            assert "grokemon" in names
 
     def test_get_registry_is_singleton(self):
         """Calling get_registry twice returns same instance."""

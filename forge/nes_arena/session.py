@@ -68,6 +68,7 @@ class NESSession:
     last_lives: int = 0
     last_level: str = ""
     last_ram_snapshot: dict = field(default_factory=dict)
+    last_state: dict = field(default_factory=dict)
 
     # Coach state
     current_plan: Optional[CoachPlan] = None
@@ -120,6 +121,7 @@ class NESSession:
                 ],
                 "cost_usd": round(self.cost_usd, 6),
                 "api_calls": self.api_calls,
+                "state": self.last_state,
             }
 
     def ingest_tick(self, frame_b64: str, frame_n: int, state: dict) -> None:
@@ -133,9 +135,11 @@ class NESSession:
                 if "score" in state:  self.last_score = int(state["score"])
                 if "lives" in state:  self.last_lives = int(state["lives"])
                 if "level" in state:  self.last_level = str(state["level"])
+                self.last_state = dict(state)
                 if "ram" in state and isinstance(state["ram"], dict):
-                    # Keep the slice small so we don't blow up memory
                     self.last_ram_snapshot = dict(list(state["ram"].items())[:64])
+                if "map" in state:
+                    self.last_level = str(state.get("map") or "")
 
     def set_plan(self, plan: CoachPlan) -> None:
         with self.lock:

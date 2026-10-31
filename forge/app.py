@@ -51,7 +51,7 @@ from forge.config import (
 from forge.toll.endpoints import toll_bp
 from forge.toll.public_api import public_bp
 from forge.packs import get_registry as get_pack_registry
-from forge import task_state
+from forge import config as _config, task_state  # _config: read flags at call time
 from forge.providers import health_snapshot as provider_health_snapshot
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
@@ -244,7 +244,7 @@ def register_modules(flask_app: Flask) -> dict:
         log.info("Observability enabled (/metrics)")
         enabled["observability"] = True
 
-    _auth = install_auth_gate(flask_app, with_login_ui=True)
+    _auth = install_auth_gate(flask_app, with_login_ui=True, allow_loopback_demo=True)
     enabled["auth"] = True
 
     # ── Public Demo Mode (BYOK) ─────────────────────────────────────────
@@ -254,7 +254,7 @@ def register_modules(flask_app: Flask) -> dict:
         log.info("Public demo mode enabled (BYOK, restricted tools)")
         enabled["public_mode"] = True
 
-    # ── Domain blueprints (keys / chess / NES) ─────────────────────────
+    # ── Domain blueprints (keys / chess / NES / GrokeMon) ──────────────
     from forge.keys_api import keys_bp
     from forge.chess_http import chess_bp
     from forge.nes_http import nes_bp
@@ -264,6 +264,13 @@ def register_modules(flask_app: Flask) -> dict:
     enabled["keys"] = True
     enabled["chess"] = True
     enabled["nes"] = True
+    if _config.GROKEMON_PACK_ENABLED and not _config.PUBLIC_MODE:  # one flag source
+        try:  # GrokeMon/ is its own repo; a checkout without it must still boot
+            from GrokeMon.http import grokemon_bp  # bp carries API + /grokemon/ mount
+            flask_app.register_blueprint(grokemon_bp)
+            enabled["grokemon"] = True
+        except ImportError as e:
+            log.warning("GrokeMon blueprint skipped: %s", e)
 
     return enabled
 

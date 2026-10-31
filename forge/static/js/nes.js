@@ -17,7 +17,7 @@
 //   nes.buttonDown(player, button)   player ∈ {1,2}, button ∈ Controller.BUTTON_*
 //   nes.buttonUp(player, button)
 
-const nesState = {
+const nesState = window.nesState = {
     nes: null,                  // jsnes.NES instance
     romSlug: "",
     romTitle: "",
@@ -492,6 +492,7 @@ function nesRafLoop() {
     }
 
     nesFpsTick();
+    if ((nesState.frameN & 3) === 0) nesReadGameState();
 
     // Heartbeat tick to server: ~0.7 Hz (was 2 Hz — too aggressive on
     // Windows localhost where the Flask dev server is single-threaded
@@ -566,7 +567,12 @@ async function nesSendTick() {
 // Very generic hook — later we can plug per-ROM RAM inspectors here
 // (e.g. SMB: lives at $075A). For now just return the frame number.
 function nesReadGameState() {
-    return { frame: nesState.frameN };
+    if (typeof ForgeNesReadState === "function") {
+        try { return ForgeNesReadState(); } catch (e) { console.warn("[nes] state", e); }
+    }
+    const s = { frame: nesState.frameN };
+    window.__FORGE_NES_STATE__ = s;
+    return s;
 }
 
 async function nesAskCoach(first = false) {

@@ -231,6 +231,8 @@ def _is_public_path(path: str) -> bool:
         return True
     if path == "/battlechess" or path.startswith("/battlechess/"):
         return True
+    if path == "/grokemon" or path.startswith("/grokemon/"):
+        return True
     for prefix in _PUBLIC_PREFIXES:
         if path.startswith(prefix):
             return True

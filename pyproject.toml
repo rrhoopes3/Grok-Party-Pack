@@ -62,5 +62,5 @@ line-length = 100
 select = ["E", "F", "W", "I"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "GrokeMon/tests"]
 pythonpath = ["."]

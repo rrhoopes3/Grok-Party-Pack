@@ -15,6 +15,25 @@ from forge.config import (
 log = logging.getLogger("forge.nes_http")
 nes_bp = Blueprint("nes", __name__)
 
+
+@nes_bp.route("/api/nes/live", methods=["GET"])
+def nes_live_state():
+    """Latest parsed RAM state from the most recently ticking session."""
+    sessions = _nes.list_sessions()
+    if not sessions:
+        return jsonify({"ok": False, "error": "no nes session"}), 404
+    # list_sessions may be summaries; prefer the one with newest frame
+    sid = None
+    if isinstance(sessions, list) and sessions:
+        sessions_sorted = sorted(sessions, key=lambda x: x.get("last_frame_n", 0), reverse=True)
+        sid = sessions_sorted[0].get("id")
+    if not sid:
+        return jsonify({"ok": False, "error": "no session id"}), 404
+    s = _nes.get_session(sid)
+    if s is None:
+        return jsonify({"ok": False, "error": "session gone"}), 404
+    return jsonify({"ok": True, **s.summary()})
+
 @nes_bp.route("/api/nes/roms", methods=["GET"])
 def nes_roms():
     return jsonify({"roms": _nes.list_roms()})

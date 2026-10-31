@@ -237,8 +237,9 @@ def get_registry() -> PackRegistry:
     """Get or create the global pack registry with all built-in packs."""
     global _registry
     if _registry is None:
-        _registry = PackRegistry()
-        _load_builtin_packs(_registry)
+        registry = PackRegistry()
+        _load_builtin_packs(registry)
+        _registry = registry
     return _registry
 
 
@@ -260,3 +261,11 @@ def _load_builtin_packs(registry: PackRegistry) -> None:
                  EMAIL_PACK, SALESFORCE_PACK, BLENDER_PACK, PLAYWRIGHT_PACK, MUSIC_PACK,
                  NES_PACK]:
         registry.register(pack)
+
+    from forge.config import GROKEMON_PACK_ENABLED, PUBLIC_MODE
+    if GROKEMON_PACK_ENABLED and not PUBLIC_MODE:
+        try:
+            from GrokeMon.pack import GROKEMON_PACK
+            registry.register(GROKEMON_PACK)
+        except Exception as e:
+            log.warning("GrokeMon pack skipped: %s", e)

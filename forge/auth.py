@@ -136,6 +136,24 @@ class AuthManager:
         until = self._lock_until.get(username, 0)
         return time.time() < until
 
+    def _sweep_failures(self, now: float) -> None:
+        """Drop usernames whose failures aged out and whose lock has lapsed.
+
+        The keys are attacker-supplied: ``/api/login`` is unauthenticated, so
+        without this an unauthenticated client grows the process by one dict
+        entry per distinct username it tries, forever. Pruning inside one key
+        never removed the key itself, and ``_clear_failures`` only runs on a
+        *successful* login — which a username that does not exist can never have.
+        """
+        stale = [
+            name for name, hits in self._failures.items()
+            if not any(now - t < _LOCKOUT_WINDOW for t in hits)
+            and now >= self._lock_until.get(name, 0.0)
+        ]
+        for name in stale:
+            self._failures.pop(name, None)
+            self._lock_until.pop(name, None)
+
     def _note_failure(self, username: str) -> None:
         now = time.time()
         recent = [t for t in self._failures[username] if now - t < _LOCKOUT_WINDOW]
@@ -144,6 +162,7 @@ class AuthManager:
         if len(recent) >= _LOCKOUT_THRESHOLD:
             self._lock_until[username] = now + _LOCKOUT_SECONDS
             log.warning("Account locked for %s after %d failures", username, len(recent))
+        self._sweep_failures(now)
 
     def _clear_failures(self, username: str) -> None:
         self._failures.pop(username, None)
