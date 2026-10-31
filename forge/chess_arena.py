@@ -36,6 +36,8 @@ can play.
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 import logging
 import re
 import threading
@@ -49,6 +51,8 @@ import chess
 
 from forge.config import (
     XAI_API_KEY, ANTHROPIC_API_KEY, OPENAI_API_KEY,
+    GEMINI_API_KEY, META_API_KEY,
+    GEMINI_OPENAI_BASE_URL, META_OPENAI_BASE_URL,
     LMSTUDIO_BASE_URL, OLLAMA_BASE_URL,
     EXECUTOR_MODELS,
 )
@@ -63,8 +67,12 @@ log = logging.getLogger("forge.chess_arena")
 def _provider_for(model: str) -> str:
     if model.startswith("claude-"):
         return "anthropic"
-    if model.startswith(("gpt-", "o1-", "o3-", "o4-", "chatgpt-")):
+    if model.startswith(("gpt-", "o1-", "o3-", "o4-", "chatgpt-")) or model in ("o1", "o3", "o4-mini"):
         return "openai"
+    if model.startswith("gemini-"):
+        return "google"
+    if model.startswith("muse-"):
+        return "meta"
     if model.startswith("lmstudio:"):
         return "lmstudio"
     if model.startswith("ollama:"):
@@ -85,9 +93,10 @@ def _model_rejects_temperature(model: str) -> bool:
         "claude-opus-4-8", "claude-opus-4-7",
         "claude-opus-4-6", "claude-sonnet-4-6",
         "claude-opus-4-5", "claude-sonnet-4-5", "claude-haiku-4-5",
+        "claude-haiku-5",
     )):
         return True
-    if m.startswith(("o1-", "o3-", "o4-", "gpt-5")):
+    if m.startswith(("o1-", "o3-", "o4-", "gpt-5", "gpt-6")):
         return True
     # bare o3 / o4 aliases (no trailing hyphen)
     if m in ("o1", "o3", "o4-mini", "o3-mini", "o1-pro", "o3-pro"):
@@ -101,7 +110,10 @@ def _model_rejects_temperature(model: str) -> bool:
 # only. xAI's Grok / LM Studio / Ollama all still accept max_tokens.
 def _model_uses_max_completion_tokens(model: str) -> bool:
     m = model.lower()
-    return m.startswith(("o1-", "o3-", "o4-", "gpt-5"))
+    # Bare "o3" does not match the "o3-" prefix. GPT-6 uses the same rename.
+    if m.startswith(("gpt-5", "gpt-6", "o1-", "o3-", "o4-")):
+        return True
+    return m in ("o1", "o3", "o4-mini", "o3-mini", "o1-pro", "o3-pro")
 
 
 # Claude 4.6+ / gen-5 models run adaptive thinking (Fable 5 can't disable
@@ -109,24 +121,52 @@ def _model_uses_max_completion_tokens(model: str) -> bool:
 # bill INSIDE max_tokens. Two consequences for chess:
 #   1. Budgets must fit thinking + a MOVE line (see _reasoning_tier).
 #   2. With the default display="omitted", a truncated response carries only
-#      EMPTY thinking blocks — nothing to salvage. So we request effort=low
-#      ("pick one UCI from a numbered list" is not a thinking task) and
-#      display="summarized" so providers.anthropic_message_text's thinking
-#      fallback actually has text — the mirror of the reasoning_content
+#      EMPTY thinking blocks — nothing to salvage. Effort is "high" on
+#      every model that has the dial. display="summarized" stays so
+#      providers.anthropic_message_text's thinking fallback still has text
+#      when the reply is truncated — the mirror of the reasoning_content
 #      salvage on the OpenAI-compatible path.
+# Opus 4.5 and Haiku 5.5 take output_config.effort but not this adaptive
+# thinking block. Sonnet 4.5 and Haiku 4.5 have no effort parameter.
+_REASONING_EFFORT = "high"
 _ANTHROPIC_ADAPTIVE_PREFIXES = (
     "claude-fable-5", "claude-mythos", "claude-opus-5", "claude-sonnet-5",
     "claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6", "claude-sonnet-4-6",
 )
+_ANTHROPIC_EFFORT_ONLY_PREFIXES = (
+    "claude-haiku-5",
+    "claude-opus-4-5",
+)
 
 
 def _anthropic_thinking_kwargs(model: str) -> dict[str, Any]:
-    if model.lower().startswith(_ANTHROPIC_ADAPTIVE_PREFIXES):
+    m = model.lower()
+    if m.startswith(_ANTHROPIC_ADAPTIVE_PREFIXES):
         return {
             "thinking": {"type": "adaptive", "display": "summarized"},
-            "output_config": {"effort": "low"},
+            "output_config": {"effort": _REASONING_EFFORT},
         }
+    if m.startswith(_ANTHROPIC_EFFORT_ONLY_PREFIXES):
+        return {"output_config": {"effort": _REASONING_EFFORT}}
     return {}
+
+
+def _chat_supports_reasoning_effort(model: str) -> bool:
+    """Chat Completions `reasoning_effort`. Sending it to a model that
+    has no dial is a 400. grok-4.20-multi-agent reuses the field for
+    agent count, so the 4.20 / fast / code ids are excluded on purpose.
+    Grok 4.20 Reasoning is already the reasoning model; it has no
+    low/medium/high on top."""
+    m = model.lower()
+    if m.startswith(("gpt-5", "gpt-6", "o1-", "o3-", "o4-")):
+        return True
+    if m in ("o1", "o3", "o4-mini", "o3-mini", "o1-pro", "o3-pro"):
+        return True
+    if m.startswith(("gemini-", "muse-")):
+        return True
+    if m.startswith(("grok-4.7", "grok-4.6", "grok-4.5", "grok-4.3")):
+        return True
+    return False
 
 
 def _reasoning_tier(model: str) -> bool:
@@ -135,9 +175,15 @@ def _reasoning_tier(model: str) -> bool:
     m = model.lower()
     if m.startswith(_ANTHROPIC_ADAPTIVE_PREFIXES):
         return True
+    if m.startswith(_ANTHROPIC_EFFORT_ONLY_PREFIXES):
+        return True
     if "reasoning" in m or "thinking" in m:
         return True
-    if m.startswith(("o1", "o3", "o4", "gpt-5")):
+    if m.startswith(("o1", "o3", "o4", "gpt-5", "gpt-6")):
+        return True
+    if m.startswith(("gemini-", "muse-")):
+        return True
+    if m.startswith(("grok-4.7", "grok-4.6", "grok-4.5", "grok-4.3")):
         return True
     return False
 
@@ -175,15 +221,21 @@ def _resolve_lmstudio_default(base_url: str) -> str:
 _LMSTUDIO_AVAIL_CACHE: dict[str, Any] = {"ids": [], "fetched_at": 0.0}
 
 
+_LMSTUDIO_CACHE_TTL = 30.0
+
+
 def _lmstudio_available_models(base_url: str) -> list[str]:
     """Return the list of chat-capable model ids LM Studio reports.
-    Cached 30s so rapid chess steps don't hammer /v1/models. Empty
+    Cached 30s (including empty/unreachable) so the BattleChess launcher
+    and rapid chess steps don't wait on a 3s timeout every call. Empty
     list if LM Studio is unreachable — callers should treat empty as
-    "skip validation, just try the call."""
+    "skip validation, just try the call."
+    """
     import json as _json, urllib.request
     now = time.monotonic()
-    if _LMSTUDIO_AVAIL_CACHE["ids"] and now - _LMSTUDIO_AVAIL_CACHE["fetched_at"] < 30:
-        return _LMSTUDIO_AVAIL_CACHE["ids"]
+    cached_at = float(_LMSTUDIO_AVAIL_CACHE["fetched_at"] or 0)
+    if cached_at and (now - cached_at) < _LMSTUDIO_CACHE_TTL:
+        return list(_LMSTUDIO_AVAIL_CACHE["ids"] or [])
     try:
         with urllib.request.urlopen(base_url.rstrip("/") + "/models", timeout=3) as resp:
             data = _json.loads(resp.read().decode("utf-8"))
@@ -200,6 +252,8 @@ def _lmstudio_available_models(base_url: str) -> list[str]:
         return ids
     except Exception as e:
         log.warning("chess lmstudio /v1/models probe failed: %s", e)
+        _LMSTUDIO_AVAIL_CACHE["ids"] = []
+        _LMSTUDIO_AVAIL_CACHE["fetched_at"] = now
         return []
 
 
@@ -275,6 +329,20 @@ def _llm_oneshot(prompt: str, system: str, model: str,
     api_key = "none"
     if provider == "openai":
         api_key = OPENAI_API_KEY or ""
+    elif provider == "google":
+        base_url = GEMINI_OPENAI_BASE_URL
+        api_key = GEMINI_API_KEY or ""
+        if not api_key:
+            raise RuntimeError(
+                "GEMINI_API_KEY is not set in forge/.env — can't call " + model
+            )
+    elif provider == "meta":
+        base_url = META_OPENAI_BASE_URL
+        api_key = META_API_KEY or ""
+        if not api_key:
+            raise RuntimeError(
+                "META_API_KEY (or MODEL_API_KEY) is not set in forge/.env — can't call " + model
+            )
     elif provider == "lmstudio":
         base_url = LMSTUDIO_BASE_URL
         api_key = "lm-studio"
@@ -323,6 +391,8 @@ def _llm_oneshot(prompt: str, system: str, model: str,
         call_kwargs["max_tokens"] = max_tokens
     if not skip_temp:
         call_kwargs["temperature"] = temperature
+    if _chat_supports_reasoning_effort(model):
+        call_kwargs["reasoning_effort"] = _REASONING_EFFORT
     # Qwen3 + some other hybrid-thinking models accept this knob to
     # force direct output. Unknown-kwarg servers (vanilla Grok / OpenAI)
     # ignore extra_body, so passing it is always safe.
@@ -363,6 +433,8 @@ def _llm_oneshot(prompt: str, system: str, model: str,
 MOVE_SOURCE_MODEL = "model"
 MOVE_SOURCE_ADJUDICATED = "adjudicated"
 MOVE_SOURCE_FORFEIT = "forfeit"
+MOVE_SOURCE_EXTERNAL = "external"  # human / grokbot submitted via /move
+EXTERNAL_PLAYERS = frozenset({"human", "grokbot"})
 
 
 @dataclass
@@ -563,6 +635,12 @@ def serialize_match(m: ChessMatch) -> dict:
         "white_model": m.white_model,
         "black_model": m.black_model,
         "human_side": m.human_side,  # "white" | "black" | None
+        "awaiting_external": (not m.is_over) and (m.current_model in EXTERNAL_PLAYERS),
+        "legal_uci": (
+            [mv.uci() for mv in m.board.legal_moves]
+            if (not m.is_over) and (m.current_model in EXTERNAL_PLAYERS)
+            else []
+        ),
         "current_model": m.current_model if not m.is_over else None,
         "in_check": m.board.is_check(),
         "halfmove_count": len(m.moves),
@@ -713,7 +791,7 @@ def new_match(
     with _REGISTRY_LOCK:
         board = chess.Board(starting_fen) if starting_fen else chess.Board()
         m = ChessMatch(
-            id=uuid.uuid4().hex[:12],
+            id=uuid.uuid4().hex,
             white_model=white_model,
             black_model=black_model,
             board=board,
@@ -740,6 +818,86 @@ def list_matches() -> list[dict]:
     with _REGISTRY_LOCK:
         items = sorted(_MATCHES.values(), key=lambda m: m.created_at, reverse=True)
     return [serialize_match(m) for m in items]
+
+
+# Judge models that 400 on the chess commentary path (OpenAI-compat, no
+# native multi-agent). Same filter the Chess tab uses so BattleChess
+# cannot pick a booth announcer that silently fails.
+_JUDGE_BLOCKLIST = ("multi-agent", "planner only")
+_PREFERRED_JUDGES = (
+    "grok-4.20-0309-reasoning",
+    "claude-opus-4-7",
+    "claude-opus-4-6",
+    "claude-sonnet-4-6",
+    "gpt-5.4",
+    "gpt-4o",
+)
+
+
+def _judge_ok(model_id: str, label: str = "") -> bool:
+    blob = f"{model_id} {label}".lower()
+    return not any(token in blob for token in _JUDGE_BLOCKLIST)
+
+
+def list_player_models() -> dict[str, Any]:
+    """Party Pack model catalog for the Chess tab and BattleChess launcher.
+
+    Same source as `/api/models` (EXECUTOR_MODELS), minus `auto`, with live
+    LM Studio ids swapped in for the `lmstudio:default` placeholder when
+    LM Studio is actually running.
+    """
+    live = _lmstudio_available_models(LMSTUDIO_BASE_URL or "http://localhost:1234/v1")
+    models: list[dict[str, Any]] = []
+    for mid, info in EXECUTOR_MODELS.items():
+        if mid == "auto":
+            continue
+        if live and mid.startswith("lmstudio:"):
+            continue
+        label = str(info.get("label") or mid)
+        models.append({
+            "id": mid,
+            "label": label,
+            "provider": str(info.get("provider") or "Other"),
+            "cost_in": info.get("cost_in", 0),
+            "cost_out": info.get("cost_out", 0),
+            "judge_ok": _judge_ok(mid, label),
+        })
+    for lid in live:
+        models.append({
+            "id": f"lmstudio:{lid}",
+            "label": f"{lid} (local)",
+            "provider": "Local (LM Studio)",
+            "cost_in": 0,
+            "cost_out": 0,
+            "judge_ok": True,
+        })
+
+    white = models[0]["id"] if models else ""
+    black = models[1]["id"] if len(models) > 1 else white
+    by_id = {m["id"]: m for m in models}
+    judge = ""
+    for preferred in _PREFERRED_JUDGES:
+        hit = by_id.get(preferred)
+        if hit and hit["judge_ok"]:
+            judge = preferred
+            break
+    if not judge:
+        for m in models:
+            if m["judge_ok"]:
+                judge = m["id"]
+                break
+
+    return {
+        "models": models,
+        "defaults": {
+            "white_model": white,
+            "black_model": black,
+            "judge_model": judge,
+            "commentary_interval": 2,
+            "commentary_window_plies": 0,
+        },
+        "lmstudio_live": bool(live),
+    }
 
 
 def resign(match_id: str, side: str) -> Optional[ChessMatch]:
@@ -953,14 +1111,15 @@ def _adjudicate_move(m: ChessMatch) -> tuple[Optional[chess.Move], str, dict[str
         f"Reply with ONLY one line: MOVE: <uci>"
     )
     try:
-        # 500 not 80: a reasoning-tier judge burns its budget on internal
-        # thinking before the MOVE line — 80 guaranteed an empty reply.
+        # Reasoning-tier judges bill thinking inside the cap. High effort
+        # on top of that needs room for a MOVE line; plain chat stays at 500.
+        adj_budget = 2500 if _reasoning_tier(m.judge_model) else 500
         reply, usage = _llm_oneshot(
             prompt=prompt,
             system=_STRICT_SYSTEM_PROMPT,
             model=m.judge_model,
             temperature=0.0,
-            max_tokens=500,
+            max_tokens=adj_budget,
         )
     except Exception as e:
         log.warning("chess %s: adjudicate failed: %s", m.id, e)
@@ -968,6 +1127,188 @@ def _adjudicate_move(m: ChessMatch) -> tuple[Optional[chess.Move], str, dict[str
 
     mv = _extract_move(reply or "", m.board)
     return mv, (reply or "").strip(), usage
+
+
+
+def _grokbot_pending_path():
+    try:
+        from forge.config import DATA_DIR
+        base = Path(DATA_DIR)
+    except Exception:
+        base = Path(__file__).resolve().parent / "data"
+    base.mkdir(parents=True, exist_ok=True)
+    return base / "grokbot_chess_pending.json"
+
+
+def notify_grokbot(match_id: str, reason: str = "notify") -> dict:
+    """Persist a wake record when human moved and GrokBot is to play."""
+    m = _MATCHES.get(match_id)
+    if m is None:
+        raise KeyError(match_id)
+    rec = {
+        "match_id": match_id,
+        "reason": reason,
+        "fen": m.board.fen(),
+        "turn": m.turn if not m.is_over else None,
+        "current_model": m.current_model if not m.is_over else None,
+        "halfmove_count": len(m.moves),
+        "last_move": (
+            {"san": m.moves[-1].san, "uci": m.moves[-1].uci, "side": m.moves[-1].side}
+            if m.moves else None
+        ),
+        "legal_uci": [mv.uci() for mv in m.board.legal_moves] if not m.is_over else [],
+        "notified_at": datetime.now(timezone.utc).isoformat(),
+        "status": m.status,
+    }
+    path = _grokbot_pending_path()
+    try:
+        existing = []
+        if path.exists():
+            import json as _json
+            existing = _json.loads(path.read_text(encoding="utf-8") or "[]")
+            if not isinstance(existing, list):
+                existing = []
+        # Keep one entry per match_id (newest wins)
+        existing = [e for e in existing if isinstance(e, dict) and e.get("match_id") != match_id]
+        existing.append(rec)
+        import json as _json
+        path.write_text(_json.dumps(existing[-20:], indent=2), encoding="utf-8")
+    except Exception as e:
+        log.warning("notify_grokbot persist failed: %s", e)
+    return rec
+
+
+def list_grokbot_pending() -> dict:
+    """Active matches awaiting GrokBot, plus on-disk wake records."""
+    live = []
+    for m in list(_MATCHES.values()):
+        if m.is_over:
+            continue
+        if m.current_model == "grokbot":
+            live.append({
+                "match_id": m.id,
+                "fen": m.board.fen(),
+                "turn": m.turn,
+                "halfmove_count": len(m.moves),
+                "last_move": (
+                    {"san": m.moves[-1].san, "uci": m.moves[-1].uci, "side": m.moves[-1].side}
+                    if m.moves else None
+                ),
+                "legal_uci": [mv.uci() for mv in m.board.legal_moves],
+                "white_model": m.white_model,
+                "black_model": m.black_model,
+                "status": m.status,
+            })
+    wakes = []
+    path = _grokbot_pending_path()
+    try:
+        if path.exists():
+            import json as _json
+            wakes = _json.loads(path.read_text(encoding="utf-8") or "[]")
+            if not isinstance(wakes, list):
+                wakes = []
+    except Exception:
+        wakes = []
+    return {"awaiting": live, "wakes": wakes[-10:]}
+
+
+def clear_grokbot_wake(match_id: str) -> None:
+    path = _grokbot_pending_path()
+    try:
+        if not path.exists():
+            return
+        import json as _json
+        existing = _json.loads(path.read_text(encoding="utf-8") or "[]")
+        if not isinstance(existing, list):
+            return
+        existing = [e for e in existing if not (isinstance(e, dict) and e.get("match_id") == match_id)]
+        path.write_text(_json.dumps(existing, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def apply_external_move(
+    match_id: str,
+    move_text: str,
+    *,
+    thinking: str = "",
+    actor: str = "",
+) -> Optional[ChessMatch]:
+    """Apply a UCI or SAN move from an external player (human UI or GrokBot).
+
+    ctor is optional provenance ("human" | "grokbot" | chat handle). The
+    side to move must currently be an EXTERNAL_PLAYERS model (or human_side).
+    """
+    m = _MATCHES.get(match_id)
+    if m is None:
+        return None
+
+    text = (move_text or "").strip()
+    if not text:
+        raise ValueError("move is required (uci like e2e4 or san like Nf3)")
+
+    with m.lock:
+        if m.is_over:
+            raise RuntimeError("match is already over")
+
+        model = m.current_model
+        if model not in EXTERNAL_PLAYERS:
+            raise RuntimeError(
+                f"side to move is {model!r}, not an external player — use /step for LLMs"
+            )
+
+        chosen = _extract_move(text, m.board)
+        if chosen is None:
+            # Also try bare token cleanup (strip MOVE: prefix if pasted)
+            cleaned = text
+            if cleaned.upper().startswith("MOVE:"):
+                cleaned = cleaned.split(":", 1)[1].strip()
+            chosen = _extract_move(cleaned, m.board)
+        if chosen is None:
+            legals = [mv.uci() for mv in m.board.legal_moves]
+            raise ValueError(
+                f"illegal or unparseable move {text!r}; legal uci sample: {legals[:12]}"
+            )
+
+        mover_side = m.turn
+        victim = _detect_capture(m.board, chosen)
+        san = m.board.san(chosen)
+        uci = chosen.uci()
+        m.board.push(chosen)
+
+        if victim is not None:
+            m.captures.append(CapturedPiece(
+                by=mover_side,
+                piece_symbol=victim.symbol(),
+                move_n=len(m.moves) + 1,
+                move_san=san,
+            ))
+
+        who = (actor or model or "external").strip() or "external"
+        note = thinking.strip() if isinstance(thinking, str) else ""
+        if not note:
+            note = f"[{who}] {san}"
+
+        m.moves.append(MoveRecord(
+            n=len(m.moves) + 1,
+            side=mover_side,
+            san=san,
+            uci=uci,
+            thinking=_trim_thinking(note),
+            forced=False,
+            attempts=1,
+            ms=0,
+            input_tokens=0,
+            output_tokens=0,
+            cost_usd=0.0,
+            source=MOVE_SOURCE_EXTERNAL,
+            raw_reply=text[:200],
+        ))
+        m.last_move_at = datetime.now(timezone.utc).isoformat()
+        if (who == "grokbot") or (model == "grokbot"):
+            clear_grokbot_wake(match_id)
+        return m
+
 
 
 def make_move(match_id: str, max_attempts: int = 3) -> Optional[ChessMatch]:
@@ -1005,9 +1346,11 @@ def make_move(match_id: str, max_attempts: int = 3) -> Optional[ChessMatch]:
         # Token accounting is summed across retry + adjudicate attempts.
         total_in, total_out, total_cost = 0, 0, 0.0
 
-        # Human side never auto-moves via this path.
-        if model == "human":
-            raise RuntimeError("Current side is human — use the human-move endpoint")
+        # External players (human UI / GrokBot) never auto-move via this path.
+        if model in EXTERNAL_PLAYERS:
+            raise RuntimeError(
+                f"Current side is {model} — POST /api/chess/<id>/move with uci or san"
+            )
 
         for attempts in range(1, max_attempts + 1):
             strict = attempts > 1
@@ -1417,7 +1760,9 @@ def generate_commentary(match_id: str) -> Optional[CommentaryRecord]:
             system=_JUDGE_SYSTEM,
             model=m.judge_model,
             temperature=0.7,
-            max_tokens=300,
+            # High-effort thinking counts against this cap. 300 was eaten
+            # before the commentary sentence started.
+            max_tokens=2000,
         )
     except Exception as e:
         log.warning("chess %s: judge call failed: %s", m.id, e)

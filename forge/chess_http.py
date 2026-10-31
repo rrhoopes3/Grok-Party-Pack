@@ -1,11 +1,41 @@
 """Flask Blueprint for Chess Arena HTTP API."""
 from __future__ import annotations
 import logging
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, make_response, request
 from forge import chess_arena as _chess
 
 log = logging.getLogger("forge.chess_http")
 chess_bp = Blueprint("chess", __name__)
+
+
+def _apply_cors(resp):
+    """Allow BattleChess served from another localhost origin (?api=)."""
+    origin = request.headers.get("Origin")
+    if origin:
+        resp.headers["Access-Control-Allow-Origin"] = origin
+        resp.headers["Access-Control-Allow-Headers"] = "Content-Type, Accept"
+        resp.headers["Access-Control-Allow-Methods"] = "GET, POST, DELETE, OPTIONS"
+        resp.headers["Access-Control-Max-Age"] = "600"
+        resp.headers["Vary"] = "Origin"
+    return resp
+
+
+@chess_bp.before_request
+def chess_preflight():
+    if request.method == "OPTIONS":
+        return _apply_cors(make_response("", 204))
+
+
+@chess_bp.after_request
+def chess_cors(resp):
+    return _apply_cors(resp)
+
+
+@chess_bp.route("/api/chess/models", methods=["GET"])
+def chess_models():
+    """Party Pack model catalog for BattleChess and the Chess tab."""
+    return jsonify(_chess.list_player_models())
+
 
 @chess_bp.route("/api/chess", methods=["GET"])
 def chess_list():
@@ -21,8 +51,19 @@ def chess_new():
     """
     body = request.get_json(silent=True) or {}
 
+    mode = (body.get("mode") or "").strip().lower()
     human_side = body.get("human_side")
-    if human_side:
+
+    # GrokBot duel: Brock (human) vs Spencer/GrokBot. Neither side auto-steps.
+    if mode in ("grokbot", "vs-grokbot", "grokbot-duel"):
+        human_side = (human_side or "white").strip().lower()
+        if human_side not in ("white", "black"):
+            return jsonify({"error": "human_side must be white or black"}), 400
+        if human_side == "white":
+            white, black = "human", "grokbot"
+        else:
+            white, black = "grokbot", "human"
+    elif human_side:
         ai_model = (body.get("ai_model") or "").strip()
         if not ai_model:
             return jsonify({"error": "ai_model is required when human_side is set"}), 400
@@ -134,6 +175,90 @@ def chess_commentary(match_id: str):
         "ms": rec.ms,
         "emitted_at": rec.emitted_at,
     })
+
+
+
+
+
+
+@chess_bp.route("/api/chess/grokbot/pending", methods=["GET"])
+def chess_grokbot_pending():
+    """Matches where it is GrokBot's turn to move (for Spencer wake/poll)."""
+    return jsonify(_chess.list_grokbot_pending())
+
+
+@chess_bp.route("/api/chess/<match_id>/notify-grokbot", methods=["POST"])
+def chess_notify_grokbot(match_id: str):
+    """Mark a match as needing GrokBot attention (human just moved)."""
+    m = _chess.get_match(match_id)
+    if m is None:
+        return jsonify({"error": f"Unknown match: {match_id!r}"}), 404
+    body = request.get_json(silent=True) or {}
+    rec = _chess.notify_grokbot(match_id, reason=str(body.get("reason") or "notify"))
+    return jsonify(rec)
+
+
+@chess_bp.route("/api/chess/<match_id>/move", methods=["POST"])
+def chess_move(match_id: str):
+    """Apply an external UCI/SAN move (human UI or GrokBot).
+
+    Body: { "move": "e2e4" | "Nf3", "thinking"?: str, "actor"?: "human"|"grokbot" }
+    Also accepts { "uci": "..." } or { "san": "..." }.
+    """
+    m = _chess.get_match(match_id)
+    if m is None:
+        return jsonify({"error": f"Unknown match: {match_id!r}"}), 404
+    body = request.get_json(silent=True) or {}
+    move_text = (
+        body.get("move")
+        or body.get("uci")
+        or body.get("san")
+        or ""
+    )
+    try:
+        m = _chess.apply_external_move(
+            match_id,
+            str(move_text),
+            thinking=str(body.get("thinking") or ""),
+            actor=str(body.get("actor") or ""),
+        )
+    except ValueError as e:
+        cur = _chess.get_match(match_id)
+        payload = _chess.serialize_match(cur) if cur else {}
+        return jsonify({"error": str(e), **payload}), 400
+    except RuntimeError as e:
+        cur = _chess.get_match(match_id)
+        payload = _chess.serialize_match(cur) if cur else {}
+        return jsonify({"error": str(e), **payload}), 409
+    except Exception as e:
+        log.exception("chess_move failed for %s", match_id)
+        return jsonify({"error": f"{type(e).__name__}: {e}"}), 500
+
+    new_commentary = None
+    commentary_error = None
+    try:
+        rec = _chess.maybe_generate_commentary(match_id)
+        if rec is not None:
+            new_commentary = {
+                "after_move_n": rec.after_move_n,
+                "round_num": rec.round_num,
+                "text": rec.text,
+                "model": rec.model,
+                "ms": rec.ms,
+                "emitted_at": rec.emitted_at,
+            }
+    except RuntimeError as e:
+        commentary_error = str(e)
+    except Exception as e:
+        commentary_error = f"{type(e).__name__}: {e}"
+        log.exception("chess commentary failed for %s (non-fatal)", match_id)
+
+    payload = _chess.serialize_match(m)
+    if new_commentary:
+        payload["new_commentary"] = new_commentary
+    if commentary_error:
+        payload["commentary_error"] = commentary_error
+    return jsonify(payload)
 
 
 @chess_bp.route("/api/chess/<match_id>/resign", methods=["POST"])

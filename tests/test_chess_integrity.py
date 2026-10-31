@@ -112,3 +112,82 @@ def test_numbered_legal_list_nonempty_start():
     legal, block = ca._numbered_legal_list(board)
     assert len(legal) == 20
     assert "1. e2e4" in block or "e2e4" in block
+
+
+def test_list_player_models_party_pack_catalog(monkeypatch):
+    monkeypatch.setattr(ca, "_lmstudio_available_models", lambda _url: [])
+    cat = ca.list_player_models()
+    ids = {m["id"] for m in cat["models"]}
+    assert "auto" not in ids
+    assert "grok-4.20-0309-reasoning" in ids
+    assert "grok-4-1-fast-non-reasoning" in ids
+    assert cat["defaults"]["white_model"]
+    assert cat["defaults"]["black_model"]
+    assert cat["defaults"]["judge_model"]
+    judge = next(m for m in cat["models"] if m["id"] == cat["defaults"]["judge_model"])
+    assert judge["judge_ok"] is True
+    for m in cat["models"]:
+        if "multi-agent" in m["id"] or "planner only" in (m.get("label") or "").lower():
+            assert m["judge_ok"] is False
+
+
+def test_list_player_models_swaps_live_lmstudio(monkeypatch):
+    monkeypatch.setattr(ca, "_lmstudio_available_models", lambda _url: ["qwen/qwen3.5-9b"])
+    cat = ca.list_player_models()
+    ids = {m["id"] for m in cat["models"]}
+    assert "lmstudio:default" not in ids
+    assert "lmstudio:qwen/qwen3.5-9b" in ids
+    assert cat["lmstudio_live"] is True
+
+
+def test_catalog_keeps_old_ids_and_adds_current_chat_models(monkeypatch):
+    monkeypatch.setattr(ca, "_lmstudio_available_models", lambda _url: [])
+    cat = ca.list_player_models()
+    by_id = {m["id"]: m for m in cat["models"]}
+    for mid in (
+        "grok-4.5", "claude-opus-5", "claude-opus-4-8", "o3", "gpt-5.5-pro",
+        "grok-4.7", "grok-4.6", "claude-opus-5-5", "claude-haiku-5-5",
+        "gpt-6-astra", "gemini-4-argon", "muse-wonder-1.0",
+    ):
+        assert mid in by_id, mid
+    assert by_id["gemini-4-argon"]["provider"] == "Google"
+    assert by_id["muse-wonder-1.0"]["provider"] == "Meta"
+    assert by_id["gpt-6-astra"]["provider"] == "OpenAI"
+    assert by_id["grok-4.20-multi-agent-0309"]["judge_ok"] is False
+
+
+def test_chess_routes_and_effort_by_provider():
+    assert ca._provider_for("gemini-4-argon") == "google"
+    assert ca._provider_for("muse-wonder-1.0") == "meta"
+    assert ca._provider_for("gpt-6-astra") == "openai"
+    assert ca._provider_for("o3") == "openai"
+    assert ca._provider_for("grok-4.7") == "xai"
+
+    opus = ca._anthropic_thinking_kwargs("claude-opus-5-5")
+    assert opus["output_config"]["effort"] == "high"
+    assert opus["thinking"]["display"] == "summarized"
+    haiku = ca._anthropic_thinking_kwargs("claude-haiku-5-5")
+    assert haiku == {"output_config": {"effort": "high"}}
+    assert ca._anthropic_thinking_kwargs("claude-sonnet-4-5-20250929") == {}
+    assert ca._anthropic_thinking_kwargs("claude-haiku-4-5-20251001") == {}
+
+    assert ca._chat_supports_reasoning_effort("gpt-6-astra")
+    assert ca._chat_supports_reasoning_effort("o3")
+    assert ca._chat_supports_reasoning_effort("gemini-4-argon")
+    assert ca._chat_supports_reasoning_effort("muse-wonder-1.0")
+    assert ca._chat_supports_reasoning_effort("grok-4.3")
+    assert not ca._chat_supports_reasoning_effort("grok-4.20-0309-reasoning")
+    assert not ca._chat_supports_reasoning_effort("grok-4.20-multi-agent-0309")
+    assert not ca._chat_supports_reasoning_effort("gpt-4o")
+    assert not ca._chat_supports_reasoning_effort("grok-4-1-fast-reasoning")
+
+    assert ca._model_uses_max_completion_tokens("o3")
+    assert ca._model_uses_max_completion_tokens("gpt-6-astra")
+    assert not ca._model_uses_max_completion_tokens("gpt-4o")
+    assert not ca._model_uses_max_completion_tokens("gemini-4-argon")
+    assert ca._model_rejects_temperature("gpt-6-astra")
+    assert ca._model_rejects_temperature("claude-haiku-5-5")
+    assert ca._reasoning_tier("gemini-4-argon")
+    assert ca._reasoning_tier("grok-4.7")
+    assert not ca._reasoning_tier("gpt-4o")
+    assert not ca._reasoning_tier("grok-code-fast-1")

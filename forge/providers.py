@@ -155,8 +155,12 @@ def detect_provider(model: str) -> str:
     """Determine which API provider to use based on model name."""
     if model.startswith("claude-"):
         return "anthropic"
-    if model.startswith(("gpt-", "o1-", "o3-", "o4-", "chatgpt-")):
+    if model.startswith(("gpt-", "o1-", "o3-", "o4-", "chatgpt-")) or model in ("o1", "o3", "o4-mini"):
         return "openai"
+    if model.startswith("gemini-"):
+        return "google"
+    if model.startswith("muse-"):
+        return "meta"
     if model.startswith("lmstudio:"):
         return "lmstudio"
     if model.startswith("ollama:"):

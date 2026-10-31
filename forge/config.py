@@ -8,6 +8,13 @@ load_dotenv(Path(__file__).resolve().parent / ".env")
 XAI_API_KEY = os.getenv("XAI_API_KEY")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+# Gemini API key from Google AI Studio. GOOGLE_API_KEY is accepted as an alias.
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY", "")
+# Meta Model API. Docs use MODEL_API_KEY; META_API_KEY is accepted as an alias.
+META_API_KEY = os.getenv("MODEL_API_KEY") or os.getenv("META_API_KEY", "")
+# OpenAI-compatible bases. BattleChess talks to these through chess_arena.
+GEMINI_OPENAI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
+META_OPENAI_BASE_URL = "https://api.meta.ai/v1"
 LMSTUDIO_BASE_URL = os.getenv("LMSTUDIO_BASE_URL", "http://localhost:1234/v1")
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
 
@@ -39,6 +46,19 @@ EXECUTOR_MODELS = {
     },
     # ── xAI ─────────────────────────────────────────────────────────────
     # Flagship first; fast/code tiers retained (still accept API keys).
+    # 4.7 / 4.6 added 2026-10-31. Short-context rates from docs.x.ai.
+    # reasoning_effort is valid on 4.3–4.7 only. 4.20 and the fast tiers
+    # reject that field, and multi-agent reuses it for agent count.
+    "grok-4.7": {
+        "label": "Grok 4.7", "provider": "xAI",
+        "cost_in": 2.00, "cost_out": 6.00,
+        "supports_tools": True,
+    },
+    "grok-4.6": {
+        "label": "Grok 4.6", "provider": "xAI",
+        "cost_in": 2.00, "cost_out": 6.00,
+        "supports_tools": True,
+    },
     "grok-4.5": {
         "label": "Grok 4.5", "provider": "xAI",
         "cost_in": 2.00, "cost_out": 6.00,
@@ -88,6 +108,29 @@ EXECUTOR_MODELS = {
     },
     # ── Anthropic (live /v1/models 2026-08-01) ──────────────────────────
     # Unversioned aliases for gen-5 + 4.8/4.7/4.6; dated pins for 4.5/4.1.
+    # Point-release ids added 2026-10-31 from platform.claude.com. The
+    # older aliases stay so saved matches and prefs still resolve.
+    "claude-fable-5-1": {
+        "label": "Claude Fable 5.1", "provider": "Anthropic",
+        "cost_in": 10.00, "cost_out": 50.00,
+        "supports_tools": True,
+    },
+    "claude-opus-5-5": {
+        "label": "Claude Opus 5.5", "provider": "Anthropic",
+        "cost_in": 4.00, "cost_out": 20.00,
+        "supports_tools": True,
+    },
+    "claude-sonnet-5-5": {
+        "label": "Claude Sonnet 5.5", "provider": "Anthropic",
+        "cost_in": 2.00, "cost_out": 10.00,
+        "supports_tools": True,
+    },
+    "claude-haiku-5-5": {
+        "label": "Claude Haiku 5.5", "provider": "Anthropic",
+        # Short-prompt rate. Over 100k input tokens the API bills $0.50 / $2.50.
+        "cost_in": 0.10, "cost_out": 0.50,
+        "supports_tools": True,
+    },
     "claude-opus-5": {
         "label": "Claude Opus 5", "provider": "Anthropic",
         "cost_in": 5.00, "cost_out": 25.00,
@@ -145,6 +188,32 @@ EXECUTOR_MODELS = {
         "supports_tools": True,
     },
     # ── OpenAI (short-context standard rates) ───────────────────────────
+    # GPT-6 family added 2026-10-31. Short-context (≤272k) standard tier.
+    "gpt-6-astra": {
+        "label": "GPT-6 Astra", "provider": "OpenAI",
+        "cost_in": 10.00, "cost_out": 50.00,
+        "supports_tools": True,
+    },
+    "gpt-6.1-sol": {
+        "label": "GPT-6.1 Sol", "provider": "OpenAI",
+        "cost_in": 2.00, "cost_out": 10.00,
+        "supports_tools": True,
+    },
+    "gpt-6.1-terra": {
+        "label": "GPT-6.1 Terra", "provider": "OpenAI",
+        "cost_in": 1.00, "cost_out": 5.00,
+        "supports_tools": True,
+    },
+    "gpt-6-sol": {
+        "label": "GPT-6 Sol", "provider": "OpenAI",
+        "cost_in": 2.00, "cost_out": 10.00,
+        "supports_tools": True,
+    },
+    "gpt-6-luna": {
+        "label": "GPT-6 Luna", "provider": "OpenAI",
+        "cost_in": 0.10, "cost_out": 0.50,
+        "supports_tools": True,
+    },
     "gpt-5.6-sol": {
         "label": "GPT-5.6 Sol", "provider": "OpenAI",
         "cost_in": 5.00, "cost_out": 30.00,
@@ -168,6 +237,16 @@ EXECUTOR_MODELS = {
     "gpt-5.5-pro": {
         "label": "GPT-5.5 Pro", "provider": "OpenAI",
         "cost_in": 30.00, "cost_out": 180.00,
+        "supports_tools": True,
+    },
+    "gpt-5.5-mini": {
+        "label": "GPT-5.5 Mini", "provider": "OpenAI",
+        "cost_in": 0.90, "cost_out": 5.40,
+        "supports_tools": True,
+    },
+    "gpt-5.5-nano": {
+        "label": "GPT-5.5 Nano", "provider": "OpenAI",
+        "cost_in": 0.25, "cost_out": 1.50,
         "supports_tools": True,
     },
     "gpt-5.4": {
@@ -213,6 +292,41 @@ EXECUTOR_MODELS = {
     "o3-mini": {
         "label": "o3-mini", "provider": "OpenAI",
         "cost_in": 1.10, "cost_out": 4.40,
+        "supports_tools": True,
+    },
+    # Google — Gemini API, OpenAI-compatible endpoint. Argon is paid-only.
+    # Argon intro rate ($2/$10) holds through Nov 30, 2026, then $4/$20.
+    # 3.8 Flash intro rate holds through Dec 31, 2026, then $1.50/$7.50.
+    "gemini-4-argon": {
+        "label": "Gemini 4 Argon", "provider": "Google",
+        "cost_in": 2.00, "cost_out": 10.00,
+        "supports_tools": True,
+    },
+    "gemini-3.8-flash": {
+        "label": "Gemini 3.8 Flash", "provider": "Google",
+        "cost_in": 0.75, "cost_out": 3.75,
+        "supports_tools": True,
+    },
+    "gemini-3.1-pro-preview": {
+        "label": "Gemini 3.1 Pro", "provider": "Google",
+        "cost_in": 2.00, "cost_out": 12.00,
+        "supports_tools": True,
+    },
+    "gemini-3.5-flash-lite": {
+        "label": "Gemini 3.5 Flash-Lite", "provider": "Google",
+        "cost_in": 0.30, "cost_out": 2.50,
+        "supports_tools": True,
+    },
+    # Meta Model API (api.meta.ai). Wonder is preview, Standard mode only.
+    # Muse Wonder Full is not on the API (Muse Code subscription only).
+    "muse-wonder-1.0": {
+        "label": "Muse Wonder", "provider": "Meta",
+        "cost_in": 4.00, "cost_out": 20.00,
+        "supports_tools": True,
+    },
+    "muse-spark-1.3": {
+        "label": "Muse Spark 1.3", "provider": "Meta",
+        "cost_in": 1.25, "cost_out": 4.25,
         "supports_tools": True,
     },
     # Local
@@ -483,6 +597,18 @@ NES_COACH_MODEL = os.getenv("FORGE_NES_COACH_MODEL", "grok-4.20-0309-reasoning")
 # into buttons. v1 uses the same provider path; swap to a local VLM later.
 NES_CONTROLLER_MODEL = os.getenv("FORGE_NES_CONTROLLER_MODEL", "grok-4-1-fast-non-reasoning")
 NES_COACH_INTERVAL_MS = int(os.getenv("FORGE_NES_COACH_INTERVAL_MS", "2500"))
+
+# ── GrokeMon Hunt ─────────────────────────────────────────────────────────
+GROKEMON_PACK_ENABLED = os.getenv("FORGE_GROKEMON_PACK_ENABLED", "true").lower() == "true"
+GROKEMON_THINK_S = float(os.getenv("FORGE_GROKEMON_THINK_S", "3.0"))
+GROKEMON_PHYSICS_HZ = int(os.getenv("FORGE_GROKEMON_PHYSICS_HZ", "4"))
+GROKEMON_SESSION_BUDGET_USD = float(os.getenv("FORGE_GROKEMON_SESSION_BUDGET", "1.00"))
+GROKEMON_PER_MIN_BUDGET_USD = float(os.getenv("FORGE_GROKEMON_PER_MIN_BUDGET", "0.15"))
+GROKEMON_JUDGE_ENABLED = os.getenv("FORGE_GROKEMON_JUDGE", "false").lower() == "true"
+GROKEMON_HUNTERS = int(os.getenv("FORGE_GROKEMON_HUNTERS", "3"))
+GROKEMON_GUILD_MODELS = os.getenv("FORGE_GROKEMON_GUILD_MODELS", "")
+GROKEMON_BEARER_MAX_SPEED = float(os.getenv("FORGE_GROKEMON_BEARER_SPEED", "2.2"))
+GROKEMON_HUNTER_SPEED = float(os.getenv("FORGE_GROKEMON_HUNTER_SPEED", "2.0"))
 
 # ── Scheduler ─────────────────────────────────────────────────────────────
 SCHEDULER_ENABLED = os.getenv("FORGE_SCHEDULER_ENABLED", "true").lower() == "true"

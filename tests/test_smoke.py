@@ -28,6 +28,12 @@ class TestRoutes:
         assert r.status_code == 200
         assert b"THE FORGE" in r.data
 
+    def test_battlechess_index(self, client):
+        r = client.get("/battlechess/")
+        assert r.status_code == 200
+        assert b"BATTLECHESS" in r.data
+        assert b"./js/main.js" in r.data
+
     def test_models_endpoint(self, client):
         r = client.get("/api/models")
         assert r.status_code == 200
@@ -232,6 +238,12 @@ class TestProviders:
     def test_detect_xai(self):
         from forge.providers import detect_provider
         assert detect_provider("grok-4.20-experimental-beta-0304-reasoning") == "xai"
+
+    def test_detect_google_and_meta(self):
+        from forge.providers import detect_provider
+        assert detect_provider("gemini-4-argon") == "google"
+        assert detect_provider("muse-wonder-1.0") == "meta"
+        assert detect_provider("o3") == "openai"
 
     def test_calculate_cost(self):
         from forge.providers import calculate_cost
