@@ -42,7 +42,7 @@ if (-not $py) {
 }
 
 Write-Host "Starting Party Pack from $Root"
-Start-Process -FilePath $py -ArgumentList "forge/app.py" -WorkingDirectory $Root
+Start-Process -FilePath $py -ArgumentList "app.py" -WorkingDirectory $Root
 Write-Host "Waiting for $Url"
 
 $ready = $false

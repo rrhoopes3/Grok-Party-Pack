@@ -19,6 +19,10 @@ import threading
 import time
 from queue import Queue
 
+# `python forge/app.py` puts forge/ on sys.path, which hides the package.
+# Insert the Party Pack root before the first forge import.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from flask import Flask, request, jsonify, Response, send_from_directory, redirect
 from forge.security import install_auth_gate, require_auth
 
@@ -26,9 +30,6 @@ from forge.security import install_auth_gate, require_auth
 if sys.platform == "win32":
     sys.stdout.reconfigure(encoding="utf-8")
     sys.stderr.reconfigure(encoding="utf-8")
-
-# Ensure forge package is importable
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from forge.orchestrator import Orchestrator
 from forge.memory import save_task, get_recent_tasks
