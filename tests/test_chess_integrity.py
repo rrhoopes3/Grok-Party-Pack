@@ -153,10 +153,21 @@ def test_catalog_keeps_old_ids_and_adds_current_chat_models(monkeypatch):
     for mid in (
         "grok-4.5", "claude-opus-5", "claude-opus-4-8", "o3", "gpt-5.5-pro",
         "grok-4.7", "grok-4.6", "claude-opus-5-5", "claude-haiku-5-5",
-        "gpt-6-astra", "gemini-4-argon", "muse-wonder-1.0",
+        "claude-fable-5-2",
+        "gpt-6-astra", "gemini-4-argon", "gemini-4-hydrogen", "gemini-4-neon",
+        "muse-wonder-1.0",
     ):
         assert mid in by_id, mid
     assert by_id["gemini-4-argon"]["provider"] == "Google"
+    assert by_id["gemini-4-hydrogen"]["provider"] == "Google"
+    assert by_id["gemini-4-hydrogen"]["cost_in"] == 1.50
+    assert by_id["gemini-4-hydrogen"]["cost_out"] == 7.50
+    assert by_id["gemini-4-neon"]["provider"] == "Google"
+    assert by_id["gemini-4-neon"]["cost_in"] == 3.00
+    assert by_id["gemini-4-neon"]["cost_out"] == 15.00
+    assert by_id["claude-fable-5-2"]["provider"] == "Anthropic"
+    assert by_id["claude-fable-5-2"]["cost_in"] == 8.00
+    assert by_id["claude-fable-5-2"]["cost_out"] == 40.00
     assert by_id["muse-wonder-1.0"]["provider"] == "Meta"
     assert by_id["gpt-6-astra"]["provider"] == "OpenAI"
     assert by_id["grok-4.20-multi-agent-0309"]["judge_ok"] is False
@@ -164,11 +175,16 @@ def test_catalog_keeps_old_ids_and_adds_current_chat_models(monkeypatch):
 
 def test_chess_routes_and_effort_by_provider():
     assert ca._provider_for("gemini-4-argon") == "google"
+    assert ca._provider_for("gemini-4-hydrogen") == "google"
+    assert ca._provider_for("gemini-4-neon") == "google"
     assert ca._provider_for("muse-wonder-1.0") == "meta"
     assert ca._provider_for("gpt-6-astra") == "openai"
     assert ca._provider_for("o3") == "openai"
     assert ca._provider_for("grok-4.7") == "xai"
 
+    fable = ca._anthropic_thinking_kwargs("claude-fable-5-2")
+    assert fable["output_config"]["effort"] == "high"
+    assert fable["thinking"]["type"] == "adaptive"
     opus = ca._anthropic_thinking_kwargs("claude-opus-5-5")
     assert opus["output_config"]["effort"] == "high"
     assert opus["thinking"]["display"] == "summarized"

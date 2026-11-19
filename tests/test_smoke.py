@@ -242,6 +242,8 @@ class TestProviders:
     def test_detect_google_and_meta(self):
         from forge.providers import detect_provider
         assert detect_provider("gemini-4-argon") == "google"
+        assert detect_provider("gemini-4-hydrogen") == "google"
+        assert detect_provider("gemini-4-neon") == "google"
         assert detect_provider("muse-wonder-1.0") == "meta"
         assert detect_provider("o3") == "openai"
 

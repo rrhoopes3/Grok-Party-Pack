@@ -110,6 +110,12 @@ EXECUTOR_MODELS = {
     # Unversioned aliases for gen-5 + 4.8/4.7/4.6; dated pins for 4.5/4.1.
     # Point-release ids added 2026-10-31 from platform.claude.com. The
     # older aliases stay so saved matches and prefs still resolve.
+    # Fable 5.2 id confirmed on this key 2026-11-19: claude-fable-5-2.
+    "claude-fable-5-2": {
+        "label": "Claude Fable 5.2", "provider": "Anthropic",
+        "cost_in": 8.00, "cost_out": 40.00,
+        "supports_tools": True,
+    },
     "claude-fable-5-1": {
         "label": "Claude Fable 5.1", "provider": "Anthropic",
         "cost_in": 10.00, "cost_out": 50.00,
@@ -294,12 +300,23 @@ EXECUTOR_MODELS = {
         "cost_in": 1.10, "cost_out": 4.40,
         "supports_tools": True,
     },
-    # Google — Gemini API, OpenAI-compatible endpoint. Argon is paid-only.
-    # Argon intro rate ($2/$10) holds through Nov 30, 2026, then $4/$20.
+    # Google — Gemini API, OpenAI-compatible endpoint.
+    # Argon is paid-only. Intro rate ($2/$10) holds through Nov 30, 2026, then $4/$20.
+    # Hydrogen ($1.50/$7.50) and Neon ($3/$15) are flat Standard rates.
     # 3.8 Flash intro rate holds through Dec 31, 2026, then $1.50/$7.50.
     "gemini-4-argon": {
         "label": "Gemini 4 Argon", "provider": "Google",
         "cost_in": 2.00, "cost_out": 10.00,
+        "supports_tools": True,
+    },
+    "gemini-4-hydrogen": {
+        "label": "Gemini 4 Hydrogen", "provider": "Google",
+        "cost_in": 1.50, "cost_out": 7.50,
+        "supports_tools": True,
+    },
+    "gemini-4-neon": {
+        "label": "Gemini 4 Neon", "provider": "Google",
+        "cost_in": 3.00, "cost_out": 15.00,
         "supports_tools": True,
     },
     "gemini-3.8-flash": {
